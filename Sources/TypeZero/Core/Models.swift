@@ -1,5 +1,23 @@
 import Foundation
 
+public enum SidebarTab: String, CaseIterable, Identifiable, Sendable {
+    case home = "洞察总览"
+    case history = "口述历史"
+    case dictionary = "个人词库"
+    case settings = "引擎与快捷键"
+
+    public var id: String { rawValue }
+
+    public var icon: String {
+        switch self {
+        case .home: return "sparkles.rectangle.stack"
+        case .history: return "clock.arrow.circlepath"
+        case .dictionary: return "character.book.closed"
+        case .settings: return "slider.horizontal.3"
+        }
+    }
+}
+
 public enum DictationMode: String, Codable {
     case dictate = "口述成稿"
     case rewriteSelection = "选中改写"
@@ -317,6 +335,7 @@ public struct LLMConfig: Codable, Equatable {
     public var enablePanguSpacing: Bool
     public var enableWhisperAGC: Bool
     public var enableAutoLearn: Bool
+    public var showInDock: Bool
     public var speechLocale: String
 
     public static let `default` = LLMConfig()
@@ -335,6 +354,7 @@ public struct LLMConfig: Codable, Equatable {
         enablePanguSpacing: Bool = true,
         enableWhisperAGC: Bool = true,
         enableAutoLearn: Bool = true,
+        showInDock: Bool = false,
         speechLocale: String = "zh-CN"
     ) {
         let resolvedProvider = selectedProvider ?? LLMProviderOption.infer(from: baseURL)
@@ -353,6 +373,7 @@ public struct LLMConfig: Codable, Equatable {
         self.enablePanguSpacing = enablePanguSpacing
         self.enableWhisperAGC = enableWhisperAGC
         self.enableAutoLearn = enableAutoLearn
+        self.showInDock = showInDock
         self.speechLocale = speechLocale
     }
 
@@ -409,6 +430,7 @@ public struct LLMConfig: Codable, Equatable {
         self.enablePanguSpacing = (try? c.decode(Bool.self, forKey: .enablePanguSpacing)) ?? true
         self.enableWhisperAGC = (try? c.decode(Bool.self, forKey: .enableWhisperAGC)) ?? true
         self.enableAutoLearn = (try? c.decode(Bool.self, forKey: .enableAutoLearn)) ?? true
+        self.showInDock = (try? c.decode(Bool.self, forKey: .showInDock)) ?? false
         self.speechLocale = (try? c.decode(String.self, forKey: .speechLocale)) ?? "zh-CN"
     }
 }

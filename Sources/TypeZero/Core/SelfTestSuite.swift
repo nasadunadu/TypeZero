@@ -244,6 +244,11 @@ public enum SelfTestSuite {
             "Unified provider selector routes DashScope and Custom OpenAI keys to isolated Keychain slots"
         )
 
+        expect(
+            LLMConfig.default.showInDock == false,
+            "Default app mode runs cleanly in top Menu Bar without cluttering the macOS Dock"
+        )
+
         print("==> Summary: \(passed) passed, \(failed) failed.")
         return failed == 0 ? 0 : 1
     }

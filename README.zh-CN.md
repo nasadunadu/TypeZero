@@ -2,7 +2,7 @@
 
 **纯原生 Swift + C++ 打造的 macOS 超低延迟 AI 语音成稿与结构化排版工具**
 
-[![Release](https://img.shields.io/badge/release-v0.4.0-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.4.1-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![Platform](https://img.shields.io/badge/macOS-14--27%20%7C%20Apple%20Silicon%20arm64-17161B?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![Notarized](https://img.shields.io/badge/公证签名-Apple%20Notarized%20%C2%B7%20Developer%20ID-14804A?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![ASR](https://img.shields.io/badge/双擎声学-Seed--ASR%202.0%20%2B%20SenseVoice%20FP32-14804A?style=flat-square)](#双擎声学与极速管线架构)
@@ -11,7 +11,7 @@
 
 [English](./README.md) · **简体中文** · [日本語](./README.ja.md) · [한국어](./README.ko.md) · [Français](./README.fr.md)
 
-[**直接下载 macOS 安装包 (DMG v0.4.0)**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.0-macOS-arm64.dmg) · [架构演进日志](./docs/STATUS_LOG.md)
+[**直接下载 macOS 安装包 (DMG v0.4.1)**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.1-macOS-arm64.dmg) · [架构演进日志](./docs/STATUS_LOG.md)
 
 ![TypeZero Hero Showcase](./docs/images/hero-showcase.svg)
 
@@ -20,7 +20,7 @@
 ## 10 秒极速安装
 
 ### 方式一：直接下载 DMG（推荐）
-1. 下载 [**`TypeZero-v0.4.0-macOS-arm64.dmg`**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.0-macOS-arm64.dmg)，将 **`TypeZero.app`** 拖入右侧 **`Applications`**。
+1. 下载 [**`TypeZero-v0.4.1-macOS-arm64.dmg`**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.1-macOS-arm64.dmg)，将 **`TypeZero.app`** 拖入右侧 **`Applications`**。
 2. 打开 **TypeZero**，按内置 **3 步新手引导** 授予麦克风与辅助功能权限、填入个人 API Key（仅加密存于本机 macOS 钥匙串）并选定快捷键即可全局使用。
 
 ### 方式二：Homebrew Cask 一键安装

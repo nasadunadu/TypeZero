@@ -20,9 +20,13 @@ public final class AppState: ObservableObject {
                 lastBenchmarkSummary = ""
                 polishEngine.prewarmConnection(baseURL: llmConfig.baseURL, apiKey: apiKeyInput)
             }
+            if oldValue.showInDock != llmConfig.showInDock {
+                applyDockVisibilityPolicy()
+            }
             saveConfig()
         }
     }
+    @Published public var selectedTab: SidebarTab = .home
     @Published public var triggerKey: TriggerKeyOption = .fnKey {
         didSet {
             hotkeyMonitor.triggerOption = triggerKey
@@ -122,6 +126,7 @@ public final class AppState: ObservableObject {
         // so SwiftUI's root AttributeGraph finishes initializing @StateObject without re-entrant layout crash!
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            self.applyDockVisibilityPolicy()
             self.pillController.attach(appState: self)
             self.asrEngine.warmUp(localeIdentifier: self.llmConfig.speechLocale)
             self.polishEngine.prewarmConnection(baseURL: self.llmConfig.baseURL)
@@ -379,6 +384,13 @@ public final class AppState: ObservableObject {
     public func cancelOfflineModelDownload() {
         modelDownloader.cancelDownload()
         isDownloadingOfflineModel = false
+    }
+
+    public func applyDockVisibilityPolicy() {
+        let desired: NSApplication.ActivationPolicy = llmConfig.showInDock ? .regular : .accessory
+        if NSApp.activationPolicy() != desired {
+            NSApp.setActivationPolicy(desired)
+        }
     }
 
     public func completeOnboarding() {

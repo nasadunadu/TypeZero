@@ -139,30 +139,11 @@ extension View {
     }
 }
 
-// MARK: - Navigation Tabs & Root Shell
-
-enum SidebarTab: String, CaseIterable, Identifiable {
-    case home = "洞察总览"
-    case history = "口述历史"
-    case dictionary = "个人词库"
-    case settings = "引擎与快捷键"
-
-    var id: String { rawValue }
-
-    var icon: String {
-        switch self {
-        case .home: return "sparkles.rectangle.stack"
-        case .history: return "clock.arrow.circlepath"
-        case .dictionary: return "character.book.closed"
-        case .settings: return "slider.horizontal.3"
-        }
-    }
-}
+// MARK: - Navigation Root Shell
 
 public struct MainDashboardView: View {
     @ObservedObject var appState: AppState
     @ObservedObject var lexiconStore: PersonalLexiconStore
-    @State private var selectedTab: SidebarTab = .home
 
     public init(appState: AppState) {
         self.appState = appState
@@ -222,10 +203,10 @@ public struct MainDashboardView: View {
 
             // Navigation Items
             ForEach(SidebarTab.allCases) { tab in
-                let isSelected = (selectedTab == tab)
+                let isSelected = (appState.selectedTab == tab)
                 Button {
                     withAnimation(.easeOut(duration: 0.15)) {
-                        selectedTab = tab
+                        appState.selectedTab = tab
                     }
                 } label: {
                     HStack(spacing: 11) {
@@ -371,7 +352,7 @@ public struct MainDashboardView: View {
                     .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(TZTheme.violet.opacity(0.22), lineWidth: 1))
                 }
 
-                switch selectedTab {
+                switch appState.selectedTab {
                 case .home:
                     HomeInsightsSection(appState: appState)
                 case .history:
@@ -1502,6 +1483,8 @@ struct EngineSettingsSection: View {
                         CompactSwitchRow(icon: "brain.head.profile", title: "改字无感自学习词库", isOn: $appState.llmConfig.enableAutoLearn)
                         Divider().overlay(TZTheme.hairline)
                         CompactSwitchRow(icon: "bubble.left.and.bubble.right.fill", title: "聊天与终端去句末句号", isOn: $appState.llmConfig.stripTrailingPeriodInChatApps)
+                        Divider().overlay(TZTheme.hairline)
+                        CompactSwitchRow(icon: "dock.rectangle", title: "在程序坞 (Dock) 显示图标", isOn: $appState.llmConfig.showInDock)
                     }
                     .frame(maxWidth: .infinity)
                 }
