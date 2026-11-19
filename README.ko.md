@@ -2,7 +2,7 @@
 
 **순수 Swift + C++로 제작된 초저지연 네이티브 macOS AI 음성 입력 및 구조화 텍스트 정리 앱**
 
-[![Release](https://img.shields.io/badge/release-v0.4.3-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.4.4-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![Platform](https://img.shields.io/badge/macOS-14--27%20%7C%20Apple%20Silicon%20arm64-17161B?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![Notarized](https://img.shields.io/badge/Gatekeeper-Apple%20Notarized%20%C2%B7%20Developer%20ID-14804A?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![ASR](https://img.shields.io/badge/ASR-Seed--ASR%202.0%20%2B%20SenseVoice%20FP32-14804A?style=flat-square)](#듀얼-엔진-음성-인식-아키텍처)
@@ -11,7 +11,7 @@
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [日本語](./README.ja.md) · **한국어** · [Français](./README.fr.md)
 
-[**macOS 설치 파일 다운로드 (DMG v0.4.3)**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.3-macOS-arm64.dmg) · [아키텍처 로그](./docs/STATUS_LOG.md)
+[**macOS 설치 파일 다운로드 (DMG v0.4.4)**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.4-macOS-arm64.dmg) · [아키텍처 로그](./docs/STATUS_LOG.md)
 
 ![TypeZero Hero Showcase](./docs/images/hero-showcase-en.svg)
 
@@ -20,7 +20,7 @@
 ## 10초 만에 설치하기
 
 ### 직접 다운로드 (권장 · Apple 공증 완료)
-1. [**`TypeZero-v0.4.3-macOS-arm64.dmg`**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.3-macOS-arm64.dmg)를 다운로드한 뒤 **`TypeZero.app`**을 **`Applications`** 폴더로 드래그하세요.
+1. [**`TypeZero-v0.4.4-macOS-arm64.dmg`**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.4-macOS-arm64.dmg)를 다운로드한 뒤 **`TypeZero.app`**을 **`Applications`** 폴더로 드래그하세요.
 2. **TypeZero**를 실행하면 3단계 온보딩 마법사가 마이크/손쉬운 사용 권한, API 키(macOS 시스템 키체인에만 암호화 저장), 전역 단축키 설정을 안내합니다.
 
 ### Homebrew Cask
@@ -42,7 +42,7 @@ brew install --cask typezero
 - **28자 이하 깔끔한 단문 `0ms` 패스스루**: 군더더기나 말 수정, 목록 구조가 없는 짧은 문장은 2차 LLM 호출 없이 즉시 입력창에 반영됩니다.
 - **Typeless급 지능형 구조화 정리**: 말버릇과 도중 정정 발화를 깔끔히 제거하고, 번호 목록(`1. 2. 3.`) · 글머리 기호(`- `) · 자연스러운 문단 분리를 자동 적용합니다. Cursor / Notion / Feishu 등에서 발생하는 `2. 2.` 중복 목록 번호도 자동 방지합니다.
 - **좌/우 모든 보조키 완벽 지원 + 커스텀 단축키 녹화**: **`Fn`**, 좌/우 **`Option ⌥`**, 좌/우 **`Command ⌘`**, 좌/우 **`Control ⌃`**, 좌/우 **`Shift ⇧`**, **`⌥ + Space`**를 하드웨어 키코드와 좌우 디바이스 마스크로 엄격히 구분합니다. 또한 Carbon `RegisterEventHotKey` 기반 사용자 지정 조합키 녹화와 왼쪽 보조키 `140ms` 오작동 방지 가드(`⌘+C` / `⇧+A` 간섭 제로)를 제공합니다.
-- **체크 즉시 적용 · 모델/키 통합 설정 패널**: 음성 인식 엔진과 정리용 LLM(**DeepSeek 4 Flash**, **Volcengine Doubao-Seed**, **Alibaba Qwen-Flash**, **커스텀 OpenAI / 로컬 Ollama & LM Studio**) 각각의 카드 안에 체크박스, API 키, 모델 ID, 실시간 속도 측정을 하나로 통합했습니다. 체크한 모델이 즉시 활성화됩니다.
+- **체크 즉시 적용 · 모델/키 통합 설정 패널**: 음성 인식 엔진과 정리용 LLM(**OpenAI GPT**, **Google Gemini**, **Anthropic Claude**, **DeepSeek 4 Flash**, **Volcengine Doubao-Seed**, **Alibaba Qwen-Flash**, **커스텀 OpenAI / 로컬 Ollama & LM Studio**) 각각의 카드 안에 체크박스, API 키, 모델 ID, 실시간 속도 측정을 하나로 통합했습니다. 체크한 모델이 즉시 활성화됩니다.
 - **자가 학습 개인 사전 (`<0.5ms` 초고속 호출)**: 발음 유사도 인덱스, 단어 경계 기반 영문 약어 보정, 입력 후 수동 수정 자동 학습 및 선택 텍스트 음성 수정 영구 학습을 지원합니다.
 
 ---
@@ -53,7 +53,7 @@ brew install --cask typezero
 | :--- | :--- | :--- | :--- | :--- |
 | **가격 및 사용량** | 무료 | 무료 티어 + 유료 플랜 | 월 \$10–\$15 (무료 단어 제한) | **100% 무료 · 무제한 · MIT 라이선스** |
 | **음성 인식 엔진** | Apple 기본 | 로컬 / 클라우드 | 클라우드 일괄 업로드 | **Seed-ASR 2.0 (`121ms`) + 886MB FP32 오프라인 페일오버** |
-| **말버릇 제거 및 구조화** | 없음 | 지원 | 지원 | **지원 (DeepSeek / Doubao / Qwen / Ollama 자유 선택)** |
+| **말버릇 제거 및 구조화** | 없음 | 지원 | 지원 | **지원 (OpenAI / Gemini / Claude / DeepSeek / Doubao / Qwen / Ollama 자유 선택)** |
 | **단문 입력 지연 시간** | 빠름 (무정리) | `300–600ms` | `700–1500ms` | **28자 이하 `0ms` 패스스루 · 약 `8ms` 붙여넣기** |
 | **단축키 지원 범위** | 시스템 기본값 | 좌/우 키 + 조합 | 제한적 프리셋 | **모든 좌/우 보조키 + `⌥Space` + 임의 조합키 녹화** |
 | **개인 사전 및 자가 학습** | 없음 | 수동 사전 + 학습 | 클라우드 동기화 학습 | **`<0.5ms` 로컬 음운 사전 + 3중 자동 학습** |
@@ -91,7 +91,7 @@ cd TypeZero
 # 1. sherpa-onnx macOS arm64 C++ 런타임 다운로드
 ./scripts/setup-vendor.sh
 
-# 2. 38개 핵심 회귀 테스트 실행 (컴파일 경고 0)
+# 2. 40개 핵심 회귀 테스트 실행 (컴파일 경고 0)
 ./scripts/run-tests.sh
 
 # 3. TypeZero.app 빌드

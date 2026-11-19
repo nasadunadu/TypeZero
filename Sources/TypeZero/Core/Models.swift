@@ -140,6 +140,9 @@ public enum LLMProviderOption: String, CaseIterable, Codable, Identifiable, Send
     case deepseek = "deepseek"
     case volcengine = "volcengine"
     case dashscope = "dashscope"
+    case openai = "openai"
+    case gemini = "gemini"
+    case anthropic = "anthropic"
     case custom = "custom"
 
     public var id: String { rawValue }
@@ -149,6 +152,9 @@ public enum LLMProviderOption: String, CaseIterable, Codable, Identifiable, Send
         case .deepseek: return "DeepSeek 4 Flash"
         case .volcengine: return "火山方舟 Doubao-Seed"
         case .dashscope: return "阿里百炼 Qwen-Flash"
+        case .openai: return "OpenAI GPT"
+        case .gemini: return "Google Gemini"
+        case .anthropic: return "Anthropic Claude"
         case .custom: return "自定义 OpenAI 兼容接口"
         }
     }
@@ -158,6 +164,9 @@ public enum LLMProviderOption: String, CaseIterable, Codable, Identifiable, Send
         case .deepseek: return "DeepSeek"
         case .volcengine: return "火山方舟"
         case .dashscope: return "阿里百炼"
+        case .openai: return "OpenAI"
+        case .gemini: return "Gemini"
+        case .anthropic: return "Claude"
         case .custom: return "自定义接口"
         }
     }
@@ -167,6 +176,9 @@ public enum LLMProviderOption: String, CaseIterable, Codable, Identifiable, Send
         case .deepseek: return "极速主力推荐 · KV 缓存命中约 210ms 首包"
         case .volcengine: return "字节豆包大模型 · 支持 Seed-2.1-lite 或 ep- 接入点"
         case .dashscope: return "阿里云百炼兼容模式 · 通义极速轻量模型"
+        case .openai: return "OpenAI 官方直连 · 兼容 gpt-4.1-mini / gpt-5-mini / gpt-4o-mini"
+        case .gemini: return "Google AI Studio 官方兼容通道 · 支持 gemini-3.8-flash / 2.5-flash"
+        case .anthropic: return "Anthropic 原生 Messages 流式协议 · 支持 claude-haiku-5-5 / 4-5"
         case .custom: return "支持 SiliconFlow / OpenRouter / MiniMax / 本地 Ollama"
         }
     }
@@ -176,6 +188,9 @@ public enum LLMProviderOption: String, CaseIterable, Codable, Identifiable, Send
         case .deepseek: return "https://api.deepseek.com/v1"
         case .volcengine: return "https://ark.cn-beijing.volces.com/api/v3"
         case .dashscope: return "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        case .openai: return "https://api.openai.com/v1"
+        case .gemini: return "https://generativelanguage.googleapis.com/v1beta/openai"
+        case .anthropic: return "https://api.anthropic.com/v1"
         case .custom: return "https://api.siliconflow.cn/v1"
         }
     }
@@ -185,6 +200,9 @@ public enum LLMProviderOption: String, CaseIterable, Codable, Identifiable, Send
         case .deepseek: return "deepseek-flash"
         case .volcengine: return "doubao-seed-2-1-lite-260915"
         case .dashscope: return "qwen-flash"
+        case .openai: return "gpt-4.1-mini"
+        case .gemini: return "gemini-3.8-flash"
+        case .anthropic: return "claude-haiku-5-5"
         case .custom: return "deepseek-ai/DeepSeek-V3"
         }
     }
@@ -194,6 +212,9 @@ public enum LLMProviderOption: String, CaseIterable, Codable, Identifiable, Send
         if u.contains("deepseek.com") { return .deepseek }
         if u.contains("volces.com") || u.contains("volcengine") { return .volcengine }
         if u.contains("aliyuncs.com") { return .dashscope }
+        if u.contains("openai.com") { return .openai }
+        if u.contains("generativelanguage.googleapis.com") { return .gemini }
+        if u.contains("anthropic.com") { return .anthropic }
         return .custom
     }
 }

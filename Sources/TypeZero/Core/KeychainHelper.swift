@@ -30,6 +30,9 @@ public enum KeychainHelper {
         case .deepseek: return "deepseek_api_key"
         case .volcengine: return "ark_api_key"
         case .dashscope: return "dashscope_api_key"
+        case .openai: return "openai_api_key"
+        case .gemini: return "gemini_api_key"
+        case .anthropic: return "anthropic_api_key"
         case .custom: return "custom_api_key"
         }
     }

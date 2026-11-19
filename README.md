@@ -2,7 +2,7 @@
 
 **Ultra-low-latency native macOS AI voice dictation & Typeless-grade text structuring — built in pure Swift + C++.**
 
-[![Release](https://img.shields.io/badge/release-v0.4.3-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.4.4-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![Platform](https://img.shields.io/badge/macOS-14--27%20%7C%20Apple%20Silicon%20arm64-17161B?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![Notarized](https://img.shields.io/badge/Gatekeeper-Apple%20Notarized%20%C2%B7%20Developer%20ID-14804A?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![ASR](https://img.shields.io/badge/ASR-Seed--ASR%202.0%20%2B%20SenseVoice%20FP32-14804A?style=flat-square)](#dual-engine-architecture)
@@ -11,7 +11,7 @@
 
 **English** · [简体中文](./README.zh-CN.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md) · [Français](./README.fr.md)
 
-[**Download macOS DMG (v0.4.3)**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.3-macOS-arm64.dmg) · [Architecture Log](./docs/STATUS_LOG.md)
+[**Download macOS DMG (v0.4.4)**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.4-macOS-arm64.dmg) · [Architecture Log](./docs/STATUS_LOG.md)
 
 ![TypeZero Hero Showcase](./docs/images/hero-showcase-en.svg)
 
@@ -20,7 +20,7 @@
 ## Install in 10 Seconds
 
 ### Direct Download (Recommended)
-1. Download [**`TypeZero-v0.4.3-macOS-arm64.dmg`**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.3-macOS-arm64.dmg) and drag **`TypeZero.app`** into **`Applications`**.
+1. Download [**`TypeZero-v0.4.4-macOS-arm64.dmg`**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.4-macOS-arm64.dmg) and drag **`TypeZero.app`** into **`Applications`**.
 2. Open **TypeZero** — the built-in 3-step onboarding wizard guides you through Microphone & Accessibility permissions, API keys (stored solely in your macOS Keychain), and your preferred global hotkey.
 
 ### Homebrew Cask
@@ -42,7 +42,7 @@ Most voice dictation apps lock you into \$10–\$15/month word-capped subscripti
 - **Smart `<=28`-Char Clean Cloud Bypass (`0ms` Pass-2)**: Clean punctuated single sentences (`<= 28` chars) without fillers, self-corrections, or list cues paste immediately after speech ends without waiting for an LLM round-trip.
 - **Typeless 5-Pillar Semantic Formatting**: Removes fillers (`嗯/啊/那个`) and mid-sentence self-corrections, auto-routes numbered (`1. 2. 3.`) vs bulleted (`- `) lists, splits long monologues into crisp paragraphs, applies CJK-Latin Pangu spacing & Arabic numeral ITN, and prevents Markdown auto-list `2. 2.` duplication in Cursor / Notion / Feishu.
 - **Full Left & Right Shortcuts + Custom Combo Recorder**: Native hardware keyCode & IOKit left/right isolation for **`Fn`**, **Left/Right `Option ⌥`**, **Left/Right `Command ⌘`**, **Left/Right `Control ⌃`**, **Left/Right `Shift ⇧`**, **`⌥ + Space`**, plus a 1-click **Custom Hotkey Recorder** backed by Carbon `RegisterEventHotKey` (zero leaked characters into editors, plus 140ms hold-to-talk combo protection so `⌘+C` / `⇧+A` never false-trigger).
-- **Unified Check-to-Activate Engine & Key Panel**: Speech models and formatting LLMs (**DeepSeek 4 Flash**, **Volcengine Doubao-Seed**, **Alibaba Qwen-Flash**, or **Custom OpenAI / Local Ollama & LM Studio**) keep their API keys, model IDs, and live latency probes right inside each checkable card — check a model and it immediately takes effect.
+- **Unified Check-to-Activate Engine & Key Panel**: Speech models and formatting LLMs (**OpenAI GPT**, **Google Gemini**, **Anthropic Claude**, **DeepSeek 4 Flash**, **Volcengine Doubao-Seed**, **Alibaba Qwen-Flash**, or **Custom OpenAI / Local Ollama & LM Studio**) keep their API keys, model IDs, and live latency probes right inside each checkable card — check a model and it immediately takes effect.
 - **Self-Evolving Personal Lexicon (`<0.5ms` Fuzzy Phonetic Recall)**: Tone-free accent-tolerant phonetic skeleton (`zh/z`, `sh/s`, `ing/in`, `n/l`), word-boundary acronym glide fixes (`Su` -> `SEO` without touching `Summary`/`Supabase`), multi-paragraph manual-edit auto-learning via Apple `NLTokenizer`, and selected-text voice rewrite teach-in.
 
 ---
@@ -53,7 +53,7 @@ Most voice dictation apps lock you into \$10–\$15/month word-capped subscripti
 | :--- | :--- | :--- | :--- | :--- |
 | **Pricing & Quota** | Free | Free tier + Paid plans | \$10–\$15/mo (word cap on free) | **100% Free · Unlimited · MIT License** |
 | **Acoustic Engine** | Apple Dictation | Local / Cloud | Cloud batch upload | **Seed-ASR 2.0 (`121ms`) + 886MB FP32 Offline Failover** |
-| **Formatting & De-Rambling** | None (literal typos) | Yes | Yes (5-pillar structuring) | **Yes (DeepSeek / Doubao / Qwen / Ollama BYOK)** |
+| **Formatting & De-Rambling** | None (literal typos) | Yes | Yes (5-pillar structuring) | **Yes (OpenAI / Gemini / Claude / DeepSeek / Doubao / Qwen / Ollama BYOK)** |
 | **Short-Sentence Latency** | Fast, no formatting | `300–600ms` | `700–1500ms` | **`0ms` Pass-2 Bypass (`<=28` chars) · `~8ms` Paste** |
 | **Shortcuts (Left & Right)** | System preset only | Left/Right + Combos | Limited presets | **All Left/Right Modifiers + Custom Carbon Combos** |
 | **Personal Lexicon & Learning** | None | Manual list + auto-learn | Cloud-synced auto-learn | **`<0.5ms` Local Fuzzy Phonetic + 3-Way Auto-Learn** |
@@ -94,7 +94,7 @@ cd TypeZero
 # 1. Fetch sherpa-onnx macOS arm64 shared C runtime
 ./scripts/setup-vendor.sh
 
-# 2. Run 38 deterministic core regression assertions (0 compiler warnings)
+# 2. Run 40 deterministic core regression assertions (0 compiler warnings)
 ./scripts/run-tests.sh
 
 # 3. Build TypeZero.app (auto-signs with Developer ID if installed, else ad-hoc)

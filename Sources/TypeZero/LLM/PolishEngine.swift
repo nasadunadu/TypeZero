@@ -59,15 +59,35 @@ public final class PolishEngine {
         return u.contains("localhost") || u.contains("127.0.0.1") || u.contains("0.0.0.0")
     }
 
+    public static func isAnthropicEndpoint(_ baseURL: String) -> Bool {
+        let u = baseURL.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        return u.contains("anthropic.com") || u.hasSuffix("/messages")
+    }
+
+    public static func normalizeAnthropicMessagesEndpoint(_ baseURL: String) -> String {
+        let clean = baseURL
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if clean.hasSuffix("/messages") {
+            return clean
+        }
+        return "\(clean)/messages"
+    }
+
     /// Authenticated HTTP/2 Keep-Alive connection warm-up fired the moment user starts speaking,
-    /// guaranteeing a hot socket (~230ms TTFT) when user stops speaking!
+    /// guaranteeing a hot socket (~200ms TTFT) when user stops speaking!
     public func prewarmConnection(baseURL: String, apiKey: String = "") {
         let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard let url = URL(string: "\(trimmed)/models") else { return }
         var req = URLRequest(url: url)
         req.httpMethod = "GET"
         if !apiKey.isEmpty {
-            req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            if Self.isAnthropicEndpoint(trimmed) {
+                req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+                req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+            } else {
+                req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            }
         }
         req.timeoutInterval = 3.0
         session.dataTask(with: req) { _, _, _ in }.resume()
@@ -326,7 +346,60 @@ public final class PolishEngine {
         return (ttft > 0 ? ttft : totalMs, totalMs, out)
     }
 
-    /// P3: Ultra-low-latency SSE (`stream: true`) Chat Completions client — starts streaming polished output at ~200ms TTFT!
+    /// Builds provider-optimized OpenAI-compatible payloads for DeepSeek, Volcengine Doubao, OpenAI (GPT-4.1 / GPT-5 / o-series), Google Gemini (2.5 / 3.x), DashScope Qwen, and Custom/Ollama endpoints.
+    public static func buildOpenAICompatiblePayload(
+        endpoint: String,
+        model: String,
+        systemPrompt: String,
+        userContent: String,
+        maxTokens: Int,
+        stream: Bool
+    ) -> [String: Any] {
+        let lowerModel = model.lowercased()
+        let lowerEndpoint = endpoint.lowercased()
+        let lowerModelAndHost = lowerModel + " " + lowerEndpoint
+
+        var payload: [String: Any] = [
+            "model": model,
+            "stream": stream,
+            "messages": [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": userContent]
+            ]
+        ]
+
+        let isOpenAIReasoningFamily = lowerModel.hasPrefix("gpt-5")
+            || lowerModel.hasPrefix("o1")
+            || lowerModel.hasPrefix("o3")
+            || lowerModel.hasPrefix("o4")
+
+        if isOpenAIReasoningFamily {
+            payload["max_completion_tokens"] = maxTokens
+            if lowerModel.hasPrefix("gpt-5") {
+                payload["reasoning_effort"] = "minimal"
+            }
+        } else {
+            payload["max_tokens"] = maxTokens
+            if lowerModelAndHost.contains("deepseek")
+                || lowerModelAndHost.contains("volces.com")
+                || lowerModelAndHost.contains("doubao")
+                || lowerModel.hasPrefix("ep-") {
+                payload["thinking"] = ["type": "disabled"]
+            } else if lowerEndpoint.contains("generativelanguage.googleapis.com") || lowerModel.hasPrefix("gemini-") {
+                if lowerModel.contains("2.5-flash") {
+                    payload["reasoning_effort"] = "none"
+                } else if lowerModel.hasPrefix("gemini-3") || lowerModel.hasPrefix("gemini-4") {
+                    payload["reasoning_effort"] = "minimal"
+                }
+                payload["temperature"] = 0.1
+            } else {
+                payload["temperature"] = 0.1
+            }
+        }
+        return payload
+    }
+
+    /// P3: Ultra-low-latency SSE (`stream: true`) client — supports OpenAI-compatible (DeepSeek / Doubao / Qwen / OpenAI / Gemini / Ollama) AND native Anthropic Messages API!
     private func callChatCompletionsSSE(
         baseURL: String,
         model: String,
@@ -338,6 +411,19 @@ public final class PolishEngine {
         config: LLMConfig,
         onStreamChunk: (@MainActor (String, Bool) -> Void)?
     ) async throws -> (fullText: String, ttftMs: Int) {
+        if config.selectedProvider == .anthropic || Self.isAnthropicEndpoint(baseURL) {
+            return try await callAnthropicMessagesSSE(
+                baseURL: baseURL,
+                model: model,
+                apiKey: apiKey,
+                systemPrompt: systemPrompt,
+                userContent: userContent,
+                maxTokens: maxTokens,
+                config: config,
+                onStreamChunk: onStreamChunk
+            )
+        }
+
         let start = DispatchTime.now()
         let endpoint = Self.normalizeChatCompletionsEndpoint(baseURL)
 
@@ -353,36 +439,32 @@ public final class PolishEngine {
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         }
 
-        var payload: [String: Any] = [
-            "model": model,
-            "max_tokens": maxTokens,
-            "stream": true,
-            "messages": [
-                ["role": "system", "content": systemPrompt],
-                ["role": "user", "content": userContent]
-            ]
-        ]
-        // CRITICAL SPEED UNLOCK FOR DEEPSEEK V4 FLASH & VOLCENGINE DOUBAO:
-        // Disabling chain-of-thought `thinking` cuts TTFT down to ~150-230ms with zero wasted reasoning tokens!
-        let lowerModelAndHost = model.lowercased() + " " + endpoint.lowercased()
-        if lowerModelAndHost.contains("deepseek") || lowerModelAndHost.contains("volces.com") || lowerModelAndHost.contains("doubao") || model.lowercased().hasPrefix("ep-") {
-            payload["thinking"] = ["type": "disabled"]
-        } else {
-            payload["temperature"] = 0.1
-        }
+        var payload = Self.buildOpenAICompatiblePayload(
+            endpoint: endpoint,
+            model: model,
+            systemPrompt: systemPrompt,
+            userContent: userContent,
+            maxTokens: maxTokens,
+            stream: true
+        )
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
         var (bytes, response) = try await session.bytes(for: request)
-        if let http = response as? HTTPURLResponse, http.statusCode == 400, payload["thinking"] != nil {
-            // Seamless fallback if an older Volcengine endpoint model doesn't accept the `thinking` field
+        if let http = response as? HTTPURLResponse,
+           http.statusCode == 400,
+           (payload["thinking"] != nil || payload["reasoning_effort"] != nil) {
+            // Seamless fallback if a provider/model variant does not accept optional thinking / reasoning_effort flags
             payload.removeValue(forKey: "thinking")
-            payload["temperature"] = 0.1
+            payload.removeValue(forKey: "reasoning_effort")
+            if payload["max_completion_tokens"] == nil {
+                payload["temperature"] = 0.1
+            }
             request.httpBody = try JSONSerialization.data(withJSONObject: payload)
             (bytes, response) = try await session.bytes(for: request)
         }
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-            throw NSError(domain: "TypeZero.LLM", code: code, userInfo: [NSLocalizedDescriptionKey: "接口返回 HTTP \(code)（请核对当前服务商 API Key 与接入点 \(model) 是否匹配）"])
+            throw NSError(domain: "TypeZero.LLM", code: code, userInfo: [NSLocalizedDescriptionKey: "接口返回 HTTP \(code)（请核对当前服务商 API Key 与模型 ID \(model) 是否匹配）"])
         }
 
         var accumulated = ""
@@ -404,23 +486,8 @@ public final class PolishEngine {
                 continue
             }
 
-            // Clean any accidental XML wrapper tags on the fly
-            let cleanToken = token
-                .replacingOccurrences(of: "<raw_speech>", with: "")
-                .replacingOccurrences(of: "</raw_speech>", with: "")
-            guard !cleanToken.isEmpty else { continue }
-
-            // Apply Pangu spacing between previous boundary char and incoming token so live SSE stream already has crisp spacing!
-            var spacedToken = cleanToken
-            if config.enablePanguSpacing, let lastChar = accumulated.last, let firstChar = cleanToken.first {
-                let lastIsCJK = lastChar.unicodeScalars.first.map { $0.value >= 0x4E00 && $0.value <= 0x9FA5 } ?? false
-                let firstIsASCIIAlnum = firstChar.isASCII && (firstChar.isLetter || firstChar.isNumber)
-                let lastIsASCIIAlnum = lastChar.isASCII && (lastChar.isLetter || lastChar.isNumber || lastChar == "%")
-                let firstIsCJK = firstChar.unicodeScalars.first.map { $0.value >= 0x4E00 && $0.value <= 0x9FA5 } ?? false
-                if (lastIsCJK && firstIsASCIIAlnum) || (lastIsASCIIAlnum && firstIsCJK) {
-                    spacedToken = " " + cleanToken
-                }
-            }
+            let spacedToken = Self.cleanAndSpaceStreamToken(token, accumulated: accumulated, enablePanguSpacing: config.enablePanguSpacing)
+            guard !spacedToken.isEmpty else { continue }
 
             accumulated.append(spacedToken)
             if isFirst {
@@ -437,6 +504,103 @@ public final class PolishEngine {
         return (accumulated.trimmingCharacters(in: .whitespacesAndNewlines), ttftMs)
     }
 
+    /// Native Anthropic Messages API SSE (`https://api.anthropic.com/v1/messages`) for Claude Haiku / Sonnet.
+    private func callAnthropicMessagesSSE(
+        baseURL: String,
+        model: String,
+        apiKey: String,
+        systemPrompt: String,
+        userContent: String,
+        maxTokens: Int,
+        config: LLMConfig,
+        onStreamChunk: (@MainActor (String, Bool) -> Void)?
+    ) async throws -> (fullText: String, ttftMs: Int) {
+        let start = DispatchTime.now()
+        let endpoint = Self.normalizeAnthropicMessagesEndpoint(baseURL)
+        guard let url = URL(string: endpoint) else {
+            throw URLError(.badURL)
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        if !apiKey.isEmpty {
+            request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        }
+
+        let payload: [String: Any] = [
+            "model": model,
+            "max_tokens": max(256, maxTokens),
+            "temperature": 0.1,
+            "stream": true,
+            "system": systemPrompt,
+            "messages": [
+                ["role": "user", "content": userContent]
+            ]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        let (bytes, response) = try await session.bytes(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw NSError(domain: "TypeZero.LLM", code: code, userInfo: [NSLocalizedDescriptionKey: "Anthropic 接口返回 HTTP \(code)（请核对 Claude API Key 与模型 ID \(model)）"])
+        }
+
+        var accumulated = ""
+        var isFirst = true
+        var ttftMs = 0
+
+        for try await line in bytes.lines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.hasPrefix("data:") else { continue }
+            let dataStr = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+            guard let jsonData = dataStr.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+                  (obj["type"] as? String) == "content_block_delta",
+                  let delta = obj["delta"] as? [String: Any],
+                  let token = delta["text"] as? String,
+                  !token.isEmpty else {
+                continue
+            }
+
+            let spacedToken = Self.cleanAndSpaceStreamToken(token, accumulated: accumulated, enablePanguSpacing: config.enablePanguSpacing)
+            guard !spacedToken.isEmpty else { continue }
+
+            accumulated.append(spacedToken)
+            if isFirst {
+                ttftMs = Int((DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000)
+                if let onStreamChunk {
+                    await onStreamChunk(spacedToken, true)
+                }
+                isFirst = false
+            } else if let onStreamChunk {
+                await onStreamChunk(spacedToken, false)
+            }
+        }
+
+        return (accumulated.trimmingCharacters(in: .whitespacesAndNewlines), ttftMs)
+    }
+
+    private static func cleanAndSpaceStreamToken(_ token: String, accumulated: String, enablePanguSpacing: Bool) -> String {
+        let cleanToken = token
+            .replacingOccurrences(of: "<raw_speech>", with: "")
+            .replacingOccurrences(of: "</raw_speech>", with: "")
+        guard !cleanToken.isEmpty else { return "" }
+
+        if enablePanguSpacing, let lastChar = accumulated.last, let firstChar = cleanToken.first {
+            let lastIsCJK = lastChar.unicodeScalars.first.map { $0.value >= 0x4E00 && $0.value <= 0x9FA5 } ?? false
+            let firstIsASCIIAlnum = firstChar.isASCII && (firstChar.isLetter || firstChar.isNumber)
+            let lastIsASCIIAlnum = lastChar.isASCII && (lastChar.isLetter || lastChar.isNumber || lastChar == "%")
+            let firstIsCJK = firstChar.unicodeScalars.first.map { $0.value >= 0x4E00 && $0.value <= 0x9FA5 } ?? false
+            if (lastIsCJK && firstIsASCIIAlnum) || (lastIsASCIIAlnum && firstIsCJK) {
+                return " " + cleanToken
+            }
+        }
+        return cleanToken
+    }
+
     private func callChatCompletions(
         baseURL: String,
         model: String,
@@ -445,6 +609,17 @@ public final class PolishEngine {
         userContent: String,
         maxTokens: Int
     ) async throws -> String {
+        if Self.isAnthropicEndpoint(baseURL) {
+            return try await callAnthropicMessagesOnce(
+                baseURL: baseURL,
+                model: model,
+                apiKey: apiKey,
+                systemPrompt: systemPrompt,
+                userContent: userContent,
+                maxTokens: maxTokens
+            )
+        }
+
         let endpoint = Self.normalizeChatCompletionsEndpoint(baseURL)
 
         guard let url = URL(string: endpoint) else {
@@ -454,29 +629,29 @@ public final class PolishEngine {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-
-        var payload: [String: Any] = [
-            "model": model,
-            "max_tokens": maxTokens,
-            "stream": false,
-            "messages": [
-                ["role": "system", "content": systemPrompt],
-                ["role": "user", "content": userContent]
-            ]
-        ]
-        let lowerModelAndHost = model.lowercased() + " " + endpoint.lowercased()
-        if lowerModelAndHost.contains("deepseek") || lowerModelAndHost.contains("volces.com") || lowerModelAndHost.contains("doubao") || model.lowercased().hasPrefix("ep-") {
-            payload["thinking"] = ["type": "disabled"]
-        } else {
-            payload["temperature"] = 0.1
+        if !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         }
+
+        var payload = Self.buildOpenAICompatiblePayload(
+            endpoint: endpoint,
+            model: model,
+            systemPrompt: systemPrompt,
+            userContent: userContent,
+            maxTokens: maxTokens,
+            stream: false
+        )
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
         var (data, response) = try await session.data(for: request)
-        if let http = response as? HTTPURLResponse, http.statusCode == 400, payload["thinking"] != nil {
+        if let http = response as? HTTPURLResponse,
+           http.statusCode == 400,
+           (payload["thinking"] != nil || payload["reasoning_effort"] != nil) {
             payload.removeValue(forKey: "thinking")
-            payload["temperature"] = 0.1
+            payload.removeValue(forKey: "reasoning_effort")
+            if payload["max_completion_tokens"] == nil {
+                payload["temperature"] = 0.1
+            }
             request.httpBody = try JSONSerialization.data(withJSONObject: payload)
             (data, response) = try await session.data(for: request)
         }
@@ -499,6 +674,52 @@ public final class PolishEngine {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return cleaned
+    }
+
+    private func callAnthropicMessagesOnce(
+        baseURL: String,
+        model: String,
+        apiKey: String,
+        systemPrompt: String,
+        userContent: String,
+        maxTokens: Int
+    ) async throws -> String {
+        let endpoint = Self.normalizeAnthropicMessagesEndpoint(baseURL)
+        guard let url = URL(string: endpoint) else {
+            throw URLError(.badURL)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        if !apiKey.isEmpty {
+            request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        }
+        let payload: [String: Any] = [
+            "model": model,
+            "max_tokens": max(256, maxTokens),
+            "temperature": 0.1,
+            "system": systemPrompt,
+            "messages": [
+                ["role": "user", "content": userContent]
+            ]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let blocks = json["content"] as? [[String: Any]] else {
+            throw URLError(.cannotParseResponse)
+        }
+        let text = blocks
+            .filter { ($0["type"] as? String) == "text" }
+            .compactMap { $0["text"] as? String }
+            .joined()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return text
     }
 
     /// P8: Deterministic 0ms CJK-Latin "Pangu Spacing" + Spoken Percentage/Currency Normalization + Trailing Punctuation Rule

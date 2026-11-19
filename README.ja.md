@@ -2,7 +2,7 @@
 
 **純粋な Swift + C++ で構築された、超低遅延ネイティブ macOS AI 音声入力＆構造化ライティングアプリ**
 
-[![Release](https://img.shields.io/badge/release-v0.4.3-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.4.4-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![Platform](https://img.shields.io/badge/macOS-14--27%20%7C%20Apple%20Silicon%20arm64-17161B?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![Notarized](https://img.shields.io/badge/Gatekeeper-Apple%20Notarized%20%C2%B7%20Developer%20ID-14804A?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![ASR](https://img.shields.io/badge/ASR-Seed--ASR%202.0%20%2B%20SenseVoice%20FP32-14804A?style=flat-square)](#デュアルエンジン音声認識アーキテクチャ)
@@ -11,7 +11,7 @@
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · **日本語** · [한국어](./README.ko.md) · [Français](./README.fr.md)
 
-[**macOS インストーラーをダウンロード (DMG v0.4.3)**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.3-macOS-arm64.dmg) · [アーキテクチャログ](./docs/STATUS_LOG.md)
+[**macOS インストーラーをダウンロード (DMG v0.4.4)**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.4-macOS-arm64.dmg) · [アーキテクチャログ](./docs/STATUS_LOG.md)
 
 ![TypeZero Hero Showcase](./docs/images/hero-showcase-en.svg)
 
@@ -20,7 +20,7 @@
 ## 10 秒でインストール
 
 ### 直接ダウンロード（おすすめ・Apple 公証済み）
-1. [**`TypeZero-v0.4.3-macOS-arm64.dmg`**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.3-macOS-arm64.dmg) をダウンロードし、**`TypeZero.app`** を **`Applications`** フォルダにドラッグします。
+1. [**`TypeZero-v0.4.4-macOS-arm64.dmg`**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.4-macOS-arm64.dmg) をダウンロードし、**`TypeZero.app`** を **`Applications`** フォルダにドラッグします。
 2. **TypeZero** を起動すると、3 ステップの初期セットアップガイドが表示され、マイク・アクセシビリティ権限、API キー（macOS キーチェーンにのみ暗号化保存）、グローバルショートカットを迷わず設定できます。
 
 ### Homebrew Cask
@@ -53,7 +53,7 @@ brew install --cask typezero
 | :--- | :--- | :--- | :--- | :--- |
 | **料金・利用制限** | 無料 | 無料枠＋有料プラン | 月額 \$10〜\$15（無料枠制限あり） | **完全無料・無制限・MIT ライセンス** |
 | **音声認識エンジン** | Apple 標準 | ローカル / クラウド | クラウド一括送信 | **Seed-ASR 2.0 (`121ms`) ＋ 886MB FP32 オフライン熱待機** |
-| **口癖除去・自動構造化** | なし | 対応 | 対応 | **対応（DeepSeek / Doubao / Qwen / Ollama 自由切替）** |
+| **口癖除去・自動構造化** | なし | 対応 | 対応 | **対応（OpenAI / Gemini / Claude / DeepSeek / Doubao / Qwen / Ollama 自由切替）** |
 | **短文の確定レイテンシ** | 高速（無整形） | `300〜600ms` | `700〜1500ms` | **28 文字以下 `0ms` バイパス・約 `8ms` 瞬時貼付** |
 | **ショートカット対応** | システム固定 | 左右キー＋コンボ | 限定的 | **全左右修飾キー ＋ `⌥Space` ＋ 任意コンボ録画** |
 | **個人辞書・自己学習** | なし | 手動辞書＋学習 | クラウド同期学習 | **`<0.5ms` ローカル音韻辞書 ＋ 3 経路自動学習** |
@@ -91,7 +91,7 @@ cd TypeZero
 # 1. sherpa-onnx macOS arm64 C++ ランタイムを取得
 ./scripts/setup-vendor.sh
 
-# 2. 38 項目の回帰テストを実行（警告 0）
+# 2. 40 項目の回帰テストを実行（警告 0）
 ./scripts/run-tests.sh
 
 # 3. TypeZero.app をビルド

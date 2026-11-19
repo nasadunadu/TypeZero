@@ -274,8 +274,51 @@ public enum SelfTestSuite {
         )
         expect(
             KeychainHelper.providerSlot(for: .dashscope) == "dashscope_api_key"
+                && KeychainHelper.providerSlot(for: .openai) == "openai_api_key"
+                && KeychainHelper.providerSlot(for: .gemini) == "gemini_api_key"
+                && KeychainHelper.providerSlot(for: .anthropic) == "anthropic_api_key"
                 && KeychainHelper.providerSlot(for: .custom) == "custom_api_key",
-            "Unified provider selector routes DashScope and Custom OpenAI keys to isolated Keychain slots"
+            "Unified provider selector routes DashScope, OpenAI, Gemini, Anthropic, and Custom keys to isolated Keychain slots"
+        )
+        expect(
+            LLMProviderOption.infer(from: "https://api.openai.com/v1") == .openai
+                && LLMProviderOption.infer(from: "https://generativelanguage.googleapis.com/v1beta/openai") == .gemini
+                && LLMProviderOption.infer(from: "https://api.anthropic.com/v1") == .anthropic
+                && PolishEngine.isAnthropicEndpoint("https://api.anthropic.com/v1")
+                && PolishEngine.normalizeAnthropicMessagesEndpoint("https://api.anthropic.com/v1") == "https://api.anthropic.com/v1/messages",
+            "Accurately detects OpenAI, Google Gemini, and native Anthropic Claude Messages API endpoints"
+        )
+        let oaiGpt5 = PolishEngine.buildOpenAICompatiblePayload(
+            endpoint: "https://api.openai.com/v1/chat/completions",
+            model: "gpt-5-mini",
+            systemPrompt: "sys",
+            userContent: "hi",
+            maxTokens: 200,
+            stream: true
+        )
+        let gemini25 = PolishEngine.buildOpenAICompatiblePayload(
+            endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+            model: "gemini-2.5-flash",
+            systemPrompt: "sys",
+            userContent: "hi",
+            maxTokens: 200,
+            stream: true
+        )
+        let gemini38 = PolishEngine.buildOpenAICompatiblePayload(
+            endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+            model: "gemini-3.8-flash",
+            systemPrompt: "sys",
+            userContent: "hi",
+            maxTokens: 200,
+            stream: true
+        )
+        expect(
+            (oaiGpt5["max_completion_tokens"] as? Int) == 200
+                && oaiGpt5["max_tokens"] == nil
+                && (oaiGpt5["reasoning_effort"] as? String) == "minimal"
+                && (gemini25["reasoning_effort"] as? String) == "none"
+                && (gemini38["reasoning_effort"] as? String) == "minimal",
+            "Builds provider-accurate OpenAI GPT-5 (max_completion_tokens) and Gemini 2.5/3.8 (reasoning_effort) payloads"
         )
 
         expect(

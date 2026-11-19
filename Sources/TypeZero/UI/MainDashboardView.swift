@@ -314,6 +314,9 @@ public struct MainDashboardView: View {
         case .deepseek: return "DeepSeek 4 Flash"
         case .volcengine: return "火山 Doubao-Seed"
         case .dashscope: return "百炼 Qwen-Flash"
+        case .openai: return "OpenAI \(appState.llmConfig.modelName)"
+        case .gemini: return "Gemini \(appState.llmConfig.modelName)"
+        case .anthropic: return "Claude \(appState.llmConfig.modelName)"
         case .custom: return appState.llmConfig.modelName
         }
     }
@@ -1447,7 +1450,7 @@ struct EngineSettingsSection: View {
                     InlineWarnBanner(message: "💡 当前整理力度为「纯原声直出」，听写经本地词库修词后直接上屏，暂不调用下方云端排版模型。")
                 }
 
-                VStack(spacing: 9) {
+                VStack(spacing: 6) {
                     ForEach(LLMProviderOption.allCases) { provider in
                         LLMProviderUnifiedCard(appState: appState, provider: provider)
                     }
@@ -1589,7 +1592,7 @@ struct LLMProviderUnifiedCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 7) {
                         Text(provider.title)
-                            .font(.system(size: 13.5, weight: .semibold))
+                            .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(TZTheme.inkPrimary)
                         Text(activeModelBadge)
                             .font(.system(size: 10.5, weight: .medium, design: .monospaced))
@@ -1600,10 +1603,12 @@ struct LLMProviderUnifiedCard: View {
                             .background(isSelected ? TZTheme.lilacTint : TZTheme.sandWell.opacity(0.75))
                             .clipShape(RoundedRectangle(cornerRadius: 4))
                     }
-                    Text(provider.subtitle)
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(TZTheme.inkSecondary)
-                        .lineLimit(1)
+                    if isSelected {
+                        Text(provider.subtitle)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(TZTheme.inkSecondary)
+                            .lineLimit(1)
+                    }
                 }
 
                 Spacer()
@@ -1757,11 +1762,12 @@ private extension View {
 
     func tzSelectableEngineCard(isSelected: Bool) -> some View {
         self
-            .padding(12)
+            .padding(.horizontal, 12)
+            .padding(.vertical, isSelected ? 11 : 8)
             .background(isSelected ? TZTheme.lilacTint.opacity(0.38) : TZTheme.softWell.opacity(0.62))
-            .clipShape(RoundedRectangle(cornerRadius: 11))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay(
-                RoundedRectangle(cornerRadius: 11)
+                RoundedRectangle(cornerRadius: 10)
                     .strokeBorder(isSelected ? TZTheme.violet.opacity(0.55) : TZTheme.hairline, lineWidth: isSelected ? 1.3 : 1)
             )
     }
@@ -1953,14 +1959,19 @@ struct OnboardingWizardSheet: View {
                 }
 
                 HStack(spacing: 7) {
-                    Text("DeepSeek")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(TZTheme.inkSecondary)
-                        .frame(width: 62, alignment: .leading)
-                    SecureField("粘贴 DeepSeek API Key", text: $appState.apiKeyInput)
+                    Picker("", selection: Binding(
+                        get: { appState.llmConfig.selectedProvider },
+                        set: { appState.selectLLMProvider($0) }
+                    )) {
+                        ForEach([LLMProviderOption.deepseek, .openai, .gemini, .anthropic, .volcengine, .dashscope], id: \.self) { p in
+                            Text(p.shortName).tag(p)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 90)
+                    SecureField("粘贴 \(appState.llmConfig.selectedProvider.shortName) API Key", text: $appState.apiKeyInput)
                         .tzCompactInputStyle()
                     Button("保存") {
-                        appState.selectLLMProvider(.deepseek)
                         appState.saveAPIKey()
                     }
                     .buttonStyle(TZPrimaryButtonStyle(compact: true))
