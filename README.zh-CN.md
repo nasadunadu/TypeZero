@@ -9,7 +9,9 @@
 [![Privacy](https://img.shields.io/badge/隐私安全-BYOK%20%C2%B7%20macOS%20钥匙串-5A46E8?style=flat-square)](./SECURITY.md)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
 
-[English README](./README.md) · [**直接下载 macOS 安装包 (DMG v0.4.0)**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.0-macOS-arm64.dmg) · [架构演进日志](./docs/STATUS_LOG.md)
+[English](./README.md) · **简体中文** · [日本語](./README.ja.md) · [한국어](./README.ko.md) · [Français](./README.fr.md)
+
+[**直接下载 macOS 安装包 (DMG v0.4.0)**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.0-macOS-arm64.dmg) · [架构演进日志](./docs/STATUS_LOG.md)
 
 ![TypeZero Hero Showcase](./docs/images/hero-showcase.svg)
 
