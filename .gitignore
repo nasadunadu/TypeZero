@@ -1,0 +1,36 @@
+# Swift / Xcode / Build Artifacts
+.build/
+.swiftpm/
+build/
+dist/
+Vendor/
+DerivedData/
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+*.dSYM.zip
+*.dSYM
+*.dmg
+*.pkg
+*.app
+
+# macOS System Files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Secrets, Environment & Personal Corpus Data (NEVER COMMIT)
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.mobileprovision
+secrets/
+work/
+personal_dictionary*.json
+personal_corpus/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
