@@ -91,7 +91,7 @@ public enum SelfTestSuite {
             "Cleanly collapses '2. 2. ' and '3. 3. ' back to single markers"
         )
 
-        // 4. Deterministic Pangu Spacing & Percentage ITN
+        // 4. Deterministic Pangu Spacing, Full-Width Chinese Punctuation & Percentage ITN
         let formatted = PolishEngine.applyPostFormattingRules(
             "使用DeepSeek提升百分之35速度。",
             context: ActiveScreenContext(appName: "Slack", bundleID: "com.tinyspeck.slackmacgap", windowTitle: "", selectedText: "", precedingText: "", hasFocusedTextInput: true),
@@ -101,11 +101,20 @@ public enum SelfTestSuite {
             formatted == "使用 DeepSeek 提升 35% 速度",
             "Applies CJK-Latin Pangu spacing, percentage ITN, and strips trailing period in IM"
         )
+        let normQ = PolishEngine.applyPostFormattingRules(
+            "今天发财报会不会一样? 太好了!",
+            context: ActiveScreenContext(appName: "微信", bundleID: "com.tencent.xinwechat", windowTitle: "", selectedText: "", precedingText: "", hasFocusedTextInput: true),
+            config: .default
+        )
+        expect(
+            normQ == "今天发财报会不会一样？ 太好了！",
+            "Normalizes stray half-width ?/! directly after CJK characters to crisp full-width punctuation"
+        )
 
         // 5. Keychain Provider Slot Isolation & Safety Guardrail
         expect(KeychainHelper.providerSlot(for: "https://api.deepseek.com/v1") == "deepseek_api_key", "Routes DeepSeek slot")
         expect(KeychainHelper.providerSlot(for: "https://ark.cn-beijing.volces.com/api/v3") == "ark_api_key", "Routes Volcengine Ark slot")
-        expect(!ContextInjector.isAllowedTarget(bundleID: "com.tencent.xinwechat", appName: "微信"), "Hard blocks WeChat automation")
+        expect(ContextInjector.isAllowedTarget(bundleID: "com.tencent.xinwechat", appName: "微信"), "Allows universal dictation input in all user-focused IM apps")
 
         // 6. Dual-Engine Acoustic Stack (Seed-ASR 2.0 Polyphase 16kHz Resampler + Local FP32 Model Detection)
         let legacyJSON = #"{"baseURL":"https://api.deepseek.com/v1","modelName":"deepseek-flash"}"#.data(using: .utf8) ?? Data()

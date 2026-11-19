@@ -2,7 +2,7 @@
 
 **純粋な Swift + C++ で構築された、超低遅延ネイティブ macOS AI 音声入力＆構造化ライティングアプリ**
 
-[![Release](https://img.shields.io/badge/release-v0.4.1-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.4.2-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![Platform](https://img.shields.io/badge/macOS-14--27%20%7C%20Apple%20Silicon%20arm64-17161B?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![Notarized](https://img.shields.io/badge/Gatekeeper-Apple%20Notarized%20%C2%B7%20Developer%20ID-14804A?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![ASR](https://img.shields.io/badge/ASR-Seed--ASR%202.0%20%2B%20SenseVoice%20FP32-14804A?style=flat-square)](#デュアルエンジン音声認識アーキテクチャ)
@@ -11,16 +11,16 @@
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · **日本語** · [한국어](./README.ko.md) · [Français](./README.fr.md)
 
-[**macOS インストーラーをダウンロード (DMG v0.4.1)**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.1-macOS-arm64.dmg) · [アーキテクチャログ](./docs/STATUS_LOG.md)
+[**macOS インストーラーをダウンロード (DMG v0.4.2)**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.2-macOS-arm64.dmg) · [アーキテクチャログ](./docs/STATUS_LOG.md)
 
-![TypeZero Hero Showcase](./docs/images/hero-showcase.svg)
+![TypeZero Hero Showcase](./docs/images/hero-showcase-en.svg)
 
 ---
 
 ## 10 秒でインストール
 
 ### 直接ダウンロード（おすすめ・Apple 公証済み）
-1. [**`TypeZero-v0.4.1-macOS-arm64.dmg`**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.1-macOS-arm64.dmg) をダウンロードし、**`TypeZero.app`** を **`Applications`** フォルダにドラッグします。
+1. [**`TypeZero-v0.4.2-macOS-arm64.dmg`**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.2-macOS-arm64.dmg) をダウンロードし、**`TypeZero.app`** を **`Applications`** フォルダにドラッグします。
 2. **TypeZero** を起動すると、3 ステップの初期セットアップガイドが表示され、マイク・アクセシビリティ権限、API キー（macOS キーチェーンにのみ暗号化保存）、グローバルショートカットを迷わず設定できます。
 
 ### Homebrew Cask

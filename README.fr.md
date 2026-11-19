@@ -2,7 +2,7 @@
 
 **Dictée vocale IA native macOS à latence ultra-faible et structuration de texte de niveau Typeless — conçu en pur Swift + C++.**
 
-[![Release](https://img.shields.io/badge/release-v0.4.1-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.4.2-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![Platform](https://img.shields.io/badge/macOS-14--27%20%7C%20Apple%20Silicon%20arm64-17161B?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![Notarized](https://img.shields.io/badge/Gatekeeper-Apple%20Notarized%20%C2%B7%20Developer%20ID-14804A?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![ASR](https://img.shields.io/badge/ASR-Seed--ASR%202.0%20%2B%20SenseVoice%20FP32-14804A?style=flat-square)](#architecture-double-moteur)
@@ -11,16 +11,16 @@
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md) · **Français**
 
-[**Télécharger l'installeur macOS (DMG v0.4.1)**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.1-macOS-arm64.dmg) · [Journal d'architecture](./docs/STATUS_LOG.md)
+[**Télécharger l'installeur macOS (DMG v0.4.2)**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.2-macOS-arm64.dmg) · [Journal d'architecture](./docs/STATUS_LOG.md)
 
-![TypeZero Hero Showcase](./docs/images/hero-showcase.svg)
+![TypeZero Hero Showcase](./docs/images/hero-showcase-en.svg)
 
 ---
 
 ## Installation en 10 secondes
 
 ### Téléchargement direct (Recommandé · Notarié par Apple)
-1. Téléchargez [**`TypeZero-v0.4.1-macOS-arm64.dmg`**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.1-macOS-arm64.dmg) et glissez **`TypeZero.app`** dans **`Applications`**.
+1. Téléchargez [**`TypeZero-v0.4.2-macOS-arm64.dmg`**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.2-macOS-arm64.dmg) et glissez **`TypeZero.app`** dans **`Applications`**.
 2. Lancez **TypeZero** : l'assistant intégré en 3 étapes vous guide pour activer le micro et l'accessibilité, enregistrer vos clés API (uniquement dans le Trousseau macOS) et choisir votre raccourci global.
 
 ### Homebrew Cask

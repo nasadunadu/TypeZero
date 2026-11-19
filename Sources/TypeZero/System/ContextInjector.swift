@@ -32,7 +32,7 @@ public struct ActiveScreenContext {
 
     public var isInstantMessaging: Bool {
         let lower = bundleID.lowercased() + " " + appName.lowercased()
-        return ["telegram", "slack", "discord", "lark", "feishu", "messages", "whatsapp", "dingtalk"]
+        return ["telegram", "slack", "discord", "lark", "feishu", "messages", "whatsapp", "dingtalk", "wechat", "xinwechat", "微信", "qq"]
             .contains { lower.contains($0) }
     }
 
@@ -641,10 +641,7 @@ public enum ContextInjector {
     }
 
     public static func isAllowedTarget(bundleID: String, appName: String) -> Bool {
-        // Strict safety guardrail: never inspect or automate WeChat
-        if bundleID.lowercased().contains("tencent.xinwechat") || appName.contains("微信") {
-            return false
-        }
+        // Universal macOS dictation input: allow typing & pasting into all user-focused apps
         return true
     }
 
@@ -783,8 +780,9 @@ public enum ContextInjector {
             var roleRef: CFTypeRef?
             if AXUIElementCopyAttributeValue(elem, kAXRoleAttribute as CFString, &roleRef) == .success,
                let role = roleRef as? String {
-                // Non-input roles (e.g. clicking on empty desktop, toolbar button, or static Finder list)
-                let nonEditableRoles: Set<String> = ["AXWindow", "AXApplication", "AXDesktop", "AXButton", "AXImage", "AXToolbar"]
+                // Only treat genuinely non-editable controls/desktop as non-input;
+                // Qt / Electron / Canvas apps often report AXWindow/AXApplication even when the compose cursor is active.
+                let nonEditableRoles: Set<String> = ["AXDesktop", "AXButton", "AXImage", "AXToolbar"]
                 if nonEditableRoles.contains(role) {
                     editableFocus = false
                 } else {

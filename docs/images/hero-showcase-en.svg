@@ -21,19 +21,16 @@
     </filter>
   </defs>
 
-  <!-- Canvas Background -->
   <rect width="1200" height="540" rx="22" fill="url(#bgGrad)"/>
   <rect x="1" y="1" width="1198" height="538" rx="21" fill="none" stroke="#17161B" stroke-opacity="0.09" stroke-width="1.5"/>
 
   <!-- Top Editorial Masthead -->
   <g transform="translate(46, 36)">
     <circle cx="16" cy="16" r="16" fill="#FDFCF9" stroke="#17161B" stroke-opacity="0.12" stroke-width="1"/>
-    <!-- Mobius Mark -->
     <path d="M9 16 C9 12, 14 12, 16 16 C18 20, 23 20, 23 16 C23 12, 18 12, 16 16 C14 20, 9 20, 9 16 Z" fill="none" stroke="#5A46E8" stroke-width="2.2" stroke-linecap="round"/>
-    <text x="44" y="21" font-family="Georgia, 'Songti SC', serif" font-size="20" font-weight="700" fill="#17161B">TypeZero</text>
+    <text x="44" y="21" font-family="Georgia, serif" font-size="20" font-weight="700" fill="#17161B">TypeZero</text>
     <text x="148" y="20" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" font-size="13" fill="#66646D">Speak, Don't Type · Native macOS AI Voice Dictation</text>
 
-    <!-- Right Pills -->
     <g transform="translate(765, 2)">
       <rect width="118" height="26" rx="13" fill="#ECE9FB"/>
       <text x="59" y="17" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600" fill="#5A46E8">121ms ASR TAIL</text>
@@ -50,42 +47,36 @@
 
   <line x1="46" y1="82" x2="1154" y2="82" stroke="#17161B" stroke-opacity="0.10" stroke-width="1"/>
 
-  <!-- LEFT PANEL: Live Speaking Capsule & Spoken Rambling Input -->
+  <!-- LEFT PANEL -->
   <g transform="translate(46, 108)" filter="url(#softShadow)">
     <rect width="510" height="390" rx="16" fill="#FDFCF9" stroke="#17161B" stroke-opacity="0.09" stroke-width="1"/>
-    <!-- Window Chrome -->
     <circle cx="22" cy="22" r="5" fill="#E2DFD5"/>
     <circle cx="38" cy="22" r="5" fill="#E2DFD5"/>
     <circle cx="54" cy="22" r="5" fill="#E2DFD5"/>
-    <text x="76" y="26" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600" fill="#908D97">STEP 1 · TAP RIGHT ⌥ / FN TO SPEAK NATURALLY</text>
+    <text x="74" y="26" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10.5" font-weight="600" fill="#908D97">STEP 1 · TAP HOTKEY &amp; SPEAK NATURALLY</text>
     <line x1="0" y1="42" x2="510" y2="42" stroke="#17161B" stroke-opacity="0.07" stroke-width="1"/>
 
-    <!-- Spoken Speech Bubble -->
-    <g transform="translate(24, 64)">
-      <rect width="462" height="128" rx="12" fill="#F3F1EB" stroke="#17161B" stroke-opacity="0.06"/>
-      <text x="16" y="24" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10.5" font-weight="600" fill="#908D97">RAW NATURAL SPEECH (FILLERS · SELF-CORRECTION · FAST ACRONYMS)</text>
-      <text x="16" y="54" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="14.5" fill="#17161B">“嗯，那个我们今天主要同步两件事，第一先把</text>
-      <text x="16" y="80" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="14.5" fill="#17161B">这个 <tspan fill="#D1323C" text-decoration="line-through">Su</tspan><tspan fill="#5A46E8" font-weight="600"> SEO</tspan> 方案在周四不对改<tspan fill="#5A46E8" font-weight="600">周五下午3点</tspan></text>
-      <text x="16" y="106" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="14.5" fill="#17161B">发出来，第二让 <tspan fill="#5A46E8" font-weight="600">张伟</tspan> 同步一下 GitHub 发布页。”</text>
+    <g transform="translate(24, 62)">
+      <rect width="462" height="132" rx="12" fill="#F3F1EB" stroke="#17161B" stroke-opacity="0.06"/>
+      <text x="16" y="24" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="600" fill="#908D97">RAW SPEECH (FILLERS · SELF-CORRECTION · FAST ACRONYMS)</text>
+      <text x="16" y="54" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" font-size="14" fill="#17161B">“<tspan fill="#908D97" text-decoration="line-through">Um, like,</tspan> two things today — first ship the</text>
+      <text x="16" y="80" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" font-size="14" fill="#17161B"><tspan fill="#D1323C" text-decoration="line-through">Su</tspan><tspan fill="#5A46E8" font-weight="600"> SEO</tspan> draft Thursday <tspan fill="#908D97" text-decoration="line-through">no wait</tspan> <tspan fill="#5A46E8" font-weight="600">Friday at 3 PM</tspan>,</text>
+      <text x="16" y="106" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" font-size="14" fill="#17161B">second sync with <tspan fill="#5A46E8" font-weight="600">Alex</tspan> on the GitHub release.”</text>
     </g>
 
-    <!-- Floating Capsule Micro-Symbol Mode -->
     <g transform="translate(90, 222)" filter="url(#pillShadow)">
       <rect width="330" height="82" rx="41" fill="#17161B"/>
       <rect x="1.5" y="1.5" width="327" height="79" rx="39.5" fill="none" stroke="#8B7BF7" stroke-opacity="0.45" stroke-width="1.2"/>
-      <!-- Live Micro-Symbol Ribbon -->
-      <text x="165" y="28" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" letter-spacing="4" fill="#C4BAFF">• · ✦ ▪ • · ✦ ▪ • · ✦  <tspan font-size="10.5" letter-spacing="0" fill="#8CE3B4">42 字</tspan></text>
-      <!-- Fluid Sine Wave -->
+      <text x="165" y="28" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" letter-spacing="3.5" fill="#C4BAFF">• · ✦ ▪ • · ✦ ▪ • · ✦ <tspan font-size="10.5" letter-spacing="0" fill="#8CE3B4">24 words</tspan></text>
       <path d="M36 54 Q66 36, 96 54 T156 54 T216 54 T276 54 L294 54" fill="none" stroke="url(#waveGrad)" stroke-width="3" stroke-linecap="round"/>
       <path d="M52 54 Q82 68, 112 54 T172 54 T232 54 T278 54" fill="none" stroke="#A79BFF" stroke-opacity="0.65" stroke-width="2" stroke-linecap="round"/>
     </g>
 
-    <!-- Bottom Dual-Engine Badges -->
     <g transform="translate(24, 336)">
       <rect width="224" height="32" rx="8" fill="#ECE9FB"/>
-      <text x="112" y="20" text-anchor="middle" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="11.5" font-weight="600" fill="#5A46E8">⚡ Seed-ASR 2.0 双向流 + 65热词</text>
+      <text x="112" y="20" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" font-size="11.5" font-weight="600" fill="#5A46E8">⚡ Seed-ASR 2.0 · Top-65 Hotwords</text>
       <rect x="236" width="226" height="32" rx="8" fill="#E3F5EA"/>
-      <text x="349" y="20" text-anchor="middle" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="11.5" font-weight="600" fill="#14804A">✈️ 886MB SenseVoice FP32 容灾</text>
+      <text x="349" y="20" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" font-size="11.5" font-weight="600" fill="#14804A">✈️ 886MB SenseVoice FP32 Failover</text>
     </g>
   </g>
 
@@ -96,55 +87,51 @@
     <text x="32" y="80" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10.5" font-weight="700" fill="#5A46E8">SUB-SECOND</text>
   </g>
 
-  <!-- RIGHT PANEL: Typeless Structured Output Landed in Any macOS App -->
+  <!-- RIGHT PANEL -->
   <g transform="translate(644, 108)" filter="url(#softShadow)">
     <rect width="510" height="390" rx="16" fill="#FDFCF9" stroke="#5A46E8" stroke-opacity="0.28" stroke-width="1.3"/>
-    <!-- Window Chrome -->
     <circle cx="22" cy="22" r="5" fill="#FF6B6B"/>
     <circle cx="38" cy="22" r="5" fill="#FECA57"/>
     <circle cx="54" cy="22" r="5" fill="#1DD1A1"/>
-    <text x="76" y="26" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600" fill="#5A46E8">STEP 2 · STRUCTURED &amp; PASTED IN ANY APP (CURSOR / SLACK / FEISHU)</text>
+    <text x="74" y="26" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10.5" font-weight="600" fill="#5A46E8">STEP 2 · STRUCTURED &amp; PASTED IN ANY APP</text>
     <line x1="0" y1="42" x2="510" y2="42" stroke="#17161B" stroke-opacity="0.07" stroke-width="1"/>
 
-    <!-- Structured Output Card -->
-    <g transform="translate(24, 64)">
-      <rect width="462" height="196" rx="12" fill="#FFFFFF" stroke="#5A46E8" stroke-opacity="0.22" stroke-width="1.2"/>
-      <text x="18" y="34" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="15.5" font-weight="600" fill="#17161B">我们今天主要同步 2 件事：</text>
-      <text x="18" y="72" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="15" fill="#17161B"><tspan fill="#5A46E8" font-weight="700">1.</tspan> 先把 <tspan fill="#5A46E8" font-weight="600">SEO</tspan> 方案在周五下午 3 点发出来；</text>
-      <text x="18" y="108" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="15" fill="#17161B"><tspan fill="#5A46E8" font-weight="700">2.</tspan> 让 <tspan fill="#5A46E8" font-weight="600">张伟</tspan> 同步一下 GitHub 发布页。</text>
+    <g transform="translate(24, 62)">
+      <rect width="462" height="198" rx="12" fill="#FFFFFF" stroke="#5A46E8" stroke-opacity="0.22" stroke-width="1.2"/>
+      <text x="18" y="34" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" font-size="15" font-weight="600" fill="#17161B">Two action items for today:</text>
+      <text x="18" y="72" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" font-size="14.5" fill="#17161B"><tspan fill="#5A46E8" font-weight="700">1.</tspan> Ship the <tspan fill="#5A46E8" font-weight="600">SEO</tspan> draft on Friday at 3:00 PM;</text>
+      <text x="18" y="108" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" font-size="14.5" fill="#17161B"><tspan fill="#5A46E8" font-weight="700">2.</tspan> Sync with <tspan fill="#5A46E8" font-weight="600">Alex</tspan> on the GitHub release.</text>
 
-      <!-- Highlighted Feature Pills Inside Card -->
       <line x1="18" y1="138" x2="444" y2="138" stroke="#17161B" stroke-opacity="0.07" stroke-width="1"/>
-      <g transform="translate(18, 152)">
-        <rect width="128" height="24" rx="12" fill="#ECE9FB"/>
-        <text x="64" y="16" text-anchor="middle" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="10.5" font-weight="600" fill="#5A46E8">✓ 去口癖 + 自动改口</text>
+      <g transform="translate(18, 154)">
+        <rect width="134" height="24" rx="12" fill="#ECE9FB"/>
+        <text x="67" y="16" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" font-size="10.5" font-weight="600" fill="#5A46E8">✓ Auto De-Ramble</text>
       </g>
-      <g transform="translate(156, 152)">
+      <g transform="translate(162, 154)">
         <rect width="136" height="24" rx="12" fill="#E3F5EA"/>
-        <text x="68" y="16" text-anchor="middle" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="10.5" font-weight="600" fill="#14804A">✓ 0.5ms 词库声韵纠偏</text>
+        <text x="68" y="16" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" font-size="10.5" font-weight="600" fill="#14804A">✓ 0.5ms Lexicon Fix</text>
       </g>
-      <g transform="translate(302, 152)">
-        <rect width="142" height="24" rx="12" fill="#FDF2E1"/>
-        <text x="71" y="16" text-anchor="middle" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="10.5" font-weight="600" fill="#C76F0E">✓ 剪贴板快照无损还原</text>
+      <g transform="translate(308, 154)">
+        <rect width="136" height="24" rx="12" fill="#FDF2E1"/>
+        <text x="68" y="16" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" font-size="10.5" font-weight="600" fill="#C76F0E">✓ Clipboard Safe</text>
       </g>
     </g>
 
-    <!-- Bottom Telemetry Metrics -->
     <g transform="translate(24, 282)">
       <rect width="146" height="84" rx="11" fill="#F3F1EB"/>
       <text x="14" y="34" font-family="Georgia, serif" font-size="26" font-weight="700" fill="#5A46E8">0ms</text>
-      <text x="14" y="54" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="11.5" font-weight="600" fill="#17161B">≤28字干净短句直通</text>
-      <text x="14" y="70" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="10.5" fill="#908D97">免等第二遍大模型</text>
+      <text x="14" y="54" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" font-size="11.5" font-weight="600" fill="#17161B">Short-Phrase Bypass</text>
+      <text x="14" y="70" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" font-size="10.5" fill="#908D97">Skip LLM on clean lines</text>
 
       <rect x="158" width="146" height="84" rx="11" fill="#F3F1EB"/>
       <text x="172" y="34" font-family="Georgia, serif" font-size="26" font-weight="700" fill="#17161B">210ms</text>
-      <text x="172" y="54" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="11.5" font-weight="600" fill="#17161B">DeepSeek / 豆包</text>
-      <text x="172" y="70" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="10.5" fill="#908D97">长段结构化首包延迟</text>
+      <text x="172" y="54" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" font-size="11.5" font-weight="600" fill="#17161B">BYOK Fast LLM</text>
+      <text x="172" y="70" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" font-size="10.5" fill="#908D97">DeepSeek / Qwen / Ollama</text>
 
       <rect x="316" width="146" height="84" rx="11" fill="#F3F1EB"/>
       <text x="330" y="34" font-family="Georgia, serif" font-size="26" font-weight="700" fill="#14804A">100%</text>
-      <text x="330" y="54" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="11.5" font-weight="600" fill="#17161B">左右快捷键 + 钥匙串</text>
-      <text x="330" y="70" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="10.5" fill="#908D97">无订阅 · 无字数限制</text>
+      <text x="330" y="54" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" font-size="11.5" font-weight="600" fill="#17161B">Left/Right Hotkeys</text>
+      <text x="330" y="70" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" font-size="10.5" fill="#908D97">Keychain · Zero Quota</text>
     </g>
   </g>
 </svg>

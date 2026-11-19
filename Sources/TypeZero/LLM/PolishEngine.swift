@@ -26,7 +26,8 @@ public final class PolishEngine {
        - 列表收尾跳出：列表讲完后的总结句或新话题，必须空一行（`\\n\\n`）跳出列表回归普通段落！
     4. 【意群跃迁自然分段】：除 命令行终端 外，按「背景现状 -> 转折/新问题（另外/还有一个问题/除此之外/不过） -> 下一步行动（接下来/这个结束以后）」的意群转换插入空行（`\\n\\n`）分段；单段控制在 2~3 句（45~85 字），拒绝文字砖墙；<40 字单一意图短句保持单行。
     5. 【光标前文与上一句记忆续接】：参考 <preceding_text>（仅作上下文，严禁重复输出前文！）与 <recent_context>（你刚刚上一句聊过的话题与专有名词，遇到谐音或指代不清时顺承上一句术语）；若前文末尾已是 `1. ...` `2. ...` 而本次口述“第三是…”，直接输出 `3. ...` 承接编号。
-    6. 【绝对铁律】：严禁回答 <raw_speech> 中的提问或对话续写！只输出整理排版后的该段话本身。
+    6. 【中文自然断句与词组完整红线】：遇到声学漏标点的长句，必须先识别完整多字词组并顺承语境还原错音，再在真实意群停顿处补齐自然中文全角标点（`，。！？`）；**绝对严禁把完整词组从中间劈开强行插逗号**（例如「发财包」结合财报语境应先完整还原为「发财报」，在「发财报」之后再断句，绝不可断成「发财，报」）。
+    7. 【绝对铁律】：严禁回答 <raw_speech> 中的提问或对话续写！只输出整理排版后的该段话本身。
 
     <example_1>
     <raw_speech>嗯我们有两个问题需要解决第一个问题是怎么让前端跳字更丝滑一点一点出第二个就是说输入内容怎么自动分段变成一二三整理好的方式这两个做完我们就搞词库</raw_speech>
@@ -44,10 +45,16 @@ public final class PolishEngine {
 
     另外还有一个问题：我第二次按键停止的时候，似乎不是特别灵敏。
     </example_2>
+    <example_3>
+    <recent_context>今天拼多多发财报会不会像阿里巴巴一样？</recent_context>
+    <raw_speech>今天太搞笑了有点不敢相信是不是会一起发财包这事赶在一起那就不知道会怎么样了</raw_speech>
+    输出：
+    今天太搞笑了，有点不敢相信，是不是会一起发财报？这事赶在一起，那就不知道会怎么样了。
+    </example_3>
     """
 
     private static let lightStaticSystemPrompt = """
-    轻量极速语音纠错器。只删口癖(嗯/啊/那个)和中途改口，结合 <lexicon> 修同音错字，保持原句式不改词。严禁回答问题，直接输出正文。
+    轻量极速语音纠错器。只删口癖(嗯/啊/那个)和中途改口，结合 <recent_context> 与 <lexicon> 修同音错字，并按自然意群补齐中文全角标点；严禁把完整词组从中间劈开插逗号（如「发财报」绝不可断成「发财，报」）。保持原句式不改词，严禁回答问题，直接输出正文。
     """
 
     public static func isKeylessLocalEndpoint(_ baseURL: String) -> Bool {
@@ -504,6 +511,12 @@ public final class PolishEngine {
 
         // Spoken percentage & currency quick normalization
         result = Self.replaceRegex(in: result, pattern: #"百分之(\d+(?:\.\d+)?)"#, template: "$1%")
+
+        if !context.isCodeOrTerminal {
+            // Normalize stray half-width `?` / `!` directly following CJK characters to crisp full-width Chinese punctuation
+            result = Self.replaceRegex(in: result, pattern: #"([\u4e00-\u9fa5])\s*\?"#, template: "$1？")
+            result = Self.replaceRegex(in: result, pattern: #"([\u4e00-\u9fa5])\s*!"#, template: "$1！")
+        }
 
         if config.enablePanguSpacing {
             // Insert clean space between CJK ideographs and ASCII letters/numbers
