@@ -136,6 +136,30 @@ public struct CustomHotkeySpec: Codable, Equatable, Sendable {
     }
 }
 
+public enum ASRProviderOption: String, CaseIterable, Codable, Identifiable, Sendable {
+    case volcSeedASR = "volcSeedASR"
+    case openAIWhisper = "openAIWhisper"
+    case localSenseVoice = "localSenseVoice"
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .volcSeedASR: return "豆包流式语音大模型 2.0"
+        case .openAIWhisper: return "OpenAI / Groq 云端语音大模型"
+        case .localSenseVoice: return "纯本机 SenseVoice FP32 离线满血模型"
+        }
+    }
+
+    public var shortName: String {
+        switch self {
+        case .volcSeedASR: return "豆包 Seed-ASR"
+        case .openAIWhisper: return "OpenAI / Groq"
+        case .localSenseVoice: return "本机 SenseVoice"
+        }
+    }
+}
+
 public enum LLMProviderOption: String, CaseIterable, Codable, Identifiable, Sendable {
     case deepseek = "deepseek"
     case volcengine = "volcengine"
@@ -349,6 +373,9 @@ public struct LLMConfig: Codable, Equatable {
     public var customBaseURL: String
     public var providerModels: [String: String]
     public var formattingStyle: FormattingStyle
+    public var asrProvider: ASRProviderOption
+    public var openAIASRBaseURL: String
+    public var openAIASRModel: String
     public var enableVolcSeedASR: Bool
     public var enableLiveInlineTyping: Bool
     public var enableFastBypassForShortPhrases: Bool
@@ -368,6 +395,9 @@ public struct LLMConfig: Codable, Equatable {
         customBaseURL: String = "https://api.siliconflow.cn/v1",
         providerModels: [String: String] = [:],
         formattingStyle: FormattingStyle = .structured,
+        asrProvider: ASRProviderOption? = nil,
+        openAIASRBaseURL: String = "https://api.openai.com/v1",
+        openAIASRModel: String = "gpt-4o-mini-transcribe",
         enableVolcSeedASR: Bool = true,
         enableLiveInlineTyping: Bool = false,
         enableFastBypassForShortPhrases: Bool = true,
@@ -387,7 +417,11 @@ public struct LLMConfig: Codable, Equatable {
         mergedModels[resolvedProvider.rawValue] = modelName
         self.providerModels = mergedModels
         self.formattingStyle = formattingStyle
-        self.enableVolcSeedASR = enableVolcSeedASR
+        let resolvedASR = asrProvider ?? (enableVolcSeedASR ? .volcSeedASR : .localSenseVoice)
+        self.asrProvider = resolvedASR
+        self.openAIASRBaseURL = openAIASRBaseURL
+        self.openAIASRModel = openAIASRModel
+        self.enableVolcSeedASR = (resolvedASR == .volcSeedASR)
         self.enableLiveInlineTyping = enableLiveInlineTyping
         self.enableFastBypassForShortPhrases = enableFastBypassForShortPhrases
         self.stripTrailingPeriodInChatApps = stripTrailingPeriodInChatApps
@@ -396,6 +430,11 @@ public struct LLMConfig: Codable, Equatable {
         self.enableAutoLearn = enableAutoLearn
         self.showInDock = showInDock
         self.speechLocale = speechLocale
+    }
+
+    public mutating func selectASRProvider(_ provider: ASRProviderOption) {
+        asrProvider = provider
+        enableVolcSeedASR = (provider == .volcSeedASR)
     }
 
     public mutating func selectProvider(_ provider: LLMProviderOption) {
@@ -444,7 +483,17 @@ public struct LLMConfig: Codable, Equatable {
         self.providerModels = modelsMap
 
         self.formattingStyle = (try? c.decode(FormattingStyle.self, forKey: .formattingStyle)) ?? .structured
-        self.enableVolcSeedASR = (try? c.decode(Bool.self, forKey: .enableVolcSeedASR)) ?? true
+        let legacyVolcFlag = (try? c.decode(Bool.self, forKey: .enableVolcSeedASR)) ?? true
+        let resolvedASR = (try? c.decode(ASRProviderOption.self, forKey: .asrProvider))
+            ?? (legacyVolcFlag ? .volcSeedASR : .localSenseVoice)
+        self.asrProvider = resolvedASR
+        let decodedOpenAIASRURL = (try? c.decode(String.self, forKey: .openAIASRBaseURL)) ?? "https://api.openai.com/v1"
+        self.openAIASRBaseURL = decodedOpenAIASRURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "https://api.openai.com/v1" : decodedOpenAIASRURL
+        let decodedOpenAIASRModel = (try? c.decode(String.self, forKey: .openAIASRModel)) ?? "gpt-4o-mini-transcribe"
+        self.openAIASRModel = decodedOpenAIASRModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "gpt-4o-mini-transcribe" : decodedOpenAIASRModel
+        self.enableVolcSeedASR = (resolvedASR == .volcSeedASR)
         self.enableLiveInlineTyping = (try? c.decode(Bool.self, forKey: .enableLiveInlineTyping)) ?? false
         self.enableFastBypassForShortPhrases = (try? c.decode(Bool.self, forKey: .enableFastBypassForShortPhrases)) ?? true
         self.stripTrailingPeriodInChatApps = (try? c.decode(Bool.self, forKey: .stripTrailingPeriodInChatApps)) ?? true

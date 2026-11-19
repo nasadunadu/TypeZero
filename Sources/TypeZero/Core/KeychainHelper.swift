@@ -5,6 +5,7 @@ public enum KeychainHelper {
     private static let service = "io.github.typezero.macos"
     private static let legacyAccount = "llm_api_key"
     private static let volcSpeechAccount = "volc_speech_api_key"
+    private static let openAIASRAccount = "openai_asr_api_key"
 
     public static func saveVolcSpeechAPIKey(_ key: String) {
         let cleaned = key.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -23,6 +24,35 @@ public enum KeychainHelper {
 
     public static func loadVolcSpeechAPIKey() -> String {
         return readSlot(volcSpeechAccount) ?? ""
+    }
+
+    public static func saveOpenAIASRAPIKey(_ key: String) {
+        saveAPIKeyInSlot(key, slot: openAIASRAccount)
+    }
+
+    /// Reads ONLY the dedicated override key saved specifically for OpenAI/Groq cloud ASR.
+    public static func loadOpenAIASROverrideKey() -> String {
+        return readSlot(openAIASRAccount) ?? ""
+    }
+
+    /// Effective API key for OpenAI / Groq cloud ASR:
+    /// 1. Uses the dedicated `openai_asr_api_key` override slot if configured.
+    /// 2. Otherwise automatically reuses the saved OpenAI LLM key (`openai_api_key`) unless the endpoint is Groq (which requires a Groq `gsk_...` key).
+    public static func loadEffectiveOpenAIASRAPIKey(for baseURL: String = "https://api.openai.com/v1") -> String {
+        let overrideKey = loadOpenAIASROverrideKey().trimmingCharacters(in: .whitespacesAndNewlines)
+        if !overrideKey.isEmpty {
+            return overrideKey
+        }
+        if baseURL.lowercased().contains("groq.com") {
+            return ""
+        }
+        return loadAPIKey(for: .openai)
+    }
+
+    public static func isReusingOpenAILLMKeyForASR(baseURL: String) -> Bool {
+        let overrideKey = loadOpenAIASROverrideKey().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard overrideKey.isEmpty, !baseURL.lowercased().contains("groq.com") else { return false }
+        return !loadAPIKey(for: .openai).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     public static func providerSlot(for provider: LLMProviderOption) -> String {

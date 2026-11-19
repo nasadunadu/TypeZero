@@ -326,6 +326,53 @@ public enum SelfTestSuite {
             "Default app mode runs cleanly in top Menu Bar without cluttering the macOS Dock"
         )
 
+        // v0.4.5: OpenAI / Groq Cloud ASR endpoint normalization, 16kHz WAV encoding, hotword prompt hint & ASRProvider migration
+        let legacyLocalJSON = #"{"enableVolcSeedASR":false,"baseURL":"https://api.openai.com/v1","modelName":"gpt-4.1-mini"}"#
+        let decodedLegacyLocal = try? JSONDecoder().decode(LLMConfig.self, from: Data(legacyLocalJSON.utf8))
+        let explicitOpenAIASRJSON = #"{"asrProvider":"openAIWhisper","openAIASRBaseURL":"https://api.groq.com/openai/v1","openAIASRModel":"whisper-large-v3-turbo"}"#
+        let decodedOpenAIASR = try? JSONDecoder().decode(LLMConfig.self, from: Data(explicitOpenAIASRJSON.utf8))
+        expect(
+            decodedLegacyLocal?.asrProvider == .localSenseVoice
+                && decodedOpenAIASR?.asrProvider == .openAIWhisper
+                && decodedOpenAIASR?.openAIASRModel == "whisper-large-v3-turbo"
+                && decodedOpenAIASR?.enableVolcSeedASR == false,
+            "ASRProviderOption migrates legacy enableVolcSeedASR configs and preserves OpenAI/Groq ASR settings"
+        )
+        expect(
+            OpenAITranscriptionClient.normalizeTranscriptionEndpoint("https://api.openai.com/v1") == "https://api.openai.com/v1/audio/transcriptions"
+                && OpenAITranscriptionClient.normalizeTranscriptionEndpoint("https://api.groq.com/openai/v1/") == "https://api.groq.com/openai/v1/audio/transcriptions"
+                && OpenAITranscriptionClient.normalizeTranscriptionEndpoint("https://relay.example.com") == "https://relay.example.com/v1/audio/transcriptions"
+                && OpenAITranscriptionClient.normalizeTranscriptionEndpoint("https://api.openai.com/v1/audio/transcriptions") == "https://api.openai.com/v1/audio/transcriptions"
+                && OpenAITranscriptionClient.isGroqEndpoint("https://api.groq.com/openai/v1"),
+            "Normalizes OpenAI, Groq, and custom transcription endpoints cleanly without duplicating path segments"
+        )
+        let samplePCM: [Int16] = [0, 1000, -1000, 32000, -32000, 500]
+        let wavBytes = OpenAITranscriptionClient.encodePCM16ToWAV(samplePCM, sampleRate: 16_000)
+        let riffHeader = String(data: wavBytes.prefix(4), encoding: .ascii)
+        let waveHeader = String(data: wavBytes.subdata(in: 8..<12), encoding: .ascii)
+        let dataChunkTag = String(data: wavBytes.subdata(in: 36..<40), encoding: .ascii)
+        let encodedSampleRate = wavBytes.subdata(in: 24..<28).withUnsafeBytes { $0.load(as: UInt32.self).littleEndian }
+        let encodedDataSize = wavBytes.subdata(in: 40..<44).withUnsafeBytes { $0.load(as: UInt32.self).littleEndian }
+        expect(
+            wavBytes.count == 44 + samplePCM.count * 2
+                && riffHeader == "RIFF"
+                && waveHeader == "WAVE"
+                && dataChunkTag == "data"
+                && encodedSampleRate == 16_000
+                && encodedDataSize == UInt32(samplePCM.count * 2),
+            "Encodes 16kHz mono Int16 PCM into a valid 44-byte RIFF/WAVE payload in memory"
+        )
+        let promptHint = OpenAITranscriptionClient.buildPromptHint(
+            hotwords: ["TypeZero", "typezero", "DeepSeek", "SwiftUI", "A", "Groq"],
+            maxChars: 24
+        )
+        expect(
+            promptHint == "TypeZero, DeepSeek"
+                && OpenAITranscriptionClient.isoLanguageCode(from: "zh-CN") == "zh"
+                && OpenAITranscriptionClient.isoLanguageCode(from: "en-US") == "en",
+            "Deduplicates and bounds OpenAI/Groq vocabulary prompt hints and maps locale to ISO-639-1"
+        )
+
         print("==> Summary: \(passed) passed, \(failed) failed.")
         return failed == 0 ? 0 : 1
     }

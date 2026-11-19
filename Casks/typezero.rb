@@ -1,10 +1,10 @@
 cask "typezero" do
-  version "0.4.4"
-  sha256 "d5492d18ae89569c33273b894d1e09bde4fa97209ce061b8c35fd78764fa40c4"
+  version "0.4.5"
+  sha256 "c04515507d6ecf6fa005dd2048e24dc13e627f6d6e75005646cc09568d999f76"
 
   url "https://github.com/nasadunadu/TypeZero/releases/download/v#{version}/TypeZero-v#{version}-macOS-arm64.dmg"
   name "TypeZero"
-  desc "Ultra-low-latency native macOS AI voice dictation with Seed-ASR 2.0 + offline SenseVoice FP32 failover"
+  desc "Ultra-low-latency native macOS AI voice dictation with Seed-ASR 2.0, OpenAI/Groq ASR & offline SenseVoice FP32 failover"
   homepage "https://github.com/nasadunadu/TypeZero"
 
   depends_on macos: ">= :sonoma"

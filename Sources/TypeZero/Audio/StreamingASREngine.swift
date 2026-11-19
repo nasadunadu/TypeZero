@@ -11,6 +11,7 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
     private var audioEngine: AVAudioEngine?
     private var senseVoiceHandle: OpaquePointer?
     private let seedASRClient = VolcSeedASRClient()
+    private let openAIASRClient = OpenAITranscriptionClient()
     private let decodeQueue = DispatchQueue(label: "io.github.typezero.sensevoice.decode", qos: .userInteractive)
     private let audioControlQueue = DispatchQueue(label: "io.github.typezero.audio.control", qos: .userInteractive)
 
@@ -50,14 +51,27 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
     public private(set) var isUsingSenseVoice: Bool = false
     public private(set) var isFullPrecisionFP32: Bool = false
     public private(set) var activeSessionUsesCloudSeedASR: Bool = false
-    public var enableVolcSeedASR: Bool = true
+    public private(set) var activeSessionUsesOpenAIASR: Bool = false
+    public var activeSessionUsesAnyCloudASR: Bool {
+        activeSessionUsesCloudSeedASR || activeSessionUsesOpenAIASR
+    }
+    public var asrProvider: ASRProviderOption = .volcSeedASR
+    public var enableVolcSeedASR: Bool {
+        get { asrProvider == .volcSeedASR }
+        set { asrProvider = newValue ? .volcSeedASR : .localSenseVoice }
+    }
     public var volcSpeechAPIKey: String = ""
+    public var openAIASRBaseURL: String = "https://api.openai.com/v1"
+    public var openAIASRModel: String = "gpt-4o-mini-transcribe"
+    public var openAIASRAPIKey: String = ""
     public var enableWhisperAGC: Bool = true
     public var onPartialResult: ((_ text: String, _ flushTrailingChar: Bool) -> Void)?
     public var onModelReady: (() -> Void)?
     public var onCloudFailoverNotice: ((_ reason: String) -> Void)?
     public var onError: ((String) -> Void)?
     private var didFlushMicroPauseTail: Bool = false
+    private var openAIActiveHotwords: [String] = []
+    private var openAIActiveLocale: String = "zh-CN"
     private let modelInitLock = NSLock()
 
     public override init() {
@@ -112,7 +126,9 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
     }
 
     public static var isSpeechAuthorized: Bool {
-        if senseVoiceModelPaths() != nil || !KeychainHelper.loadVolcSpeechAPIKey().isEmpty {
+        if senseVoiceModelPaths() != nil
+            || !KeychainHelper.loadVolcSpeechAPIKey().isEmpty
+            || !KeychainHelper.loadEffectiveOpenAIASRAPIKey().isEmpty {
             return true
         }
         return SFSpeechRecognizer.authorizationStatus() == .authorized
@@ -169,7 +185,9 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
 
     public static func requestPermissions(completion: @escaping (Bool, Bool) -> Void) {
         AVCaptureDevice.requestAccess(for: .audio) { micGranted in
-            if senseVoiceModelPaths() != nil || !KeychainHelper.loadVolcSpeechAPIKey().isEmpty {
+            if senseVoiceModelPaths() != nil
+                || !KeychainHelper.loadVolcSpeechAPIKey().isEmpty
+                || !KeychainHelper.loadEffectiveOpenAIASRAPIKey().isEmpty {
                 DispatchQueue.main.async {
                     completion(micGranted, true)
                 }
@@ -184,10 +202,18 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
     }
 
     public func prewarmCloudSocketIfReady() {
-        guard enableVolcSeedASR else { return }
-        let key = volcSpeechAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else { return }
-        seedASRClient.prewarmStandbySocket(apiKey: key)
+        switch asrProvider {
+        case .volcSeedASR:
+            let key = volcSpeechAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty else { return }
+            seedASRClient.prewarmStandbySocket(apiKey: key)
+        case .openAIWhisper:
+            let key = openAIASRAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty || PolishEngine.isKeylessLocalEndpoint(openAIASRBaseURL) else { return }
+            openAIASRClient.prewarmConnection(baseURL: openAIASRBaseURL, apiKey: key)
+        case .localSenseVoice:
+            break
+        }
     }
 
     public func warmUp(localeIdentifier: String = "zh-CN") {
@@ -261,10 +287,12 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
         }
 
         let cleanSpeechKey = volcSpeechAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        let wantCloudSeedASR = enableVolcSeedASR && !cleanSpeechKey.isEmpty
+        let cleanOpenAIKey = openAIASRAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let wantCloudSeedASR = (asrProvider == .volcSeedASR) && !cleanSpeechKey.isEmpty
+        let wantOpenAIASR = (asrProvider == .openAIWhisper) && (!cleanOpenAIKey.isEmpty || PolishEngine.isKeylessLocalEndpoint(openAIASRBaseURL))
         let hasLocalSenseVoice = isUsingSenseVoice && (senseVoiceHandle != nil)
 
-        if wantCloudSeedASR || hasLocalSenseVoice {
+        if wantCloudSeedASR || wantOpenAIASR || hasLocalSenseVoice {
             let hwRate = Int32(recordingFormat.sampleRate)
 
             if wantCloudSeedASR,
@@ -278,14 +306,18 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
                 }
             }
 
-            let maxBackupSamples = Int(hwRate) * 90
+            let maxBackupSamples = Int(hwRate) * (wantOpenAIASR ? 180 : 90)
+            let isAnyCloudMode = wantCloudSeedASR || wantOpenAIASR
 
             sampleLock.lock()
             activeSessionUsesCloudSeedASR = wantCloudSeedASR
+            activeSessionUsesOpenAIASR = wantOpenAIASR
+            openAIActiveHotwords = wantOpenAIASR ? contextualStrings : []
+            openAIActiveLocale = localeIdentifier
             activeSegmentSamples.removeAll(keepingCapacity: true)
-            activeSegmentSamples.reserveCapacity(Int(hwRate) * 14)
+            activeSegmentSamples.reserveCapacity(wantOpenAIASR ? 0 : Int(hwRate) * 14)
             cloudFailoverBackupSamples.removeAll(keepingCapacity: true)
-            if wantCloudSeedASR {
+            if isAnyCloudMode {
                 cloudFailoverBackupSamples.reserveCapacity(Int(hwRate) * 20)
             }
             frozenTranscriptPrefix = ""
@@ -306,6 +338,8 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
                     hotwords: contextualStrings,
                     dialogContext: dialogContext
                 )
+            } else if wantOpenAIASR {
+                openAIASRClient.prewarmConnection(baseURL: openAIASRBaseURL, apiKey: cleanOpenAIKey)
             }
 
             inputNode.installTap(onBus: 0, bufferSize: 512, format: recordingFormat) { [weak self] buffer, _ in
@@ -321,32 +355,46 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
 
                 // Preserve full-spectrum hardware PCM (all high-frequency Mandarin sibilants 4kHz-10kHz intact!)
                 self.sampleLock.lock()
-                let currentlyCloud = self.activeSessionUsesCloudSeedASR
-                self.activeSegmentSamples.append(contentsOf: UnsafeBufferPointer(start: channel0, count: count))
-                if currentlyCloud && self.cloudFailoverBackupSamples.count < maxBackupSamples {
+                let currentlyVolcCloud = self.activeSessionUsesCloudSeedASR
+                let currentlyOpenAICloud = self.activeSessionUsesOpenAIASR
+                let currentlyAnyCloud = currentlyVolcCloud || currentlyOpenAICloud
+                if !currentlyOpenAICloud {
+                    self.activeSegmentSamples.append(contentsOf: UnsafeBufferPointer(start: channel0, count: count))
+                }
+                if currentlyAnyCloud && self.cloudFailoverBackupSamples.count < maxBackupSamples {
                     self.cloudFailoverBackupSamples.append(contentsOf: UnsafeBufferPointer(start: channel0, count: count))
                 }
+                var virtualOpenAICount: Int? = nil
                 if isVoiceFrame {
                     self.hasDetectedSpeechInSegment = true
                     self.hasDetectedSpeechOverall = true
                     self.didFlushMicroPauseTail = false
                     self.totalVoiceSamplesInSegment += count
                     self.consecutiveSilentSamples = 0
+                    if currentlyOpenAICloud {
+                        // Drive subtle rhythmic progress indicator in the floating capsule while recording for batch cloud ASR
+                        let stepSamples = max(1, Int(self.currentSampleRate) / 5) // ~200ms of speech per rhythm pulse
+                        virtualOpenAICount = max(1, self.totalVoiceSamplesInSegment / stepSamples)
+                    }
                 } else {
                     self.consecutiveSilentSamples += count
                     let maxIdlePreRoll = Int(self.currentSampleRate) / 4
-                    if !self.hasDetectedSpeechInSegment && self.activeSegmentSamples.count > maxIdlePreRoll {
+                    if !currentlyOpenAICloud && !self.hasDetectedSpeechInSegment && self.activeSegmentSamples.count > maxIdlePreRoll {
                         let excess = self.activeSegmentSamples.count - maxIdlePreRoll
                         self.activeSegmentSamples.removeFirst(excess)
                     }
-                    if currentlyCloud && !self.hasDetectedSpeechOverall && self.cloudFailoverBackupSamples.count > maxIdlePreRoll {
+                    if currentlyAnyCloud && !self.hasDetectedSpeechOverall && self.cloudFailoverBackupSamples.count > maxIdlePreRoll {
                         let excess = self.cloudFailoverBackupSamples.count - maxIdlePreRoll
                         self.cloudFailoverBackupSamples.removeFirst(excess)
                     }
                 }
                 self.sampleLock.unlock()
 
-                if currentlyCloud {
+                if let pulse = virtualOpenAICount {
+                    AudioLevelBus.shared.pushRecognizedCount(pulse)
+                }
+
+                if currentlyVolcCloud {
                     let pcm16 = self.convertMonoFloatTo16kHzPCM16(channel0: channel0, count: count, rawRMS: rawRMS, isVoice: isVoiceFrame)
                     if !pcm16.isEmpty {
                         self.seedASRClient.appendPCM16Samples(pcm16)
@@ -360,7 +408,7 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
             }
             if wantCloudSeedASR {
                 startCloudWatchdogLoop()
-            } else {
+            } else if !wantOpenAIASR {
                 startContinuousVADStreamingLoop()
             }
             return
@@ -679,16 +727,21 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
         }
     }
 
-    private func takeCloudFinishSnapshot() -> (wasCloud: Bool, hadSpeech: Bool, backup: [Float], sr: Int32) {
+    private func takeCloudFinishSnapshot() -> (wasVolcCloud: Bool, wasOpenAICloud: Bool, hadSpeech: Bool, backup: [Float], sr: Int32, hotwords: [String], locale: String) {
         sampleLock.lock()
         defer { sampleLock.unlock() }
-        let wasUsingCloud = activeSessionUsesCloudSeedASR
+        let wasVolc = activeSessionUsesCloudSeedASR
+        let wasOpenAI = activeSessionUsesOpenAIASR
         activeSessionUsesCloudSeedASR = false
+        activeSessionUsesOpenAIASR = false
         let hadAnySpeech = hasDetectedSpeechOverall
         let backupSamples = cloudFailoverBackupSamples
         let backupSR = currentSampleRate
+        let hw = openAIActiveHotwords
+        let loc = openAIActiveLocale
+        openAIActiveHotwords = []
         cloudFailoverBackupSamples.removeAll(keepingCapacity: false)
-        return (wasUsingCloud, hadAnySpeech, backupSamples, backupSR)
+        return (wasVolc, wasOpenAI, hadAnySpeech, backupSamples, backupSR, hw, loc)
     }
 
     public func finishStreaming() async -> (transcript: String, duration: Double) {
@@ -699,13 +752,84 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
         cloudWatchdogTimer = nil
         AudioLevelBus.shared.reset()
 
-        let (wasUsingCloud, hadAnySpeech, backupSamples, backupSR) = takeCloudFinishSnapshot()
+        let (wasUsingVolcCloud, wasUsingOpenAICloud, hadAnySpeech, backupSamples, backupSR, openAIHotwords, openAILocale) = takeCloudFinishSnapshot()
 
         audioControlQueue.async { [weak self] in
             self?.pauseActiveTapOnly()
         }
 
-        if wasUsingCloud {
+        if wasUsingOpenAICloud {
+            guard hadAnySpeech, backupSamples.count > Int(backupSR) / 8 else {
+                clearSessionBuffers()
+                return ("", elapsed)
+            }
+
+            let baseURL = self.openAIASRBaseURL
+            let model = self.openAIASRModel
+            let apiKey = self.openAIASRAPIKey
+            let agc = self.enableWhisperAGC
+
+            let wavData: Data = await withCheckedContinuation { cont in
+                decodeQueue.async {
+                    let conditioned = agc ? Self.boostQuietSpeechAGC(backupSamples) : backupSamples
+                    let pcm16 = Self.resampleFloatTo16kHzInt16(conditioned, sourceRate: Double(backupSR))
+                    let wav = OpenAITranscriptionClient.encodePCM16ToWAV(pcm16, sampleRate: 16_000)
+                    cont.resume(returning: wav)
+                }
+            }
+
+            let dynamicTimeout = max(6.5, min(14.0, elapsed * 0.45 + 5.5))
+            do {
+                let (cloudText, _) = try await openAIASRClient.transcribe(
+                    wavData: wavData,
+                    baseURL: baseURL,
+                    model: model,
+                    apiKey: apiKey,
+                    hotwords: openAIHotwords,
+                    languageLocale: openAILocale,
+                    timeoutSeconds: dynamicTimeout
+                )
+                let trimmed = cloudText.trimmingCharacters(in: .whitespacesAndNewlines)
+                clearSessionBuffers()
+                if !trimmed.isEmpty {
+                    return (trimmed, elapsed)
+                }
+            } catch {
+                // Seamless Zero-Word-Loss Failover to Local 886MB SenseVoice FP32 if offline / timeout / API error!
+                if isUsingSenseVoice, let handle = senseVoiceHandle, backupSamples.count > Int(backupSR) / 10 {
+                    let handleBits = Int(bitPattern: handle)
+                    let localFallback: String = await withCheckedContinuation { cont in
+                        decodeQueue.async {
+                            guard let ptr = OpaquePointer(bitPattern: handleBits) else {
+                                cont.resume(returning: "")
+                                return
+                            }
+                            let txt = Self.runSenseVoice(handle: ptr, samples: backupSamples, sampleRate: backupSR, applyWhisperAGC: agc)
+                            cont.resume(returning: txt)
+                        }
+                    }
+                    clearSessionBuffers()
+                    if !localFallback.isEmpty {
+                        let shortErr = error.localizedDescription
+                        DispatchQueue.main.async { [weak self] in
+                            self?.onCloudFailoverNotice?("云端语音回包异常（\(shortErr)），已由本机满血 FP32 模型无缝兜底")
+                        }
+                        return (localFallback, elapsed)
+                    }
+                }
+                let errMsg = error.localizedDescription
+                clearSessionBuffers()
+                DispatchQueue.main.async { [weak self] in
+                    self?.onError?("云端语音识别失败：\(errMsg)")
+                }
+                return ("", elapsed)
+            }
+
+            clearSessionBuffers()
+            return ("", elapsed)
+        }
+
+        if wasUsingVolcCloud {
             if !hadAnySpeech && latestTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 seedASRClient.stopAndReset()
                 clearSessionBuffers()
@@ -892,6 +1016,8 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
     private func clearSessionBuffers() {
         sampleLock.lock()
         activeSessionUsesCloudSeedASR = false
+        activeSessionUsesOpenAIASR = false
+        openAIActiveHotwords = []
         activeSegmentSamples.removeAll(keepingCapacity: true)
         cloudFailoverBackupSamples.removeAll(keepingCapacity: false)
         frozenTranscriptPrefix = ""

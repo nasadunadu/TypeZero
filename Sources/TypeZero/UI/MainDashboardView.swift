@@ -182,14 +182,9 @@ public struct MainDashboardView: View {
                         Text("TypeZero")
                             .font(.system(size: 17.5, weight: .bold, design: .serif))
                             .foregroundStyle(TZTheme.inkPrimary)
-                        let hasCloudSpeech = appState.llmConfig.enableVolcSeedASR && !appState.volcSpeechKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        Text(hasCloudSpeech
-                             ? (appState.senseVoiceFullFP32 ? "SEED-ASR 2.0 + FP32" : "SEED-ASR 2.0 · CLOUD")
-                             : (appState.senseVoiceLoaded
-                                ? (appState.senseVoiceFullFP32 ? "SENSEVOICE FP32 · FULL" : "SENSEVOICE INT8 · LOCAL")
-                                : "LOADING ENGINE…"))
+                        Text(sidebarASRStatusText)
                             .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
-                            .foregroundStyle((hasCloudSpeech || appState.senseVoiceLoaded) ? TZTheme.emerald : TZTheme.violet)
+                            .foregroundStyle(sidebarASRStatusReady ? TZTheme.emerald : TZTheme.violet)
                     }
                 }
 
@@ -304,6 +299,37 @@ public struct MainDashboardView: View {
         .padding(.horizontal, 14)
         .frame(width: 226)
         .background(TZTheme.sidebarBg)
+    }
+
+    private var sidebarASRStatusReady: Bool {
+        switch appState.llmConfig.asrProvider {
+        case .volcSeedASR:
+            return !appState.volcSpeechKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || appState.senseVoiceLoaded
+        case .openAIWhisper:
+            return appState.hasEffectiveOpenAIASRKey || appState.senseVoiceLoaded
+        case .localSenseVoice:
+            return appState.senseVoiceLoaded
+        }
+    }
+
+    private var sidebarASRStatusText: String {
+        switch appState.llmConfig.asrProvider {
+        case .volcSeedASR:
+            if !appState.volcSpeechKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return appState.senseVoiceFullFP32 ? "SEED-ASR 2.0 + FP32" : "SEED-ASR 2.0 · CLOUD"
+            }
+        case .openAIWhisper:
+            if appState.hasEffectiveOpenAIASRKey {
+                let tag = appState.isGroqASRSelected ? "GROQ WHISPER" : "OPENAI ASR"
+                return appState.senseVoiceFullFP32 ? "\(tag) + FP32" : "\(tag) · CLOUD"
+            }
+        case .localSenseVoice:
+            break
+        }
+        if appState.senseVoiceLoaded {
+            return appState.senseVoiceFullFP32 ? "SENSEVOICE FP32 · FULL" : "SENSEVOICE INT8 · LOCAL"
+        }
+        return "LOADING ENGINE…"
     }
 
     private var activeEngineShortLabel: String {
@@ -1264,61 +1290,63 @@ struct EngineSettingsSection: View {
             }
             .tzCardSurface(cornerRadius: 14, padding: 16)
 
-            // Card 2: Acoustic Recognition Engine & Key (Check to Activate — Unified Box)
+            // Card 2: Acoustic Recognition Engine & Key (Check to Activate — Unified 3-Engine Box)
             VStack(alignment: .leading, spacing: 11) {
                 HStack {
                     Text("2. 语音识别引擎与密钥")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(TZTheme.inkPrimary)
                     Spacer()
-                    Text("勾选即生效 · 密钥独立加密存入系统钥匙串")
+                    Text("勾选即生效 · 断网自动无损回退本机热备")
                         .font(.system(size: 11.5))
                         .foregroundStyle(TZTheme.inkMuted)
                 }
 
                 // ASR Option A: Doubao Seed-ASR 2.0 + Inline Key
-                let cloudASRSelected = appState.llmConfig.enableVolcSeedASR
+                let volcASRSelected = (appState.llmConfig.asrProvider == .volcSeedASR)
                 let hasVolcSpeechKey = !appState.volcSpeechKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 10) {
-                        Image(systemName: cloudASRSelected ? "checkmark.circle.fill" : "circle")
+                        Image(systemName: volcASRSelected ? "checkmark.circle.fill" : "circle")
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(cloudASRSelected ? TZTheme.violet : TZTheme.inkMuted)
+                            .foregroundStyle(volcASRSelected ? TZTheme.violet : TZTheme.inkMuted)
 
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 7) {
                                 Text("豆包流式语音大模型 2.0")
-                                    .font(.system(size: 13.5, weight: .semibold))
+                                    .font(.system(size: 13, weight: .semibold))
                                     .foregroundStyle(TZTheme.inkPrimary)
                                 Text("Seed-ASR 2.0")
                                     .font(.system(size: 10.5, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(TZTheme.inkSecondary)
+                                    .foregroundStyle(volcASRSelected ? TZTheme.violet : TZTheme.inkSecondary)
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 1.5)
-                                    .background(TZTheme.sandWell.opacity(0.75))
+                                    .background(volcASRSelected ? TZTheme.lilacTint : TZTheme.sandWell.opacity(0.75))
                                     .clipShape(RoundedRectangle(cornerRadius: 4))
                             }
-                            Text("字节双向流国内直连 · 挂载专属词库热词 · 断网自动无损切回本机热备")
-                                .font(.system(size: 11.5))
-                                .foregroundStyle(TZTheme.inkSecondary)
+                            if volcASRSelected {
+                                Text("字节双向流国内直连 · 挂载专属词库热词 · 断网自动无损切回本机热备")
+                                    .font(.system(size: 11.5))
+                                    .foregroundStyle(TZTheme.inkSecondary)
+                            }
                         }
 
                         Spacer()
 
                         KeyStatusPill(isConfigured: hasVolcSpeechKey)
-                        if cloudASRSelected {
+                        if volcASRSelected {
                             ActiveEngineBadge()
                         }
                     }
                     .contentShape(Rectangle())
                     .onTapGesture {
                         withAnimation(.easeOut(duration: 0.14)) {
-                            appState.llmConfig.enableVolcSeedASR = true
+                            appState.selectASRProvider(.volcSeedASR)
                         }
                     }
 
-                    if cloudASRSelected {
+                    if volcASRSelected {
                         Divider().overlay(TZTheme.hairline)
 
                         HStack(spacing: 8) {
@@ -1347,10 +1375,153 @@ struct EngineSettingsSection: View {
                         }
                     }
                 }
-                .tzSelectableEngineCard(isSelected: cloudASRSelected)
+                .tzSelectableEngineCard(isSelected: volcASRSelected)
 
-                // ASR Option B: Pure Local SenseVoice FP32
-                let localASRSelected = !appState.llmConfig.enableVolcSeedASR
+                // ASR Option B: OpenAI / Groq Cloud Speech LLM (`/v1/audio/transcriptions`)
+                let openAIASRSelected = (appState.llmConfig.asrProvider == .openAIWhisper)
+                let openAIKeylessLocal = PolishEngine.isKeylessLocalEndpoint(appState.llmConfig.openAIASRBaseURL)
+                let openAIASRReady = appState.hasEffectiveOpenAIASRKey
+
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 10) {
+                        Image(systemName: openAIASRSelected ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(openAIASRSelected ? TZTheme.violet : TZTheme.inkMuted)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 7) {
+                                Text("OpenAI / Groq 云端语音大模型")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(TZTheme.inkPrimary)
+                                Text(appState.llmConfig.openAIASRModel)
+                                    .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(openAIASRSelected ? TZTheme.violet : TZTheme.inkSecondary)
+                                    .lineLimit(1)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 1.5)
+                                    .background(openAIASRSelected ? TZTheme.lilacTint : TZTheme.sandWell.opacity(0.75))
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                            }
+                            if openAIASRSelected {
+                                Text("支持 OpenAI gpt-4o-mini-transcribe 与 Groq whisper-large-v3-turbo · 自动复用 OpenAI Key · 注入专属热词")
+                                    .font(.system(size: 11.5))
+                                    .foregroundStyle(TZTheme.inkSecondary)
+                            }
+                        }
+
+                        Spacer()
+
+                        if appState.isOpenAIASRReusingLLMKey {
+                            Text("复用 OpenAI 密钥")
+                                .font(.system(size: 10.5, weight: .medium))
+                                .foregroundStyle(TZTheme.emerald)
+                                .padding(.horizontal, 7.5)
+                                .padding(.vertical, 2.5)
+                                .background(TZTheme.emeraldTint)
+                                .clipShape(Capsule())
+                        } else {
+                            KeyStatusPill(isConfigured: openAIASRReady, keylessLocal: openAIKeylessLocal)
+                        }
+                        if openAIASRSelected {
+                            ActiveEngineBadge()
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.easeOut(duration: 0.14)) {
+                            appState.selectASRProvider(.openAIWhisper)
+                        }
+                    }
+
+                    if openAIASRSelected {
+                        Divider().overlay(TZTheme.hairline)
+
+                        // Quick presets: OpenAI Mini / OpenAI Full / Groq Turbo
+                        HStack(spacing: 6) {
+                            Text("快捷预设")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(TZTheme.inkSecondary)
+                                .frame(width: 60, alignment: .leading)
+
+                            TZASRPresetPill(
+                                title: "OpenAI Mini",
+                                isActive: !appState.isGroqASRSelected && appState.llmConfig.openAIASRModel == "gpt-4o-mini-transcribe"
+                            ) {
+                                appState.applyOpenAIASRPreset(baseURL: "https://api.openai.com/v1", model: "gpt-4o-mini-transcribe")
+                            }
+                            TZASRPresetPill(
+                                title: "OpenAI Full",
+                                isActive: !appState.isGroqASRSelected && appState.llmConfig.openAIASRModel == "gpt-4o-transcribe"
+                            ) {
+                                appState.applyOpenAIASRPreset(baseURL: "https://api.openai.com/v1", model: "gpt-4o-transcribe")
+                            }
+                            TZASRPresetPill(
+                                title: "Groq 极速 Whisper",
+                                isActive: appState.isGroqASRSelected
+                            ) {
+                                appState.applyOpenAIASRPreset(baseURL: "https://api.groq.com/openai/v1", model: "whisper-large-v3-turbo")
+                            }
+                            Spacer()
+                        }
+
+                        HStack(spacing: 8) {
+                            Text("接口地址")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(TZTheme.inkSecondary)
+                                .frame(width: 60, alignment: .leading)
+                            TextField("https://api.openai.com/v1 或 https://api.groq.com/openai/v1", text: $appState.llmConfig.openAIASRBaseURL)
+                                .tzCompactInputStyle()
+                            Text("模型 ID")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(TZTheme.inkSecondary)
+                            TextField("gpt-4o-mini-transcribe", text: $appState.llmConfig.openAIASRModel)
+                                .tzCompactInputStyle()
+                                .frame(width: 185)
+                        }
+
+                        HStack(spacing: 8) {
+                            Text("API Key")
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                .foregroundStyle(TZTheme.inkSecondary)
+                                .frame(width: 60, alignment: .leading)
+                            SecureField(
+                                appState.isGroqASRSelected
+                                    ? "粘贴 Groq API Key (gsk_...)"
+                                    : (appState.isOpenAIASRReusingLLMKey
+                                        ? "已自动复用下方 OpenAI 密钥（留空即可，或填入独立覆盖 Key）"
+                                        : "粘贴 OpenAI API Key（若下方已填 OpenAI 排版 Key 将自动复用）"),
+                                text: $appState.openAIASRKeyInput
+                            )
+                            .tzCompactInputStyle()
+                            .onSubmit { appState.saveOpenAIASRConfig() }
+
+                            Button("保存") {
+                                appState.saveOpenAIASRConfig()
+                            }
+                            .buttonStyle(TZPrimaryButtonStyle(compact: true))
+
+                            Button(appState.isProbingOpenAIASR ? "测速中…" : "⚡ 测速") {
+                                Task { await appState.runOpenAIASRProbe() }
+                            }
+                            .buttonStyle(TZSecondaryButtonStyle(compact: true))
+                            .disabled(appState.isProbingOpenAIASR)
+                        }
+
+                        if !appState.lastOpenAIASRProbeSummary.isEmpty {
+                            InlineProbeBanner(message: appState.lastOpenAIASRProbeSummary)
+                        } else if !openAIASRReady {
+                            InlineWarnBanner(
+                                message: appState.isGroqASRSelected
+                                    ? "⚠️ 已切换至 Groq Whisper 极速通道，请粘贴 Groq API Key 并点击「保存」；未填时将自动回退本机离线模型。"
+                                    : "⚠️ 尚未检测到 OpenAI API Key：可在此填入，或在下方「3. 排版大模型」勾选 OpenAI 填一次 Key 即可双端共用。"
+                            )
+                        }
+                    }
+                }
+                .tzSelectableEngineCard(isSelected: openAIASRSelected)
+
+                // ASR Option C: Pure Local SenseVoice FP32
+                let localASRSelected = (appState.llmConfig.asrProvider == .localSenseVoice)
                 VStack(alignment: .leading, spacing: 9) {
                     HStack(spacing: 10) {
                         Image(systemName: localASRSelected ? "checkmark.circle.fill" : "circle")
@@ -1360,19 +1531,21 @@ struct EngineSettingsSection: View {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 7) {
                                 Text("纯本机 SenseVoice FP32 离线满血模型")
-                                    .font(.system(size: 13.5, weight: .semibold))
+                                    .font(.system(size: 13, weight: .semibold))
                                     .foregroundStyle(TZTheme.inkPrimary)
                                 Text(appState.senseVoiceFullFP32 ? "886MB FP32" : "本机引擎")
                                     .font(.system(size: 10.5, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(TZTheme.inkSecondary)
+                                    .foregroundStyle(localASRSelected ? TZTheme.violet : TZTheme.inkSecondary)
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 1.5)
-                                    .background(TZTheme.sandWell.opacity(0.75))
+                                    .background(localASRSelected ? TZTheme.lilacTint : TZTheme.sandWell.opacity(0.75))
                                     .clipShape(RoundedRectangle(cornerRadius: 4))
                             }
-                            Text("音频 100% 留在本机内存零联网 · 飞机与高敏内网环境首选")
-                                .font(.system(size: 11.5))
-                                .foregroundStyle(TZTheme.inkSecondary)
+                            if localASRSelected {
+                                Text("音频 100% 留在本机内存零联网 · 飞机与高敏内网环境首选 · 也是所有云端语音的离线热备")
+                                    .font(.system(size: 11.5))
+                                    .foregroundStyle(TZTheme.inkSecondary)
+                            }
                         }
 
                         Spacer()
@@ -1388,7 +1561,7 @@ struct EngineSettingsSection: View {
                     .contentShape(Rectangle())
                     .onTapGesture {
                         withAnimation(.easeOut(duration: 0.14)) {
-                            appState.llmConfig.enableVolcSeedASR = false
+                            appState.selectASRProvider(.localSenseVoice)
                         }
                     }
 
@@ -1406,7 +1579,7 @@ struct EngineSettingsSection: View {
                             }
                             .buttonStyle(TZSecondaryButtonStyle(compact: true, destructive: true))
                         }
-                    } else if !appState.senseVoiceFullFP32 {
+                    } else if !appState.senseVoiceFullFP32 && localASRSelected {
                         Divider().overlay(TZTheme.hairline)
                         HStack {
                             Text("尚未安装 886MB 无损浮点离线满血包，可一键后台下载：")
@@ -1688,6 +1861,31 @@ struct LLMProviderUnifiedCard: View {
     }
 }
 
+private struct TZASRPresetPill: View {
+    let title: String
+    let isActive: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11, weight: isActive ? .semibold : .medium))
+                .foregroundStyle(isActive ? TZTheme.violet : TZTheme.inkSecondary)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(isActive ? TZTheme.cardBg : TZTheme.sandWell.opacity(0.65))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(isActive ? TZTheme.violet.opacity(0.55) : TZTheme.hairline, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 private struct ActiveEngineBadge: View {
     var body: some View {
         Text("✓ 当前生效")
@@ -1933,29 +2131,58 @@ struct OnboardingWizardSheet: View {
             }
             .tzCardSurface(cornerRadius: 12, padding: 14)
 
-            // Step 2: Paste Dual API Keys
+            // Step 2: Paste Dual API Keys (supports Volcengine / OpenAI / Local ASR + 6 LLM Providers)
             VStack(alignment: .leading, spacing: 9) {
+                let onboardingASRReady = (appState.llmConfig.asrProvider == .volcSeedASR && !appState.volcSpeechKeyInput.isEmpty)
+                    || (appState.llmConfig.asrProvider == .openAIWhisper && appState.hasEffectiveOpenAIASRKey)
+                    || (appState.llmConfig.asrProvider == .localSenseVoice && appState.senseVoiceLoaded)
                 HStack {
                     Text("第 2 步 · 填入语音与排版密钥（加密存入本机钥匙串）")
                         .font(.system(size: 13.5, weight: .semibold))
                         .foregroundStyle(TZTheme.inkPrimary)
                     Spacer()
-                    if !appState.volcSpeechKeyInput.isEmpty && !appState.apiKeyInput.isEmpty {
-                        PermissionBadge(title: "双密钥已就绪", ok: true)
+                    if onboardingASRReady && !appState.apiKeyInput.isEmpty {
+                        PermissionBadge(title: "双引擎已就绪", ok: true)
                     }
                 }
 
                 HStack(spacing: 7) {
-                    Text("豆包语音")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(TZTheme.inkSecondary)
-                        .frame(width: 62, alignment: .leading)
-                    SecureField("粘贴火山豆包语音 API Key", text: $appState.volcSpeechKeyInput)
-                        .tzCompactInputStyle()
-                    Button("保存") {
-                        appState.saveVolcSpeechAPIKey()
+                    Picker("", selection: Binding(
+                        get: { appState.llmConfig.asrProvider },
+                        set: { appState.selectASRProvider($0) }
+                    )) {
+                        Text("豆包语音").tag(ASRProviderOption.volcSeedASR)
+                        Text("OpenAI语音").tag(ASRProviderOption.openAIWhisper)
+                        Text("仅本机离线").tag(ASRProviderOption.localSenseVoice)
                     }
-                    .buttonStyle(TZPrimaryButtonStyle(compact: true))
+                    .labelsHidden()
+                    .frame(width: 96)
+
+                    if appState.llmConfig.asrProvider == .volcSeedASR {
+                        SecureField("粘贴火山豆包语音 API Key", text: $appState.volcSpeechKeyInput)
+                            .tzCompactInputStyle()
+                        Button("保存") {
+                            appState.saveVolcSpeechAPIKey()
+                        }
+                        .buttonStyle(TZPrimaryButtonStyle(compact: true))
+                    } else if appState.llmConfig.asrProvider == .openAIWhisper {
+                        SecureField(
+                            appState.isOpenAIASRReusingLLMKey
+                                ? "已自动复用下方 OpenAI Key（留空即可）"
+                                : "粘贴 OpenAI / Groq Key（与下方 OpenAI Key 可共用）",
+                            text: $appState.openAIASRKeyInput
+                        )
+                        .tzCompactInputStyle()
+                        Button("保存") {
+                            appState.saveOpenAIASRConfig()
+                        }
+                        .buttonStyle(TZPrimaryButtonStyle(compact: true))
+                    } else {
+                        Text("已选纯本机 SenseVoice 离线识别，可在下方第 3 步一键下载 886MB 满血包")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(TZTheme.inkSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
 
                 HStack(spacing: 7) {
@@ -1968,7 +2195,7 @@ struct OnboardingWizardSheet: View {
                         }
                     }
                     .labelsHidden()
-                    .frame(width: 90)
+                    .frame(width: 96)
                     SecureField("粘贴 \(appState.llmConfig.selectedProvider.shortName) API Key", text: $appState.apiKeyInput)
                         .tzCompactInputStyle()
                     Button("保存") {

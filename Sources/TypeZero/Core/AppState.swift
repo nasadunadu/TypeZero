@@ -13,8 +13,12 @@ public final class AppState: ObservableObject {
     @Published public var history: [DictationRecord] = []
     @Published public var llmConfig: LLMConfig = .default {
         didSet {
-            asrEngine.enableWhisperAGC = llmConfig.enableWhisperAGC
-            asrEngine.enableVolcSeedASR = llmConfig.enableVolcSeedASR
+            syncASREngineConfig()
+            if oldValue.asrProvider != llmConfig.asrProvider
+                || oldValue.openAIASRBaseURL != llmConfig.openAIASRBaseURL {
+                lastOpenAIASRProbeSummary = ""
+                asrEngine.prewarmCloudSocketIfReady()
+            }
             if oldValue.selectedProvider != llmConfig.selectedProvider {
                 apiKeyInput = KeychainHelper.loadAPIKey(for: llmConfig.selectedProvider)
                 lastBenchmarkSummary = ""
@@ -50,6 +54,7 @@ public final class AppState: ObservableObject {
     }
     @Published public var apiKeyInput: String = ""
     @Published public var volcSpeechKeyInput: String = ""
+    @Published public var openAIASRKeyInput: String = ""
     @Published public var savedProviderKeyFlags: [LLMProviderOption: Bool] = [:]
     @Published public var micAuthorized: Bool = false
     @Published public var speechAuthorized: Bool = false
@@ -62,6 +67,8 @@ public final class AppState: ObservableObject {
     @Published public var lastBenchmarkSummary: String = ""
     @Published public var isProbingSeedASR: Bool = false
     @Published public var lastSeedASRProbeSummary: String = ""
+    @Published public var isProbingOpenAIASR: Bool = false
+    @Published public var lastOpenAIASRProbeSummary: String = ""
     @Published public var showOnboardingSheet: Bool = false
     @Published public var isDownloadingOfflineModel: Bool = false
     @Published public var offlineDownloadProgress: Double = 0.0
@@ -99,9 +106,9 @@ public final class AppState: ObservableObject {
         loadHistory()
         self.apiKeyInput = KeychainHelper.loadAPIKey(for: llmConfig.selectedProvider)
         self.volcSpeechKeyInput = KeychainHelper.loadVolcSpeechAPIKey()
+        self.openAIASRKeyInput = KeychainHelper.loadOpenAIASROverrideKey()
         refreshSavedKeyFlags()
-        self.asrEngine.enableVolcSeedASR = llmConfig.enableVolcSeedASR
-        self.asrEngine.volcSpeechAPIKey = self.volcSpeechKeyInput
+        syncASREngineConfig()
         refreshPermissionStatus()
 
         if let savedSpecData = UserDefaults.standard.data(forKey: "tz_custom_hotkey_spec"),
@@ -156,7 +163,9 @@ public final class AppState: ObservableObject {
             // First-run colleague onboarding check:
             // Auto-complete silently on already-configured machines; open 3-step setup guide on a brand-new colleague's Mac!
             if !UserDefaults.standard.bool(forKey: "tz_onboarding_done_v1") {
-                let hasAnyASRReady = !self.volcSpeechKeyInput.isEmpty || StreamingASREngine.senseVoiceModelPaths() != nil
+                let hasAnyASRReady = !self.volcSpeechKeyInput.isEmpty
+                    || self.hasEffectiveOpenAIASRKey
+                    || StreamingASREngine.senseVoiceModelPaths() != nil
                 if self.micAuthorized && self.accessibilityGranted && hasAnyASRReady {
                     UserDefaults.standard.set(true, forKey: "tz_onboarding_done_v1")
                 } else {
@@ -347,6 +356,54 @@ public final class AppState: ObservableObject {
         refreshSavedKeyFlags()
     }
 
+    public var isGroqASRSelected: Bool {
+        OpenAITranscriptionClient.isGroqEndpoint(llmConfig.openAIASRBaseURL)
+    }
+
+    public var isOpenAIASRReusingLLMKey: Bool {
+        let overrideEmpty = openAIASRKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && KeychainHelper.loadOpenAIASROverrideKey().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard overrideEmpty, !isGroqASRSelected else { return false }
+        return (savedProviderKeyFlags[.openai] ?? false)
+            || (llmConfig.selectedProvider == .openai && !apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    public var effectiveOpenAIASRKey: String {
+        let typedOverride = openAIASRKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !typedOverride.isEmpty { return typedOverride }
+        let saved = KeychainHelper.loadEffectiveOpenAIASRAPIKey(for: llmConfig.openAIASRBaseURL)
+        if !saved.isEmpty { return saved }
+        if !isGroqASRSelected && llmConfig.selectedProvider == .openai {
+            return apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return ""
+    }
+
+    public var hasEffectiveOpenAIASRKey: Bool {
+        !effectiveOpenAIASRKey.isEmpty || PolishEngine.isKeylessLocalEndpoint(llmConfig.openAIASRBaseURL)
+    }
+
+    public func syncASREngineConfig() {
+        asrEngine.enableWhisperAGC = llmConfig.enableWhisperAGC
+        asrEngine.asrProvider = llmConfig.asrProvider
+        asrEngine.volcSpeechAPIKey = KeychainHelper.loadVolcSpeechAPIKey()
+        asrEngine.openAIASRBaseURL = llmConfig.openAIASRBaseURL
+        asrEngine.openAIASRModel = llmConfig.openAIASRModel
+        asrEngine.openAIASRAPIKey = effectiveOpenAIASRKey
+    }
+
+    public func selectASRProvider(_ provider: ASRProviderOption) {
+        guard llmConfig.asrProvider != provider else { return }
+        llmConfig.selectASRProvider(provider)
+    }
+
+    public func applyOpenAIASRPreset(baseURL: String, model: String) {
+        llmConfig.openAIASRBaseURL = baseURL
+        llmConfig.openAIASRModel = model
+        lastOpenAIASRProbeSummary = ""
+        syncASREngineConfig()
+    }
+
     public func saveAPIKey() {
         llmConfig.syncActiveEndpointEdits()
         if llmConfig.selectedProvider == .volcengine && llmConfig.modelName.hasPrefix("ep-") {
@@ -355,6 +412,8 @@ public final class AppState: ObservableObject {
         KeychainHelper.saveAPIKey(apiKeyInput, for: llmConfig.selectedProvider)
         apiKeyInput = KeychainHelper.loadAPIKey(for: llmConfig.selectedProvider)
         refreshSavedKeyFlags()
+        syncASREngineConfig()
+        speechAuthorized = StreamingASREngine.isSpeechAuthorized
         polishEngine.prewarmConnection(baseURL: llmConfig.baseURL, apiKey: apiKeyInput)
         lastBenchmarkSummary = ""
         statusBanner = apiKeyInput.isEmpty
@@ -365,12 +424,63 @@ public final class AppState: ObservableObject {
     public func saveVolcSpeechAPIKey() {
         KeychainHelper.saveVolcSpeechAPIKey(volcSpeechKeyInput)
         volcSpeechKeyInput = KeychainHelper.loadVolcSpeechAPIKey()
-        asrEngine.volcSpeechAPIKey = volcSpeechKeyInput
+        syncASREngineConfig()
         speechAuthorized = StreamingASREngine.isSpeechAuthorized
         lastSeedASRProbeSummary = ""
         statusBanner = volcSpeechKeyInput.isEmpty
-            ? "已清空豆包语音密钥，建议勾选纯本机 SenseVoice FP32 离线识别"
+            ? "已清空豆包语音密钥，建议勾选其他云端或本机离线识别"
             : "✅ 豆包 Seed-ASR 2.0 语音密钥已保存并生效"
+    }
+
+    public func saveOpenAIASRConfig() {
+        llmConfig.openAIASRBaseURL = llmConfig.openAIASRBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if llmConfig.openAIASRBaseURL.isEmpty {
+            llmConfig.openAIASRBaseURL = "https://api.openai.com/v1"
+        }
+        llmConfig.openAIASRModel = llmConfig.openAIASRModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        if llmConfig.openAIASRModel.isEmpty {
+            llmConfig.openAIASRModel = isGroqASRSelected ? "whisper-large-v3-turbo" : "gpt-4o-mini-transcribe"
+        }
+        KeychainHelper.saveOpenAIASRAPIKey(openAIASRKeyInput)
+        openAIASRKeyInput = KeychainHelper.loadOpenAIASROverrideKey()
+        syncASREngineConfig()
+        speechAuthorized = StreamingASREngine.isSpeechAuthorized
+        lastOpenAIASRProbeSummary = ""
+        asrEngine.prewarmCloudSocketIfReady()
+        let label = isGroqASRSelected ? "Groq Whisper" : "OpenAI 语音大模型"
+        if hasEffectiveOpenAIASRKey {
+            let keyNote = isOpenAIASRReusingLLMKey ? "（自动复用 OpenAI 密钥）" : ""
+            statusBanner = "✅ \(label)（\(llmConfig.openAIASRModel)）已保存并生效\(keyNote)"
+        } else {
+            statusBanner = "⚠️ 已保存 \(label) 接口设置，但当前尚未填入有效 API Key"
+        }
+    }
+
+    public func runOpenAIASRProbe() async {
+        guard !isProbingOpenAIASR else { return }
+        isProbingOpenAIASR = true
+        let label = isGroqASRSelected ? "Groq Whisper" : "OpenAI 语音"
+        lastOpenAIASRProbeSummary = "正在向 \(llmConfig.openAIASRModel) 发送 0.35s 音频实测端到端延迟…"
+        defer { isProbingOpenAIASR = false }
+
+        KeychainHelper.saveOpenAIASRAPIKey(openAIASRKeyInput)
+        openAIASRKeyInput = KeychainHelper.loadOpenAIASROverrideKey()
+        syncASREngineConfig()
+        let effectiveKey = effectiveOpenAIASRKey
+
+        do {
+            let rttMs = try await OpenAITranscriptionClient.probeLatency(
+                baseURL: llmConfig.openAIASRBaseURL,
+                model: llmConfig.openAIASRModel,
+                apiKey: effectiveKey
+            )
+            let hotCount = min(40, lexiconStore.entries.count)
+            let keyMode = isOpenAIASRReusingLLMKey ? "自动复用 OpenAI Key" : "独立密钥"
+            lastOpenAIASRProbeSummary = "⚡ 实测通过（\(llmConfig.openAIASRModel)）：音频上传+转写 \(rttMs)ms · \(keyMode) · 将注入 Top-\(hotCount) 词库提示"
+            statusBanner = "⚡ \(label) 连通成功：实测 \(rttMs)ms"
+        } catch {
+            lastOpenAIASRProbeSummary = "❌ \(label) 连通未通过：\(error.localizedDescription)"
+        }
     }
 
     public func startOfflineModelDownload() {
@@ -506,10 +616,8 @@ public final class AppState: ObservableObject {
         phase = .listening(livePreview: "", mode: .dictate)
         playSubtleCue("Tink", volume: 0.30)
 
-        // 2. Offload ~4ms AX input-box context inspection + Doubao IME-grade dialog_ctx + hotword ranking off MainActor!
-        asrEngine.enableWhisperAGC = llmConfig.enableWhisperAGC
-        asrEngine.enableVolcSeedASR = llmConfig.enableVolcSeedASR
-        asrEngine.volcSpeechAPIKey = KeychainHelper.loadVolcSpeechAPIKey()
+        // 2. Offload ~4ms AX input-box context inspection + Doubao/OpenAI hotword ranking off MainActor!
+        syncASREngineConfig()
         let localeID = llmConfig.speechLocale
         let entriesSnapshot = lexiconStore.entries
         let recentSnippets = Array(history.prefix(2).map(\.polishedText))
@@ -563,7 +671,10 @@ public final class AppState: ObservableObject {
         defer { isFinalizingSession = false }
         hotkeyMonitor.syncRecordingState(false)
 
-        let sessionUsedCloudSeedASR = asrEngine.activeSessionUsesCloudSeedASR
+        let sessionUsedPunctuatedCloudASR = asrEngine.activeSessionUsesAnyCloudASR
+        if asrEngine.activeSessionUsesOpenAIASR {
+            phase = .polishing(rawText: "云端语音转写中…")
+        }
         let (rawText, duration) = await asrEngine.finishStreaming()
         guard !rawText.isEmpty else {
             if isTypingInsideOwnApp {
@@ -572,7 +683,11 @@ public final class AppState: ObservableObject {
                 _ = liveInputSession?.updateLiveText("")
             }
             liveInputSession = nil
-            phase = .idle
+            if case .error = phase {
+                // Preserve error banner emitted by asrEngine.onError
+            } else {
+                phase = .idle
+            }
             return
         }
 
@@ -624,7 +739,7 @@ public final class AppState: ObservableObject {
             config: effectiveConfig,
             apiKey: key,
             isHighAccuracyLocalASR: asrEngine.isUsingSenseVoice,
-            isPunctuatedCloudASR: sessionUsedCloudSeedASR,
+            isPunctuatedCloudASR: sessionUsedPunctuatedCloudASR,
             onStreamChunk: { [weak self] chunk, isFirst in
                 guard let self else { return }
                 if self.isTypingInsideOwnApp && self.llmConfig.enableLiveInlineTyping {
