@@ -2,7 +2,7 @@
 
 **Ultra-low-latency native macOS AI voice dictation & Typeless-grade text structuring — built in pure Swift + C++.**
 
-[![Release](https://img.shields.io/badge/release-v0.4.2-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.4.3-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![Platform](https://img.shields.io/badge/macOS-14--27%20%7C%20Apple%20Silicon%20arm64-17161B?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![Notarized](https://img.shields.io/badge/Gatekeeper-Apple%20Notarized%20%C2%B7%20Developer%20ID-14804A?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![ASR](https://img.shields.io/badge/ASR-Seed--ASR%202.0%20%2B%20SenseVoice%20FP32-14804A?style=flat-square)](#dual-engine-architecture)
@@ -11,7 +11,7 @@
 
 **English** · [简体中文](./README.zh-CN.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md) · [Français](./README.fr.md)
 
-[**Download macOS DMG (v0.4.2)**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.2-macOS-arm64.dmg) · [Architecture Log](./docs/STATUS_LOG.md)
+[**Download macOS DMG (v0.4.3)**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.3-macOS-arm64.dmg) · [Architecture Log](./docs/STATUS_LOG.md)
 
 ![TypeZero Hero Showcase](./docs/images/hero-showcase-en.svg)
 
@@ -20,7 +20,7 @@
 ## Install in 10 Seconds
 
 ### Direct Download (Recommended)
-1. Download [**`TypeZero-v0.4.2-macOS-arm64.dmg`**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.2-macOS-arm64.dmg) and drag **`TypeZero.app`** into **`Applications`**.
+1. Download [**`TypeZero-v0.4.3-macOS-arm64.dmg`**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.3-macOS-arm64.dmg) and drag **`TypeZero.app`** into **`Applications`**.
 2. Open **TypeZero** — the built-in 3-step onboarding wizard guides you through Microphone & Accessibility permissions, API keys (stored solely in your macOS Keychain), and your preferred global hotkey.
 
 ### Homebrew Cask
@@ -94,7 +94,7 @@ cd TypeZero
 # 1. Fetch sherpa-onnx macOS arm64 shared C runtime
 ./scripts/setup-vendor.sh
 
-# 2. Run 34 deterministic core regression assertions (0 compiler warnings)
+# 2. Run 38 deterministic core regression assertions (0 compiler warnings)
 ./scripts/run-tests.sh
 
 # 3. Build TypeZero.app (auto-signs with Developer ID if installed, else ad-hoc)

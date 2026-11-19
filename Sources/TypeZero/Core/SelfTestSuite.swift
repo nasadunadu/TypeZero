@@ -110,6 +110,31 @@ public enum SelfTestSuite {
             normQ == "今天发财报会不会一样？ 太好了！",
             "Normalizes stray half-width ?/! directly after CJK characters to crisp full-width punctuation"
         )
+        let noBlankLines = PolishEngine.applyPostFormattingRules(
+            "第一段说明。\n\n第二段继续。",
+            context: .empty,
+            config: .default
+        )
+        expect(
+            noBlankLines == "第一段说明。\n第二段继续。",
+            "Collapses unwanted blank empty lines (\\n\\n) to clean single newline"
+        )
+        let strippedMd = PolishEngine.applyPostFormattingRules(
+            "### 核心结论\n这是**重点内容**，请确认。",
+            context: ActiveScreenContext(appName: "微信", bundleID: "com.tencent.xinwechat", windowTitle: "", selectedText: "", precedingText: "", hasFocusedTextInput: true),
+            config: .default
+        )
+        expect(
+            strippedMd == "核心结论\n这是重点内容，请确认。",
+            "Strips stray Markdown headings/bold markers in non-code chat/doc apps"
+        )
+        expect(
+            PersonalLexiconStore.isCommonOrDisposableAutoLearnTerm("v0.4.2")
+                && PersonalLexiconStore.isCommonOrDisposableAutoLearnTerm("今天")
+                && !PersonalLexiconStore.isCommonOrDisposableAutoLearnTerm("星河")
+                && !PersonalLexiconStore.isCommonOrDisposableAutoLearnTerm("DeepSeek"),
+            "Auto-learn pollution filter skips common words & version numbers while keeping proper nouns"
+        )
 
         // 5. Keychain Provider Slot Isolation & Safety Guardrail
         expect(KeychainHelper.providerSlot(for: "https://api.deepseek.com/v1") == "deepseek_api_key", "Routes DeepSeek slot")

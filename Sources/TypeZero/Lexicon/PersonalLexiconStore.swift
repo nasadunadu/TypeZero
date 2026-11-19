@@ -221,12 +221,33 @@ public final class PersonalLexiconStore: ObservableObject {
 
             for eLine in editedLines {
                 if let pair = Self.extractSingleWordReplacement(origLine: oLine, editedLine: eLine) {
+                    guard !Self.isCommonOrDisposableAutoLearnTerm(pair.corrected) else { continue }
                     upsert(term: pair.corrected, aliases: [pair.wrong], category: .autoLearned, weight: 8)
                     return pair
                 }
             }
         }
         return nil
+    }
+
+    /// Prevents everyday Chinese words, version numbers, dates, or file paths from polluting the auto-learned personal lexicon.
+    public static func isCommonOrDisposableAutoLearnTerm(_ term: String) -> Bool {
+        let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 2 else { return true }
+        // Reject URLs, file paths, pure digits, dates, and version numbers (e.g. `v0.4.2`, `2026-11-19`, `1234`)
+        if trimmed.contains("/") || trimmed.contains("\\") || trimmed.contains("://") { return true }
+        let disposablePattern = #"^(?:[vV]?\d+(?:[.\-]\d+)*|\d+[年月日时分秒天周月个次项%]?)$"#
+        if trimmed.range(of: disposablePattern, options: .regularExpression) != nil { return true }
+
+        let commonWords: Set<String> = [
+            "今天", "明天", "昨天", "现在", "刚才", "马上", "以后", "之前", "时候", "时间",
+            "可以", "没有", "不是", "好的", "没问题", "什么", "怎么", "为什么", "应该", "需要",
+            "因为", "所以", "但是", "如果", "然后", "不过", "另外", "还有", "而且", "或者",
+            "这个", "那个", "这些", "那些", "这样", "那样", "这里", "那里", "自己", "大家",
+            "一下", "一起", "一直", "一定", "一点", "一般", "已经", "还是", "就是", "只是",
+            "知道", "觉得", "希望", "看看", "意思", "问题", "地方", "东西", "事情", "工作"
+        ]
+        return commonWords.contains(trimmed)
     }
 
     /// Learns directly when user selects a misheard word/phrase and uses hotkey voice rewrite (e.g. "改成星河" / "这是 SEO").
