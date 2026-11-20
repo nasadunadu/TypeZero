@@ -255,7 +255,7 @@ footer {
       </div>
       <div class="card">
         <h3>3. 对代码/会议隐私敏感、需要高铁飞机断网可用</h3>
-        <p>TypeZero 经过 Apple Developer ID 公证且 MIT 开源，无任何第三方中转服务器；开启本地 SenseVoice FP32 后，哪怕完全断网依然保持高准确率输入。</p>
+        <p>TypeZero 使用 Developer ID 签名且 MIT 全量开源，无任何第三方中转服务器；开启本地 SenseVoice FP32 后，哪怕完全断网依然保持高准确率输入。</p>
       </div>
       <div class="card">
         <h3>4. 什么时候仍建议选 Typeless？</h3>
@@ -277,14 +277,14 @@ footer {
       </details>
       <details>
         <summary>支持哪些 Mac 机型？需要关闭系统安全保护吗？</summary>
-        <p>支持 macOS 14.0+ 的 Apple Silicon（M1 / M2 / M3 / M4 系列）Mac。安装包已通过 Apple Developer ID 正式签名与公证，无需任何绕过 Gatekeeper 的命令行操作，拖进「应用程序」即可运行。</p>
+        <p>支持 macOS 14.0+ 的 Apple Silicon（M1 / M2 / M3 / M4 系列）Mac。安装包已使用 Developer ID 签名；若首次打开遇 macOS 安全提示，前往「系统设置 → 隐私与安全性」底部点「仍要打开」，或在终端执行 <code>xattr -cr /Applications/TypeZero.app</code> 即可运行。</p>
       </details>
     </div>
   </section>
 
   <section class="final-box">
     <h2 style="margin-top:0">10 秒换掉订阅制，体验 121ms 开口即终稿</h2>
-    <p style="color:var(--text-dim); margin:0 0 22px">TypeZero v0.4.9 · Apple 公证原生 DMG (12 MB) · MIT 永久免费</p>
+    <p style="color:var(--text-dim); margin:0 0 22px">TypeZero v0.4.9 · Developer ID 签名原生 DMG (12 MB) · MIT 永久免费</p>
     <div class="cta-row">
       <a class="btn btn-glow" href="/downloads/TypeZero-v0.4.9-macOS-arm64.dmg" download data-umami-event="download-dmg" data-umami-event-source="vs-typeless-footer">⬇ 国内高速直连下载 DMG</a>
       <a class="btn btn-ghost" href="https://github.com/nasadunadu/TypeZero" target="_blank" rel="noopener">查看 GitHub 源码</a>

@@ -4,7 +4,7 @@
 
 [![Release](https://img.shields.io/badge/release-v0.4.9-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![Platform](https://img.shields.io/badge/macOS-14--27%20%7C%20Apple%20Silicon%20arm64-17161B?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
-[![Notarized](https://img.shields.io/badge/Gatekeeper-Apple%20Notarized%20%C2%B7%20Developer%20ID-14804A?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
+[![Signed](https://img.shields.io/badge/CodeSign-Developer%20ID%20Signed-14804A?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![ASR](https://img.shields.io/badge/ASR-Seed--ASR%202.0%20%2B%20SenseVoice%20FP32-14804A?style=flat-square)](#dual-engine-architecture)
 [![Privacy](https://img.shields.io/badge/Security-BYOK%20%C2%B7%20macOS%20Keychain-5A46E8?style=flat-square)](./SECURITY.md)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
@@ -21,7 +21,7 @@
 
 ### Direct Download (Recommended)
 1. Download [**`TypeZero-v0.4.9-macOS-arm64.dmg`**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.9-macOS-arm64.dmg) and drag **`TypeZero.app`** into **`Applications`**.
-2. Open **TypeZero** — the built-in 3-step onboarding wizard guides you through Microphone & Accessibility permissions, API keys (stored solely in your macOS Keychain), and your preferred global hotkey.
+2. Open **TypeZero** (if macOS shows a Gatekeeper notice on first launch, click **Open Anyway** in *System Settings → Privacy & Security*, or run `xattr -cr /Applications/TypeZero.app`) — the built-in 3-step onboarding wizard guides you through Microphone & Accessibility permissions, API keys (stored solely in your macOS Keychain), and your preferred global hotkey.
 
 ### Homebrew Cask
 ```bash

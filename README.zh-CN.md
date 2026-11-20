@@ -4,7 +4,7 @@
 
 [![Release](https://img.shields.io/badge/release-v0.4.9-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![Platform](https://img.shields.io/badge/macOS-14--27%20%7C%20Apple%20Silicon%20arm64-17161B?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
-[![Notarized](https://img.shields.io/badge/公证签名-Apple%20Notarized%20%C2%B7%20Developer%20ID-14804A?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
+[![Signed](https://img.shields.io/badge/代码签名-Developer%20ID%20Signed-14804A?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![ASR](https://img.shields.io/badge/双擎声学-Seed--ASR%202.0%20%2B%20SenseVoice%20FP32-14804A?style=flat-square)](#双擎声学与极速管线架构)
 [![Privacy](https://img.shields.io/badge/隐私安全-BYOK%20%C2%B7%20macOS%20钥匙串-5A46E8?style=flat-square)](./SECURITY.md)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
