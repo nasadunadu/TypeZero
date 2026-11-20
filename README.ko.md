@@ -2,7 +2,7 @@
 
 **순수 Swift + C++로 제작된 초저지연 네이티브 macOS AI 음성 입력 및 구조화 텍스트 정리 앱**
 
-[![Release](https://img.shields.io/badge/release-v0.4.5-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.4.6-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![Platform](https://img.shields.io/badge/macOS-14--27%20%7C%20Apple%20Silicon%20arm64-17161B?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![Notarized](https://img.shields.io/badge/Gatekeeper-Apple%20Notarized%20%C2%B7%20Developer%20ID-14804A?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![ASR](https://img.shields.io/badge/ASR-Seed--ASR%202.0%20%2B%20SenseVoice%20FP32-14804A?style=flat-square)](#듀얼-엔진-음성-인식-아키텍처)
@@ -11,7 +11,7 @@
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [日本語](./README.ja.md) · **한국어** · [Français](./README.fr.md)
 
-[**macOS 설치 파일 다운로드 (DMG v0.4.5)**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.5-macOS-arm64.dmg) · [아키텍처 로그](./docs/STATUS_LOG.md)
+[**macOS 설치 파일 다운로드 (DMG v0.4.6)**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.6-macOS-arm64.dmg) · [아키텍처 로그](./docs/STATUS_LOG.md)
 
 ![TypeZero Hero Showcase](./docs/images/hero-showcase-en.svg)
 
@@ -20,7 +20,7 @@
 ## 10초 만에 설치하기
 
 ### 직접 다운로드 (권장 · Apple 공증 완료)
-1. [**`TypeZero-v0.4.5-macOS-arm64.dmg`**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.5-macOS-arm64.dmg)를 다운로드한 뒤 **`TypeZero.app`**을 **`Applications`** 폴더로 드래그하세요.
+1. [**`TypeZero-v0.4.6-macOS-arm64.dmg`**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.6-macOS-arm64.dmg)를 다운로드한 뒤 **`TypeZero.app`**을 **`Applications`** 폴더로 드래그하세요.
 2. **TypeZero**를 실행하면 3단계 온보딩 마법사가 마이크/손쉬운 사용 권한, API 키(macOS 시스템 키체인에만 암호화 저장), 전역 단축키 설정을 안내합니다.
 
 ### Homebrew Cask

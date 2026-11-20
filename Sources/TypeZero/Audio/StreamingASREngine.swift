@@ -72,6 +72,14 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
     private var didFlushMicroPauseTail: Bool = false
     private var openAIActiveHotwords: [String] = []
     private var openAIActiveLocale: String = "zh-CN"
+    /// Rolling 220ms pre-roll ring buffer captured while mic is hot-standby (KeyDown / 15s keep-alive)
+    /// so the very first syllable spoken right at keypress is NEVER clipped!
+    private var preRollSamples: [Float] = []
+    private var isCaptureActive: Bool = false
+    private var isTapInstalled: Bool = false
+    private var activeMaxBackupSamples: Int = 48_000 * 90
+    private var idleHardwareShutdownWorkItem: DispatchWorkItem?
+    private let hotMicKeepAliveSeconds: Double = 15.0
     private let modelInitLock = NSLock()
 
     public override init() {
@@ -84,10 +92,13 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
         ) { [weak self] _ in
             guard let self else { return }
             self.audioControlQueue.async {
-                // If user plugged/unplugged AirPods or USB mic while idle, drop stale graph so next session binds fresh sample rate!
-                if self.audioEngine?.isRunning != true {
-                    self.audioEngine = nil
-                    self.pcm16Converter = nil
+                // If user plugged/unplugged AirPods or USB mic while not actively dictating,
+                // tear down stale graph cleanly so next session binds the fresh hardware sample rate!
+                self.sampleLock.lock()
+                let capturing = self.isCaptureActive
+                self.sampleLock.unlock()
+                if !capturing {
+                    self.shutdownAudioHardwareCompletely()
                 }
             }
         }
@@ -256,12 +267,157 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
         }
     }
 
+    /// Wakes hardware microphone immediately on KeyDown (before key release) and keeps a rolling
+    /// ~220ms pre-roll buffer in memory so zero opening syllables are ever clipped.
+    public func prewarmHotMicAsync() {
+        guard Self.isMicrophoneAuthorized else { return }
+        audioControlQueue.async { [weak self] in
+            guard let self else { return }
+            self.idleHardwareShutdownWorkItem?.cancel()
+            self.idleHardwareShutdownWorkItem = nil
+            do {
+                _ = try self.ensureHotMicRunning()
+                self.scheduleIdleHardwareShutdown()
+            } catch {
+                // Non-fatal during prewarm; startStreamingAsync will surface any real permission error.
+            }
+        }
+    }
+
+    private func ensureHotMicRunning() throws -> AVAudioFormat {
+        let engine: AVAudioEngine
+        if let existing = self.audioEngine {
+            engine = existing
+        } else {
+            let fresh = AVAudioEngine()
+            self.audioEngine = fresh
+            engine = fresh
+            self.isTapInstalled = false
+        }
+
+        let inputNode = engine.inputNode
+        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        guard recordingFormat.sampleRate > 0, recordingFormat.channelCount > 0 else {
+            throw NSError(domain: "TypeZero.ASR", code: -2, userInfo: [NSLocalizedDescriptionKey: "麦克风输入不可用，请检查麦克风权限"])
+        }
+
+        let hwRate = Int32(recordingFormat.sampleRate)
+        sampleLock.lock()
+        if currentSampleRate != hwRate {
+            currentSampleRate = hwRate
+            preRollSamples.removeAll(keepingCapacity: true)
+        }
+        sampleLock.unlock()
+
+        if !isTapInstalled {
+            inputNode.removeTap(onBus: 0)
+            inputNode.installTap(onBus: 0, bufferSize: 512, format: recordingFormat) { [weak self] buffer, _ in
+                self?.handleIncomingAudioBuffer(buffer)
+            }
+            isTapInstalled = true
+        }
+
+        if !engine.isRunning {
+            engine.prepare()
+            try engine.start()
+        }
+        return recordingFormat
+    }
+
+    private func handleIncomingAudioBuffer(_ buffer: AVAudioPCMBuffer) {
+        guard let channel0 = buffer.floatChannelData?[0] else { return }
+        let count = Int(buffer.frameLength)
+        guard count > 0 else { return }
+
+        sampleLock.lock()
+        let capturing = self.isCaptureActive
+        if !capturing {
+            // Hot-standby mode: silently maintain a rolling ~220ms pre-roll ring buffer (zero network/CPU/UI work)
+            let maxPreRoll = max(1600, Int(Double(self.currentSampleRate) * 0.22))
+            self.preRollSamples.append(contentsOf: UnsafeBufferPointer(start: channel0, count: count))
+            if self.preRollSamples.count > maxPreRoll {
+                self.preRollSamples.removeFirst(self.preRollSamples.count - maxPreRoll)
+            }
+            sampleLock.unlock()
+            return
+        }
+        let maxBackupSamples = self.activeMaxBackupSamples
+        let currentlyVolcCloud = self.activeSessionUsesCloudSeedASR
+        let currentlyOpenAICloud = self.activeSessionUsesOpenAIASR
+        let currentlyAnyCloud = currentlyVolcCloud || currentlyOpenAICloud
+        sampleLock.unlock()
+
+        let (normLevel, rawRMS) = Self.calculateRMSMetrics(buffer: buffer)
+        AudioLevelBus.shared.push(normLevel)
+
+        let voiceThreshold: Float = self.enableWhisperAGC ? 0.0024 : 0.0080
+        let isVoiceFrame = rawRMS > voiceThreshold
+
+        // Preserve full-spectrum hardware PCM (all high-frequency Mandarin sibilants 4kHz-10kHz intact!)
+        self.sampleLock.lock()
+        guard self.isCaptureActive else {
+            self.sampleLock.unlock()
+            return
+        }
+        if !currentlyOpenAICloud {
+            self.activeSegmentSamples.append(contentsOf: UnsafeBufferPointer(start: channel0, count: count))
+        }
+        if currentlyAnyCloud && self.cloudFailoverBackupSamples.count < maxBackupSamples {
+            self.cloudFailoverBackupSamples.append(contentsOf: UnsafeBufferPointer(start: channel0, count: count))
+        }
+        var virtualOpenAICount: Int? = nil
+        if isVoiceFrame {
+            self.hasDetectedSpeechInSegment = true
+            self.hasDetectedSpeechOverall = true
+            self.didFlushMicroPauseTail = false
+            self.totalVoiceSamplesInSegment += count
+            self.consecutiveSilentSamples = 0
+            if currentlyOpenAICloud {
+                // Drive subtle rhythmic progress indicator in the floating capsule while recording for batch cloud ASR
+                let stepSamples = max(1, Int(self.currentSampleRate) / 5) // ~200ms of speech per rhythm pulse
+                virtualOpenAICount = max(1, self.totalVoiceSamplesInSegment / stepSamples)
+            }
+        } else {
+            self.consecutiveSilentSamples += count
+            let maxIdlePreRoll = Int(self.currentSampleRate) / 4
+            if !currentlyOpenAICloud && !self.hasDetectedSpeechInSegment && self.activeSegmentSamples.count > maxIdlePreRoll {
+                let excess = self.activeSegmentSamples.count - maxIdlePreRoll
+                self.activeSegmentSamples.removeFirst(excess)
+            }
+            if currentlyAnyCloud && !self.hasDetectedSpeechOverall && self.cloudFailoverBackupSamples.count > maxIdlePreRoll {
+                let excess = self.cloudFailoverBackupSamples.count - maxIdlePreRoll
+                self.cloudFailoverBackupSamples.removeFirst(excess)
+            }
+        }
+        self.sampleLock.unlock()
+
+        if let pulse = virtualOpenAICount {
+            AudioLevelBus.shared.pushRecognizedCount(pulse)
+        }
+
+        if currentlyVolcCloud {
+            let pcm16 = self.convertMonoFloatTo16kHzPCM16(channel0: channel0, count: count, rawRMS: rawRMS, isVoice: isVoiceFrame)
+            if !pcm16.isEmpty {
+                self.seedASRClient.appendPCM16Samples(pcm16)
+            }
+        }
+    }
+
     private func startStreamingInternal(
         localeIdentifier: String = "zh-CN",
         contextualStrings: [String] = [],
         dialogContext: [String] = []
     ) throws {
-        pauseActiveTapOnly()
+        idleHardwareShutdownWorkItem?.cancel()
+        idleHardwareShutdownWorkItem = nil
+        liveTimer?.cancel()
+        liveTimer = nil
+        cloudWatchdogTimer?.cancel()
+        cloudWatchdogTimer = nil
+        fallbackRequest?.endAudio()
+        fallbackTask?.cancel()
+        fallbackRequest = nil
+        fallbackTask = nil
 
         if senseVoiceHandle == nil {
             loadSenseVoiceIfAvailable()
@@ -270,22 +426,6 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
         latestTranscript = ""
         sessionStartTime = Date()
 
-        let engine: AVAudioEngine
-        if let existing = self.audioEngine {
-            engine = existing
-        } else {
-            let fresh = AVAudioEngine()
-            self.audioEngine = fresh
-            engine = fresh
-        }
-
-        let inputNode = engine.inputNode
-        inputNode.removeTap(onBus: 0)
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-        guard recordingFormat.sampleRate > 0, recordingFormat.channelCount > 0 else {
-            throw NSError(domain: "TypeZero.ASR", code: -2, userInfo: [NSLocalizedDescriptionKey: "麦克风输入不可用，请检查麦克风权限"])
-        }
-
         let cleanSpeechKey = volcSpeechAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanOpenAIKey = openAIASRAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let wantCloudSeedASR = (asrProvider == .volcSeedASR) && !cleanSpeechKey.isEmpty
@@ -293,6 +433,7 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
         let hasLocalSenseVoice = isUsingSenseVoice && (senseVoiceHandle != nil)
 
         if wantCloudSeedASR || wantOpenAIASR || hasLocalSenseVoice {
+            let recordingFormat = try ensureHotMicRunning()
             let hwRate = Int32(recordingFormat.sampleRate)
 
             if wantCloudSeedASR,
@@ -309,7 +450,25 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
             let maxBackupSamples = Int(hwRate) * (wantOpenAIASR ? 180 : 90)
             let isAnyCloudMode = wantCloudSeedASR || wantOpenAIASR
 
+            if wantCloudSeedASR {
+                seedASRClient.startSession(
+                    apiKey: cleanSpeechKey,
+                    hotwords: contextualStrings,
+                    dialogContext: dialogContext
+                )
+            } else if wantOpenAIASR {
+                openAIASRClient.prewarmConnection(baseURL: openAIASRBaseURL, apiKey: cleanOpenAIKey)
+            }
+
+            // Seamlessly prepend up to 180ms of hot-standby pre-roll audio so the opening syllable is 100% preserved!
+            let maxInjectSamples = max(800, Int(Double(hwRate) * 0.18))
             sampleLock.lock()
+            let preRollToInject: [Float] = preRollSamples.count > maxInjectSamples
+                ? Array(preRollSamples.suffix(maxInjectSamples))
+                : preRollSamples
+            preRollSamples.removeAll(keepingCapacity: true)
+
+            activeMaxBackupSamples = maxBackupSamples
             activeSessionUsesCloudSeedASR = wantCloudSeedASR
             activeSessionUsesOpenAIASR = wantOpenAIASR
             openAIActiveHotwords = wantOpenAIASR ? contextualStrings : []
@@ -319,6 +478,14 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
             cloudFailoverBackupSamples.removeAll(keepingCapacity: true)
             if isAnyCloudMode {
                 cloudFailoverBackupSamples.reserveCapacity(Int(hwRate) * 20)
+            }
+            if !preRollToInject.isEmpty {
+                if !wantOpenAIASR {
+                    activeSegmentSamples.append(contentsOf: preRollToInject)
+                }
+                if isAnyCloudMode {
+                    cloudFailoverBackupSamples.append(contentsOf: preRollToInject)
+                }
             }
             frozenTranscriptPrefix = ""
             currentSampleRate = hwRate
@@ -330,82 +497,16 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
             hasDetectedSpeechOverall = false
             didFlushMicroPauseTail = false
             consecutiveSilentSamples = 0
+            isCaptureActive = true
             sampleLock.unlock()
 
-            if wantCloudSeedASR {
-                seedASRClient.startSession(
-                    apiKey: cleanSpeechKey,
-                    hotwords: contextualStrings,
-                    dialogContext: dialogContext
-                )
-            } else if wantOpenAIASR {
-                openAIASRClient.prewarmConnection(baseURL: openAIASRBaseURL, apiKey: cleanOpenAIKey)
-            }
-
-            inputNode.installTap(onBus: 0, bufferSize: 512, format: recordingFormat) { [weak self] buffer, _ in
-                guard let self, let channel0 = buffer.floatChannelData?[0] else { return }
-                let count = Int(buffer.frameLength)
-                guard count > 0 else { return }
-
-                let (normLevel, rawRMS) = Self.calculateRMSMetrics(buffer: buffer)
-                AudioLevelBus.shared.push(normLevel)
-
-                let voiceThreshold: Float = self.enableWhisperAGC ? 0.0024 : 0.0080
-                let isVoiceFrame = rawRMS > voiceThreshold
-
-                // Preserve full-spectrum hardware PCM (all high-frequency Mandarin sibilants 4kHz-10kHz intact!)
-                self.sampleLock.lock()
-                let currentlyVolcCloud = self.activeSessionUsesCloudSeedASR
-                let currentlyOpenAICloud = self.activeSessionUsesOpenAIASR
-                let currentlyAnyCloud = currentlyVolcCloud || currentlyOpenAICloud
-                if !currentlyOpenAICloud {
-                    self.activeSegmentSamples.append(contentsOf: UnsafeBufferPointer(start: channel0, count: count))
-                }
-                if currentlyAnyCloud && self.cloudFailoverBackupSamples.count < maxBackupSamples {
-                    self.cloudFailoverBackupSamples.append(contentsOf: UnsafeBufferPointer(start: channel0, count: count))
-                }
-                var virtualOpenAICount: Int? = nil
-                if isVoiceFrame {
-                    self.hasDetectedSpeechInSegment = true
-                    self.hasDetectedSpeechOverall = true
-                    self.didFlushMicroPauseTail = false
-                    self.totalVoiceSamplesInSegment += count
-                    self.consecutiveSilentSamples = 0
-                    if currentlyOpenAICloud {
-                        // Drive subtle rhythmic progress indicator in the floating capsule while recording for batch cloud ASR
-                        let stepSamples = max(1, Int(self.currentSampleRate) / 5) // ~200ms of speech per rhythm pulse
-                        virtualOpenAICount = max(1, self.totalVoiceSamplesInSegment / stepSamples)
-                    }
-                } else {
-                    self.consecutiveSilentSamples += count
-                    let maxIdlePreRoll = Int(self.currentSampleRate) / 4
-                    if !currentlyOpenAICloud && !self.hasDetectedSpeechInSegment && self.activeSegmentSamples.count > maxIdlePreRoll {
-                        let excess = self.activeSegmentSamples.count - maxIdlePreRoll
-                        self.activeSegmentSamples.removeFirst(excess)
-                    }
-                    if currentlyAnyCloud && !self.hasDetectedSpeechOverall && self.cloudFailoverBackupSamples.count > maxIdlePreRoll {
-                        let excess = self.cloudFailoverBackupSamples.count - maxIdlePreRoll
-                        self.cloudFailoverBackupSamples.removeFirst(excess)
-                    }
-                }
-                self.sampleLock.unlock()
-
-                if let pulse = virtualOpenAICount {
-                    AudioLevelBus.shared.pushRecognizedCount(pulse)
-                }
-
-                if currentlyVolcCloud {
-                    let pcm16 = self.convertMonoFloatTo16kHzPCM16(channel0: channel0, count: count, rawRMS: rawRMS, isVoice: isVoiceFrame)
-                    if !pcm16.isEmpty {
-                        self.seedASRClient.appendPCM16Samples(pcm16)
-                    }
+            if wantCloudSeedASR && !preRollToInject.isEmpty {
+                let prePCM16 = Self.resampleFloatTo16kHzInt16(preRollToInject, sourceRate: Double(hwRate))
+                if !prePCM16.isEmpty {
+                    seedASRClient.appendPCM16Samples(prePCM16)
                 }
             }
 
-            if !engine.isRunning {
-                engine.prepare()
-                try engine.start()
-            }
             if wantCloudSeedASR {
                 startCloudWatchdogLoop()
             } else if !wantOpenAIASR {
@@ -415,6 +516,14 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
         }
 
         // Fallback Apple Speech
+        shutdownAudioHardwareCompletely()
+        let engine = AVAudioEngine()
+        self.audioEngine = engine
+        let inputNode = engine.inputNode
+        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        guard recordingFormat.sampleRate > 0, recordingFormat.channelCount > 0 else {
+            throw NSError(domain: "TypeZero.ASR", code: -2, userInfo: [NSLocalizedDescriptionKey: "麦克风输入不可用，请检查麦克风权限"])
+        }
         let recognizer = SFSpeechRecognizer(locale: Locale(identifier: localeIdentifier)) ?? SFSpeechRecognizer()
         guard let recognizer, recognizer.isAvailable else {
             throw NSError(domain: "TypeZero.ASR", code: -1, userInfo: [NSLocalizedDescriptionKey: "未找到本地模型且系统听写未就绪"])
@@ -836,7 +945,7 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
                 return ("", elapsed)
             }
 
-            if let cloudFinal = await seedASRClient.finishAndAwaitFinalTranscript(timeoutMs: 520),
+            if let cloudFinal = await seedASRClient.finishAndAwaitFinalTranscript(timeoutMs: 1200),
                !cloudFinal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 clearSessionBuffers()
                 DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .milliseconds(120)) { [weak self] in
@@ -999,18 +1108,50 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
         liveTimer = nil
         cloudWatchdogTimer?.cancel()
         cloudWatchdogTimer = nil
+        sampleLock.lock()
+        isCaptureActive = false
+        preRollSamples.removeAll(keepingCapacity: true)
+        sampleLock.unlock()
+        fallbackRequest?.endAudio()
+        fallbackTask?.cancel()
+        fallbackRequest = nil
+        fallbackTask = nil
+
+        // Keep CoreAudio mic warm for 15s for instant 0ms back-to-back dictation;
+        // auto-shutdown after 15s of inactivity so the macOS orange mic indicator turns off cleanly.
+        scheduleIdleHardwareShutdown()
+    }
+
+    private func scheduleIdleHardwareShutdown() {
+        idleHardwareShutdownWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.sampleLock.lock()
+            let capturing = self.isCaptureActive
+            self.sampleLock.unlock()
+            guard !capturing else { return }
+            self.shutdownAudioHardwareCompletely()
+        }
+        idleHardwareShutdownWorkItem = work
+        audioControlQueue.asyncAfter(deadline: .now() + hotMicKeepAliveSeconds, execute: work)
+    }
+
+    private func shutdownAudioHardwareCompletely() {
+        idleHardwareShutdownWorkItem?.cancel()
+        idleHardwareShutdownWorkItem = nil
+        sampleLock.lock()
+        isCaptureActive = false
+        preRollSamples.removeAll(keepingCapacity: false)
+        sampleLock.unlock()
         if let engine = audioEngine {
             if engine.isRunning {
                 engine.stop()
             }
             engine.inputNode.removeTap(onBus: 0)
-            // Keep CoreAudio graph warm & pre-allocated for instant next launch!
             engine.prepare()
         }
-        fallbackRequest?.endAudio()
-        fallbackTask?.cancel()
-        fallbackRequest = nil
-        fallbackTask = nil
+        isTapInstalled = false
+        pcm16Converter = nil
     }
 
     private func clearSessionBuffers() {

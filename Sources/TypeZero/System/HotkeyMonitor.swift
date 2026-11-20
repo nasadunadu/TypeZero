@@ -49,6 +49,7 @@ public final class HotkeyMonitor {
         }
     }
 
+    public var onPrewarmMic: (() -> Void)?
     public var onTriggerStart: (() -> Void)?
     public var onTriggerStop: (() -> Void)?
     public var onCancel: (() -> Void)?
@@ -385,6 +386,9 @@ public final class HotkeyMonitor {
                 isRecordingToggledOn = false
                 swallowNextReleaseAfterInstantStop = true
                 DispatchQueue.main.async { self.onTriggerStop?() }
+            } else {
+                // KeyDown zero-wait mic pre-roll: wake hardware mic & fill pre-roll ring buffer BEFORE key release!
+                DispatchQueue.main.async { self.onPrewarmMic?() }
             }
         } else {
             if Self.hasConflictingModifiers(option: triggerOption, rawFlags: rawFlags) {
@@ -413,6 +417,8 @@ public final class HotkeyMonitor {
             pendingHoldStartWorkItem = nil
 
             if triggerOption.isComboProneLeftModifier {
+                // Wake mic immediately on KeyDown so 140ms combo-debounce never clips the opening syllable!
+                DispatchQueue.main.async { self.onPrewarmMic?() }
                 // 140ms debounce on Left Cmd/Shift/Opt/Ctrl so `⌘+C` or `⇧+A` never triggers Tink sound!
                 let work = DispatchWorkItem { [weak self] in
                     guard let self, self.isModifierPhysicallyDown, !self.otherKeyPressedDuringHold else { return }

@@ -16,6 +16,9 @@ enum TZTheme {
     static let lilacTint    = Color(red: 0.925, green: 0.914, blue: 0.984) // #ECE9FB Soft Lilac
     static let emerald      = Color(red: 0.078, green: 0.502, blue: 0.290) // #14804A Crisp Emerald
     static let emeraldTint  = Color(red: 0.890, green: 0.961, blue: 0.918)
+    static let activeGreen       = Color(red: 0.055, green: 0.635, blue: 0.345) // #0EA258 Vibrant Running Green
+    static let activeGreenBg     = Color(red: 0.875, green: 0.972, blue: 0.922) // #DFF8EB Fresh Mint Card Fill
+    static let activeGreenBorder = Color(red: 0.075, green: 0.655, blue: 0.365) // #13A75D Crisp Active Border
     static let amber        = Color(red: 0.780, green: 0.435, blue: 0.055)
     static let amberTint    = Color(red: 0.988, green: 0.949, blue: 0.882)
     static let crimson      = Color(red: 0.820, green: 0.196, blue: 0.235)
@@ -1191,13 +1194,15 @@ struct FilterPillButton: View {
 
 struct EngineSettingsSection: View {
     @ObservedObject var appState: AppState
+    @State private var expandedASRProvider: ASRProviderOption? = nil
+    @State private var expandedLLMProvider: LLMProviderOption? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             TZEditorialHeader(
                 badge: "STUDIO PREFERENCES",
                 title: "引擎与快捷键设置",
-                subtitle: "左右侧全套修饰键与自定义组合键一键绑定 ｜ 语音与排版模型勾选哪个生效哪个，密钥内聚同框"
+                subtitle: "左右侧全套修饰键与自定义组合键一键绑定 ｜ 点开配置并校验通过后才切换唯一生效引擎"
             )
 
             // Card 1: Global Hotkey (Full Left & Right + Custom Recorder) & Input Behavior
@@ -1290,63 +1295,65 @@ struct EngineSettingsSection: View {
             }
             .tzCardSurface(cornerRadius: 14, padding: 16)
 
-            // Card 2: Acoustic Recognition Engine & Key (Check to Activate — Unified 3-Engine Box)
+            // Card 2: Acoustic Recognition Engine & Key (Expand to Inspect -> Verify & Activate Only on Explicit Confirm)
             VStack(alignment: .leading, spacing: 11) {
                 HStack {
                     Text("2. 语音识别引擎与密钥")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(TZTheme.inkPrimary)
                     Spacer()
-                    Text("勾选即生效 · 断网自动无损回退本机热备")
+                    Text("点开配置并校验通过后才生效 · 唯一生效引擎")
                         .font(.system(size: 11.5))
                         .foregroundStyle(TZTheme.inkMuted)
                 }
 
                 // ASR Option A: Doubao Seed-ASR 2.0 + Inline Key
-                let volcASRSelected = (appState.llmConfig.asrProvider == .volcSeedASR)
+                let volcASRActive = (appState.llmConfig.asrProvider == .volcSeedASR)
+                let volcASRExpanded = (expandedASRProvider == .volcSeedASR)
                 let hasVolcSpeechKey = !appState.volcSpeechKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                let isActivatingVolc = (appState.activatingASRProvider == .volcSeedASR)
 
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 10) {
-                        Image(systemName: volcASRSelected ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(volcASRSelected ? TZTheme.violet : TZTheme.inkMuted)
+                    HStack(spacing: 8) {
+                        Image(systemName: volcASRExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(volcASRActive ? TZTheme.activeGreen : TZTheme.inkMuted.opacity(0.65))
+                            .frame(width: 12, height: 12)
+                        EngineStatusDot(isActive: volcASRActive)
 
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 7) {
                                 Text("豆包流式语音大模型 2.0")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(TZTheme.inkPrimary)
+                                    .font(.system(size: 13, weight: volcASRActive ? .semibold : .medium))
+                                    .foregroundStyle(volcASRActive ? TZTheme.inkPrimary : TZTheme.inkSecondary)
                                 Text("Seed-ASR 2.0")
                                     .font(.system(size: 10.5, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(volcASRSelected ? TZTheme.violet : TZTheme.inkSecondary)
+                                    .foregroundStyle(volcASRActive ? TZTheme.activeGreen : TZTheme.inkMuted)
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 1.5)
-                                    .background(volcASRSelected ? TZTheme.lilacTint : TZTheme.sandWell.opacity(0.75))
+                                    .background(volcASRActive ? TZTheme.activeGreenBg : TZTheme.sandWell.opacity(0.5))
                                     .clipShape(RoundedRectangle(cornerRadius: 4))
                             }
-                            if volcASRSelected {
+                            if volcASRExpanded || volcASRActive {
                                 Text("字节双向流国内直连 · 挂载专属词库热词 · 断网自动无损切回本机热备")
                                     .font(.system(size: 11.5))
-                                    .foregroundStyle(TZTheme.inkSecondary)
+                                    .foregroundStyle(volcASRActive ? TZTheme.inkSecondary : TZTheme.inkMuted)
                             }
                         }
 
                         Spacer()
 
-                        KeyStatusPill(isConfigured: hasVolcSpeechKey)
-                        if volcASRSelected {
-                            ActiveEngineBadge()
-                        }
+                        KeyStatusPill(isConfigured: hasVolcSpeechKey, muted: !volcASRActive)
+                        EngineStatusBadge(isActive: volcASRActive)
                     }
                     .contentShape(Rectangle())
                     .onTapGesture {
                         withAnimation(.easeOut(duration: 0.14)) {
-                            appState.selectASRProvider(.volcSeedASR)
+                            expandedASRProvider = volcASRExpanded ? nil : .volcSeedASR
                         }
                     }
 
-                    if volcASRSelected {
+                    if volcASRExpanded {
                         Divider().overlay(TZTheme.hairline)
 
                         HStack(spacing: 8) {
@@ -1360,52 +1367,65 @@ struct EngineSettingsSection: View {
                             Button("保存") {
                                 appState.saveVolcSpeechAPIKey()
                             }
-                            .buttonStyle(TZPrimaryButtonStyle(compact: true))
+                            .buttonStyle(TZSecondaryButtonStyle(compact: true))
                             Button(appState.isProbingSeedASR ? "测速中…" : "⚡ 测速") {
                                 Task { await appState.runSeedASRProbe() }
                             }
                             .buttonStyle(TZSecondaryButtonStyle(compact: true))
-                            .disabled(appState.isProbingSeedASR)
+                            .disabled(appState.isProbingSeedASR || appState.activatingASRProvider != nil)
+                            if !volcASRActive {
+                                Button(isActivatingVolc ? "校验中…" : "校验并切换") {
+                                    Task { _ = await appState.activateASRProvider(.volcSeedASR) }
+                                }
+                                .buttonStyle(TZPrimaryButtonStyle(compact: true))
+                                .disabled(appState.activatingASRProvider != nil)
+                            }
                         }
 
-                        if !appState.lastSeedASRProbeSummary.isEmpty {
+                        if let err = appState.asrActivationErrors[.volcSeedASR], !err.isEmpty {
+                            InlineProbeBanner(message: err)
+                        } else if !appState.lastSeedASRProbeSummary.isEmpty {
                             InlineProbeBanner(message: appState.lastSeedASRProbeSummary)
                         } else if !hasVolcSpeechKey {
-                            InlineWarnBanner(message: "⚠️ 请填入火山语音 API Key 并点击「保存」；未填密钥时将自动回退至本机离线模型识别。")
+                            InlineWarnBanner(message: "⚠️ 尚未填入火山语音 API Key；填入后点击「校验并切换」通过验证才会点亮生效。")
                         }
                     }
                 }
-                .tzSelectableEngineCard(isSelected: volcASRSelected)
+                .tzSelectableEngineCard(isSelected: volcASRActive, isExpanded: volcASRExpanded)
 
                 // ASR Option B: OpenAI / Groq Cloud Speech LLM (`/v1/audio/transcriptions`)
-                let openAIASRSelected = (appState.llmConfig.asrProvider == .openAIWhisper)
+                let openAIASRActive = (appState.llmConfig.asrProvider == .openAIWhisper)
+                let openAIASRExpanded = (expandedASRProvider == .openAIWhisper)
                 let openAIKeylessLocal = PolishEngine.isKeylessLocalEndpoint(appState.llmConfig.openAIASRBaseURL)
                 let openAIASRReady = appState.hasEffectiveOpenAIASRKey
+                let isActivatingOpenAI = (appState.activatingASRProvider == .openAIWhisper)
 
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 10) {
-                        Image(systemName: openAIASRSelected ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(openAIASRSelected ? TZTheme.violet : TZTheme.inkMuted)
+                    HStack(spacing: 8) {
+                        Image(systemName: openAIASRExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(openAIASRActive ? TZTheme.activeGreen : TZTheme.inkMuted.opacity(0.65))
+                            .frame(width: 12, height: 12)
+                        EngineStatusDot(isActive: openAIASRActive)
 
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 7) {
                                 Text("OpenAI / Groq 云端语音大模型")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(TZTheme.inkPrimary)
+                                    .font(.system(size: 13, weight: openAIASRActive ? .semibold : .medium))
+                                    .foregroundStyle(openAIASRActive ? TZTheme.inkPrimary : TZTheme.inkSecondary)
                                 Text(appState.llmConfig.openAIASRModel)
                                     .font(.system(size: 10.5, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(openAIASRSelected ? TZTheme.violet : TZTheme.inkSecondary)
+                                    .foregroundStyle(openAIASRActive ? TZTheme.activeGreen : TZTheme.inkMuted)
                                     .lineLimit(1)
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 1.5)
-                                    .background(openAIASRSelected ? TZTheme.lilacTint : TZTheme.sandWell.opacity(0.75))
+                                    .background(openAIASRActive ? TZTheme.activeGreenBg : TZTheme.sandWell.opacity(0.5))
                                     .clipShape(RoundedRectangle(cornerRadius: 4))
                             }
-                            if openAIASRSelected {
+                            if openAIASRExpanded || openAIASRActive {
                                 Text("支持 OpenAI gpt-4o-mini-transcribe 与 Groq whisper-large-v3-turbo · 自动复用 OpenAI Key · 注入专属热词")
                                     .font(.system(size: 11.5))
-                                    .foregroundStyle(TZTheme.inkSecondary)
+                                    .foregroundStyle(openAIASRActive ? TZTheme.inkSecondary : TZTheme.inkMuted)
                             }
                         }
 
@@ -1414,26 +1434,25 @@ struct EngineSettingsSection: View {
                         if appState.isOpenAIASRReusingLLMKey {
                             Text("复用 OpenAI 密钥")
                                 .font(.system(size: 10.5, weight: .medium))
-                                .foregroundStyle(TZTheme.emerald)
+                                .foregroundStyle(openAIASRActive ? TZTheme.activeGreen : TZTheme.inkMuted)
                                 .padding(.horizontal, 7.5)
                                 .padding(.vertical, 2.5)
-                                .background(TZTheme.emeraldTint)
+                                .background(openAIASRActive ? TZTheme.activeGreenBg : TZTheme.softWell.opacity(0.8))
+                                .overlay(Capsule().strokeBorder(openAIASRActive ? TZTheme.activeGreen.opacity(0.28) : TZTheme.hairline, lineWidth: 0.8))
                                 .clipShape(Capsule())
                         } else {
-                            KeyStatusPill(isConfigured: openAIASRReady, keylessLocal: openAIKeylessLocal)
+                            KeyStatusPill(isConfigured: openAIASRReady, keylessLocal: openAIKeylessLocal, muted: !openAIASRActive)
                         }
-                        if openAIASRSelected {
-                            ActiveEngineBadge()
-                        }
+                        EngineStatusBadge(isActive: openAIASRActive)
                     }
                     .contentShape(Rectangle())
                     .onTapGesture {
                         withAnimation(.easeOut(duration: 0.14)) {
-                            appState.selectASRProvider(.openAIWhisper)
+                            expandedASRProvider = openAIASRExpanded ? nil : .openAIWhisper
                         }
                     }
 
-                    if openAIASRSelected {
+                    if openAIASRExpanded {
                         Divider().overlay(TZTheme.hairline)
 
                         // Quick presets: OpenAI Mini / OpenAI Full / Groq Turbo
@@ -1498,70 +1517,103 @@ struct EngineSettingsSection: View {
                             Button("保存") {
                                 appState.saveOpenAIASRConfig()
                             }
-                            .buttonStyle(TZPrimaryButtonStyle(compact: true))
+                            .buttonStyle(TZSecondaryButtonStyle(compact: true))
 
                             Button(appState.isProbingOpenAIASR ? "测速中…" : "⚡ 测速") {
                                 Task { await appState.runOpenAIASRProbe() }
                             }
                             .buttonStyle(TZSecondaryButtonStyle(compact: true))
-                            .disabled(appState.isProbingOpenAIASR)
+                            .disabled(appState.isProbingOpenAIASR || appState.activatingASRProvider != nil)
+
+                            if !openAIASRActive {
+                                Button(isActivatingOpenAI ? "校验中…" : "校验并切换") {
+                                    Task { _ = await appState.activateASRProvider(.openAIWhisper) }
+                                }
+                                .buttonStyle(TZPrimaryButtonStyle(compact: true))
+                                .disabled(appState.activatingASRProvider != nil)
+                            }
                         }
 
-                        if !appState.lastOpenAIASRProbeSummary.isEmpty {
+                        if let err = appState.asrActivationErrors[.openAIWhisper], !err.isEmpty {
+                            InlineProbeBanner(message: err)
+                        } else if !appState.lastOpenAIASRProbeSummary.isEmpty {
                             InlineProbeBanner(message: appState.lastOpenAIASRProbeSummary)
                         } else if !openAIASRReady {
                             InlineWarnBanner(
                                 message: appState.isGroqASRSelected
-                                    ? "⚠️ 已切换至 Groq Whisper 极速通道，请粘贴 Groq API Key 并点击「保存」；未填时将自动回退本机离线模型。"
-                                    : "⚠️ 尚未检测到 OpenAI API Key：可在此填入，或在下方「3. 排版大模型」勾选 OpenAI 填一次 Key 即可双端共用。"
+                                    ? "⚠️ 尚未填入 Groq API Key；填入后点击「校验并切换」通过验证才会点亮生效。"
+                                    : "⚠️ 尚未检测到 OpenAI API Key；请在此填入后点击「校验并切换」（无密钥时不会生效）。"
                             )
                         }
                     }
                 }
-                .tzSelectableEngineCard(isSelected: openAIASRSelected)
+                .tzSelectableEngineCard(isSelected: openAIASRActive, isExpanded: openAIASRExpanded)
 
                 // ASR Option C: Pure Local SenseVoice FP32
-                let localASRSelected = (appState.llmConfig.asrProvider == .localSenseVoice)
+                let localASRActive = (appState.llmConfig.asrProvider == .localSenseVoice)
+                let localASRExpanded = (expandedASRProvider == .localSenseVoice)
+                let isActivatingLocal = (appState.activatingASRProvider == .localSenseVoice)
+
                 VStack(alignment: .leading, spacing: 9) {
-                    HStack(spacing: 10) {
-                        Image(systemName: localASRSelected ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(localASRSelected ? TZTheme.violet : TZTheme.inkMuted)
+                    HStack(spacing: 8) {
+                        Image(systemName: localASRExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(localASRActive ? TZTheme.activeGreen : TZTheme.inkMuted.opacity(0.65))
+                            .frame(width: 12, height: 12)
+                        EngineStatusDot(isActive: localASRActive)
 
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 7) {
                                 Text("纯本机 SenseVoice FP32 离线满血模型")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(TZTheme.inkPrimary)
+                                    .font(.system(size: 13, weight: localASRActive ? .semibold : .medium))
+                                    .foregroundStyle(localASRActive ? TZTheme.inkPrimary : TZTheme.inkSecondary)
                                 Text(appState.senseVoiceFullFP32 ? "886MB FP32" : "本机引擎")
                                     .font(.system(size: 10.5, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(localASRSelected ? TZTheme.violet : TZTheme.inkSecondary)
+                                    .foregroundStyle(localASRActive ? TZTheme.activeGreen : TZTheme.inkMuted)
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 1.5)
-                                    .background(localASRSelected ? TZTheme.lilacTint : TZTheme.sandWell.opacity(0.75))
+                                    .background(localASRActive ? TZTheme.activeGreenBg : TZTheme.sandWell.opacity(0.5))
                                     .clipShape(RoundedRectangle(cornerRadius: 4))
                             }
-                            if localASRSelected {
+                            if localASRExpanded || localASRActive {
                                 Text("音频 100% 留在本机内存零联网 · 飞机与高敏内网环境首选 · 也是所有云端语音的离线热备")
                                     .font(.system(size: 11.5))
-                                    .foregroundStyle(TZTheme.inkSecondary)
+                                    .foregroundStyle(localASRActive ? TZTheme.inkSecondary : TZTheme.inkMuted)
                             }
                         }
 
                         Spacer()
 
-                        PermissionBadge(
-                            title: appState.senseVoiceFullFP32 ? "满血包已就绪" : (appState.senseVoiceLoaded ? "基础包已就绪" : "待下载模型"),
-                            ok: appState.senseVoiceLoaded
-                        )
-                        if localASRSelected {
-                            ActiveEngineBadge()
-                        }
+                        Text(appState.senseVoiceFullFP32 ? "满血包已就绪" : (appState.senseVoiceLoaded ? "基础包已就绪" : "待下载模型"))
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(
+                                appState.senseVoiceLoaded
+                                    ? (localASRActive ? TZTheme.activeGreen : TZTheme.inkMuted)
+                                    : (localASRActive ? TZTheme.amber : TZTheme.amber.opacity(0.72))
+                            )
+                            .padding(.horizontal, 7.5)
+                            .padding(.vertical, 2.5)
+                            .background(
+                                appState.senseVoiceLoaded
+                                    ? (localASRActive ? TZTheme.activeGreenBg : TZTheme.softWell.opacity(0.8))
+                                    : TZTheme.amberTint.opacity(localASRActive ? 1.0 : 0.55)
+                            )
+                            .overlay(
+                                Capsule()
+                                    .strokeBorder(
+                                        appState.senseVoiceLoaded
+                                            ? (localASRActive ? TZTheme.activeGreen.opacity(0.28) : TZTheme.hairline)
+                                            : TZTheme.amber.opacity(0.20),
+                                        lineWidth: 0.8
+                                    )
+                            )
+                            .clipShape(Capsule())
+                        EngineStatusBadge(isActive: localASRActive)
                     }
                     .contentShape(Rectangle())
                     .onTapGesture {
                         withAnimation(.easeOut(duration: 0.14)) {
-                            appState.selectASRProvider(.localSenseVoice)
+                            expandedASRProvider = localASRExpanded ? nil : .localSenseVoice
                         }
                     }
 
@@ -1579,32 +1631,49 @@ struct EngineSettingsSection: View {
                             }
                             .buttonStyle(TZSecondaryButtonStyle(compact: true, destructive: true))
                         }
-                    } else if !appState.senseVoiceFullFP32 && localASRSelected {
+                    } else if localASRExpanded {
                         Divider().overlay(TZTheme.hairline)
-                        HStack {
-                            Text("尚未安装 886MB 无损浮点离线满血包，可一键后台下载：")
-                                .font(.system(size: 11.5))
-                                .foregroundStyle(TZTheme.inkSecondary)
-                            Spacer()
-                            Button("⬇ 下载 886MB 离线满血包") {
-                                appState.startOfflineModelDownload()
+                        HStack(spacing: 8) {
+                            if !appState.senseVoiceFullFP32 {
+                                Text("尚未安装 886MB 无损浮点离线满血包：")
+                                    .font(.system(size: 11.5))
+                                    .foregroundStyle(TZTheme.inkSecondary)
+                                Button("⬇ 下载 886MB 离线满血包") {
+                                    appState.startOfflineModelDownload()
+                                }
+                                .buttonStyle(TZSecondaryButtonStyle(compact: true))
+                            } else {
+                                Text("本机 886MB FP32 无损离线模型已就绪，可随时切换为纯本地零联网模式。")
+                                    .font(.system(size: 11.5))
+                                    .foregroundStyle(TZTheme.inkSecondary)
                             }
-                            .buttonStyle(TZSecondaryButtonStyle(compact: true))
+                            Spacer()
+                            if !localASRActive {
+                                Button(isActivatingLocal ? "校验中…" : "校验并切换") {
+                                    Task { _ = await appState.activateASRProvider(.localSenseVoice) }
+                                }
+                                .buttonStyle(TZPrimaryButtonStyle(compact: true))
+                                .disabled(appState.activatingASRProvider != nil)
+                            }
+                        }
+
+                        if let err = appState.asrActivationErrors[.localSenseVoice], !err.isEmpty {
+                            InlineProbeBanner(message: err)
                         }
                     }
                 }
-                .tzSelectableEngineCard(isSelected: localASRSelected)
+                .tzSelectableEngineCard(isSelected: localASRActive, isExpanded: localASRExpanded)
             }
             .tzCardSurface(cornerRadius: 14, padding: 16)
 
-            // Card 3: Formatting LLM Engine & Keys (闪电说式一体化设定：勾选哪个生效哪个，密钥内聚同框)
+            // Card 3: Formatting LLM Engine & Keys (Expand to Inspect -> Verify & Activate Only on Explicit Confirm)
             VStack(alignment: .leading, spacing: 11) {
                 HStack {
                     Text("3. 排版大模型与密钥")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(TZTheme.inkPrimary)
                     Spacer()
-                    Text("勾选哪个模型，即由该模型与下方密钥生效")
+                    Text("点开配置并校验通过后才生效 · 唯一生效模型")
                         .font(.system(size: 11.5))
                         .foregroundStyle(TZTheme.inkMuted)
                 }
@@ -1625,7 +1694,16 @@ struct EngineSettingsSection: View {
 
                 VStack(spacing: 6) {
                     ForEach(LLMProviderOption.allCases) { provider in
-                        LLMProviderUnifiedCard(appState: appState, provider: provider)
+                        LLMProviderUnifiedCard(
+                            appState: appState,
+                            provider: provider,
+                            isExpanded: expandedLLMProvider == provider,
+                            onToggleExpand: {
+                                withAnimation(.easeOut(duration: 0.14)) {
+                                    expandedLLMProvider = (expandedLLMProvider == provider) ? nil : provider
+                                }
+                            }
+                        )
                     }
                 }
             }
@@ -1744,62 +1822,92 @@ struct TZHotkeyPresetGrid: View {
 struct LLMProviderUnifiedCard: View {
     @ObservedObject var appState: AppState
     let provider: LLMProviderOption
+    let isExpanded: Bool
+    let onToggleExpand: () -> Void
+
+    @State private var draftAPIKey: String = ""
+    @State private var draftModelName: String = ""
+    @State private var draftBaseURL: String = ""
+    @State private var didLoadDraft: Bool = false
+
+    private func syncDraftFromStore() {
+        let savedKey = KeychainHelper.loadAPIKey(for: provider)
+        draftAPIKey = savedKey
+        if appState.llmConfig.selectedProvider == provider {
+            draftModelName = appState.llmConfig.modelName
+            draftBaseURL = appState.llmConfig.baseURL
+        } else {
+            draftModelName = appState.llmConfig.providerModels[provider.rawValue] ?? provider.defaultModelName
+            draftBaseURL = (provider == .custom && !appState.llmConfig.customBaseURL.isEmpty)
+                ? appState.llmConfig.customBaseURL
+                : provider.defaultBaseURL
+        }
+        didLoadDraft = true
+    }
 
     var body: some View {
-        let isSelected = (appState.llmConfig.selectedProvider == provider)
-        let activeModelBadge = isSelected
+        let isActive = (appState.llmConfig.selectedProvider == provider)
+        let activeModelBadge = isActive
             ? appState.llmConfig.modelName
             : (appState.llmConfig.providerModels[provider.rawValue] ?? provider.defaultModelName)
-        let isLocalKeyless = isSelected && PolishEngine.isKeylessLocalEndpoint(appState.llmConfig.baseURL)
-        let hasKey = isSelected
-            ? (!appState.apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLocalKeyless)
-            : (appState.savedProviderKeyFlags[provider] ?? false)
+        let effectiveURL = didLoadDraft
+            ? draftBaseURL
+            : (isActive ? appState.llmConfig.baseURL : ((provider == .custom && !appState.llmConfig.customBaseURL.isEmpty) ? appState.llmConfig.customBaseURL : provider.defaultBaseURL))
+        let isLocalKeyless = PolishEngine.isKeylessLocalEndpoint(effectiveURL)
+        let hasKey = didLoadDraft
+            ? (!draftAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLocalKeyless)
+            : ((appState.savedProviderKeyFlags[provider] ?? false) || isLocalKeyless)
+        let isActivatingThis = (appState.activatingLLMProvider == provider)
+        let activationError = appState.llmActivationErrors[provider]
+        let benchmarkSummary = appState.llmProviderBenchmarkSummaries[provider]
+            ?? (isActive ? appState.lastBenchmarkSummary : "")
 
         VStack(alignment: .leading, spacing: 10) {
-            // Checkable Header Row
-            HStack(spacing: 10) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(isSelected ? TZTheme.violet : TZTheme.inkMuted)
+            // Expandable Header Row — tapping ONLY expands/collapses, NEVER switches active model!
+            HStack(spacing: 8) {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(isActive ? TZTheme.activeGreen : TZTheme.inkMuted.opacity(0.65))
+                    .frame(width: 12, height: 12)
+                EngineStatusDot(isActive: isActive)
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 7) {
                         Text(provider.title)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(TZTheme.inkPrimary)
+                            .font(.system(size: 13, weight: isActive ? .semibold : .medium))
+                            .foregroundStyle(isActive ? TZTheme.inkPrimary : TZTheme.inkSecondary)
                         Text(activeModelBadge)
                             .font(.system(size: 10.5, weight: .medium, design: .monospaced))
-                            .foregroundStyle(isSelected ? TZTheme.violet : TZTheme.inkSecondary)
+                            .foregroundStyle(isActive ? TZTheme.activeGreen : TZTheme.inkMuted)
                             .lineLimit(1)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 1.5)
-                            .background(isSelected ? TZTheme.lilacTint : TZTheme.sandWell.opacity(0.75))
+                            .background(isActive ? TZTheme.activeGreenBg : TZTheme.sandWell.opacity(0.5))
                             .clipShape(RoundedRectangle(cornerRadius: 4))
                     }
-                    if isSelected {
+                    if isExpanded || isActive {
                         Text(provider.subtitle)
                             .font(.system(size: 11.5))
-                            .foregroundStyle(TZTheme.inkSecondary)
+                            .foregroundStyle(isActive ? TZTheme.inkSecondary : TZTheme.inkMuted)
                             .lineLimit(1)
                     }
                 }
 
                 Spacer()
 
-                KeyStatusPill(isConfigured: hasKey, keylessLocal: isLocalKeyless)
-                if isSelected {
-                    ActiveEngineBadge()
-                }
+                KeyStatusPill(isConfigured: hasKey, keylessLocal: isLocalKeyless, muted: !isActive)
+                EngineStatusBadge(isActive: isActive)
             }
             .contentShape(Rectangle())
             .onTapGesture {
-                withAnimation(.easeOut(duration: 0.14)) {
-                    appState.selectLLMProvider(provider)
+                if !didLoadDraft {
+                    syncDraftFromStore()
                 }
+                onToggleExpand()
             }
 
-            // Inline Key, Model & Speed-Test Drawer right inside the checked provider!
-            if isSelected {
+            // Inline Key, Model, Speed-Test & Explicit Verify-to-Activate Drawer
+            if isExpanded {
                 Divider().overlay(TZTheme.hairline)
 
                 if provider == .custom {
@@ -1808,12 +1916,12 @@ struct LLMProviderUnifiedCard: View {
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(TZTheme.inkSecondary)
                             .frame(width: 60, alignment: .leading)
-                        TextField("https://api.siliconflow.cn/v1 或 http://localhost:11434/v1", text: $appState.llmConfig.baseURL)
+                        TextField("https://api.siliconflow.cn/v1 或 http://localhost:11434/v1", text: $draftBaseURL)
                             .tzCompactInputStyle()
                         Text("模型 ID")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(TZTheme.inkSecondary)
-                        TextField("模型名称", text: $appState.llmConfig.modelName)
+                        TextField("模型名称", text: $draftModelName)
                             .tzCompactInputStyle()
                             .frame(width: 175)
                     }
@@ -1827,37 +1935,81 @@ struct LLMProviderUnifiedCard: View {
 
                     SecureField(
                         provider == .custom ? "粘贴 API Key（本地 Ollama / LM Studio 可留空）" : "粘贴 \(provider.shortName) API Key",
-                        text: $appState.apiKeyInput
+                        text: $draftAPIKey
                     )
                     .tzCompactInputStyle()
-                    .onSubmit { appState.saveAPIKey() }
+                    .onSubmit {
+                        appState.saveLLMProviderDraft(
+                            provider: provider,
+                            baseURL: draftBaseURL,
+                            modelName: draftModelName,
+                            apiKey: draftAPIKey
+                        )
+                    }
 
                     if provider != .custom {
-                        TextField("模型 ID", text: $appState.llmConfig.modelName)
+                        TextField("模型 ID", text: $draftModelName)
                             .tzCompactInputStyle()
-                            .frame(width: 170)
+                            .frame(width: 165)
                     }
 
                     Button("保存") {
-                        appState.saveAPIKey()
-                    }
-                    .buttonStyle(TZPrimaryButtonStyle(compact: true))
-
-                    Button(appState.isBenchmarkingLLM ? "测速中…" : "⚡ 测速") {
-                        Task { await appState.runLiveEngineBenchmark() }
+                        appState.saveLLMProviderDraft(
+                            provider: provider,
+                            baseURL: draftBaseURL,
+                            modelName: draftModelName,
+                            apiKey: draftAPIKey
+                        )
                     }
                     .buttonStyle(TZSecondaryButtonStyle(compact: true))
-                    .disabled(appState.isBenchmarkingLLM)
+
+                    Button(appState.isBenchmarkingLLM ? "测速中…" : "⚡ 测速") {
+                        Task {
+                            await appState.runLLMProviderBenchmark(
+                                provider: provider,
+                                baseURL: draftBaseURL,
+                                modelName: draftModelName,
+                                apiKey: draftAPIKey
+                            )
+                        }
+                    }
+                    .buttonStyle(TZSecondaryButtonStyle(compact: true))
+                    .disabled(appState.isBenchmarkingLLM || appState.activatingLLMProvider != nil)
+
+                    if !isActive {
+                        Button(isActivatingThis ? "校验中…" : "校验并切换") {
+                            Task {
+                                _ = await appState.activateLLMProvider(
+                                    provider,
+                                    baseURL: draftBaseURL,
+                                    modelName: draftModelName,
+                                    apiKey: draftAPIKey
+                                )
+                            }
+                        }
+                        .buttonStyle(TZPrimaryButtonStyle(compact: true))
+                        .disabled(appState.activatingLLMProvider != nil)
+                    }
                 }
 
-                if !appState.lastBenchmarkSummary.isEmpty {
-                    InlineProbeBanner(message: appState.lastBenchmarkSummary)
+                if let err = activationError, !err.isEmpty {
+                    InlineProbeBanner(message: err)
+                } else if !benchmarkSummary.isEmpty {
+                    InlineProbeBanner(message: benchmarkSummary)
                 } else if !hasKey {
-                    InlineWarnBanner(message: "⚠️ 当前已勾选「\(provider.shortName)」，请填入 API Key 并点击「保存」后即可生效。")
+                    InlineWarnBanner(message: "⚠️ 尚未填入「\(provider.shortName)」API Key；填入后点击「校验并切换」通过验证才会点亮生效。")
                 }
             }
         }
-        .tzSelectableEngineCard(isSelected: isSelected)
+        .tzSelectableEngineCard(isSelected: isActive, isExpanded: isExpanded)
+        .onAppear {
+            syncDraftFromStore()
+        }
+        .onChange(of: isExpanded) { _, expanded in
+            if expanded {
+                syncDraftFromStore()
+            }
+        }
     }
 }
 
@@ -1886,29 +2038,77 @@ private struct TZASRPresetPill: View {
     }
 }
 
-private struct ActiveEngineBadge: View {
+private struct EngineStatusDot: View {
+    let isActive: Bool
+
     var body: some View {
-        Text("✓ 当前生效")
-            .font(.system(size: 10.5, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(TZTheme.violet)
-            .clipShape(Capsule())
+        ZStack {
+            if isActive {
+                Circle()
+                    .fill(TZTheme.activeGreen.opacity(0.24))
+                    .frame(width: 14, height: 14)
+                Circle()
+                    .fill(TZTheme.activeGreen)
+                    .frame(width: 7.5, height: 7.5)
+            } else {
+                Circle()
+                    .fill(TZTheme.inkMuted.opacity(0.38))
+                    .frame(width: 6.5, height: 6.5)
+            }
+        }
+        .frame(width: 14, height: 14)
+    }
+}
+
+private struct EngineStatusBadge: View {
+    let isActive: Bool
+
+    var body: some View {
+        HStack(spacing: 4.5) {
+            Circle()
+                .fill(isActive ? Color.white : TZTheme.inkMuted.opacity(0.45))
+                .frame(width: 5.5, height: 5.5)
+            Text(isActive ? "当前生效" : "未启用")
+                .font(.system(size: 10.5, weight: isActive ? .semibold : .medium))
+        }
+        .foregroundStyle(isActive ? .white : TZTheme.inkMuted)
+        .padding(.horizontal, 8.5)
+        .padding(.vertical, 3)
+        .background(isActive ? TZTheme.activeGreen : TZTheme.sandWell.opacity(0.55))
+        .clipShape(Capsule())
     }
 }
 
 private struct KeyStatusPill: View {
     let isConfigured: Bool
     var keylessLocal: Bool = false
+    var muted: Bool = false
 
     var body: some View {
+        let ok = isConfigured || keylessLocal
         Text(keylessLocal ? "本地免密" : (isConfigured ? "密钥已存" : "待填密钥"))
             .font(.system(size: 10.5, weight: .medium))
-            .foregroundStyle((isConfigured || keylessLocal) ? TZTheme.emerald : TZTheme.amber)
+            .foregroundStyle(
+                ok
+                    ? (muted ? TZTheme.inkMuted : TZTheme.activeGreen)
+                    : (muted ? TZTheme.amber.opacity(0.72) : TZTheme.amber)
+            )
             .padding(.horizontal, 7.5)
             .padding(.vertical, 2.5)
-            .background((isConfigured || keylessLocal) ? TZTheme.emeraldTint : TZTheme.amberTint)
+            .background(
+                ok
+                    ? (muted ? TZTheme.softWell.opacity(0.8) : TZTheme.activeGreenBg)
+                    : (muted ? TZTheme.amberTint.opacity(0.55) : TZTheme.amberTint)
+            )
+            .overlay(
+                Capsule()
+                    .strokeBorder(
+                        ok
+                            ? (muted ? TZTheme.hairline : TZTheme.activeGreen.opacity(0.28))
+                            : TZTheme.amber.opacity(muted ? 0.16 : 0.28),
+                        lineWidth: 0.8
+                    )
+            )
             .clipShape(Capsule())
     }
 }
@@ -1958,16 +2158,26 @@ private extension View {
             .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(TZTheme.hairline, lineWidth: 1))
     }
 
-    func tzSelectableEngineCard(isSelected: Bool) -> some View {
+    func tzSelectableEngineCard(isSelected: Bool, isExpanded: Bool = false) -> some View {
         self
             .padding(.horizontal, 12)
-            .padding(.vertical, isSelected ? 11 : 8)
-            .background(isSelected ? TZTheme.lilacTint.opacity(0.38) : TZTheme.softWell.opacity(0.62))
+            .padding(.vertical, (isSelected || isExpanded) ? 11 : 8)
+            .background(
+                isSelected
+                    ? TZTheme.activeGreenBg.opacity(0.72)
+                    : (isExpanded ? TZTheme.cardBg : TZTheme.softWell.opacity(0.45))
+            )
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(isSelected ? TZTheme.violet.opacity(0.55) : TZTheme.hairline, lineWidth: isSelected ? 1.3 : 1)
+                    .strokeBorder(
+                        isSelected
+                            ? TZTheme.activeGreenBorder.opacity(0.78)
+                            : (isExpanded ? TZTheme.strongLine.opacity(0.85) : TZTheme.hairline.opacity(0.75)),
+                        lineWidth: isSelected ? 1.55 : 1
+                    )
             )
+            .shadow(color: isSelected ? TZTheme.activeGreen.opacity(0.08) : .clear, radius: 6, x: 0, y: 2)
     }
 }
 

@@ -85,8 +85,8 @@ public final class VolcSeedASRClient: @unchecked Sendable {
         apiKey: String,
         hotwords: [String],
         dialogContext: [String] = [],
-        enableDDC: Bool = false,
-        enableNonstream: Bool = false,
+        enableDDC: Bool = true,
+        enableNonstream: Bool = true,
         resourceID: String = VolcSeedASRClient.defaultResourceID
     ) {
         stopAndReset()

@@ -69,6 +69,11 @@ public final class AppState: ObservableObject {
     @Published public var lastSeedASRProbeSummary: String = ""
     @Published public var isProbingOpenAIASR: Bool = false
     @Published public var lastOpenAIASRProbeSummary: String = ""
+    @Published public var activatingASRProvider: ASRProviderOption? = nil
+    @Published public var asrActivationErrors: [ASRProviderOption: String] = [:]
+    @Published public var activatingLLMProvider: LLMProviderOption? = nil
+    @Published public var llmActivationErrors: [LLMProviderOption: String] = [:]
+    @Published public var llmProviderBenchmarkSummaries: [LLMProviderOption: String] = [:]
     @Published public var showOnboardingSheet: Bool = false
     @Published public var isDownloadingOfflineModel: Bool = false
     @Published public var offlineDownloadProgress: Double = 0.0
@@ -241,6 +246,9 @@ public final class AppState: ObservableObject {
                 }
             }
         }
+        hotkeyMonitor.onPrewarmMic = { [weak self] in
+            self?.asrEngine.prewarmHotMicAsync()
+        }
         hotkeyMonitor.onTriggerStart = { [weak self] in
             self?.beginDictationSession()
         }
@@ -397,6 +405,270 @@ public final class AppState: ObservableObject {
         llmConfig.selectASRProvider(provider)
     }
 
+    /// Strict activation flow for ASR engines: validates credentials / local model & live handshake FIRST.
+    /// Only switches `llmConfig.asrProvider` (lighting up the single active badge) after verification succeeds.
+    @discardableResult
+    public func activateASRProvider(_ provider: ASRProviderOption) async -> Bool {
+        guard activatingASRProvider == nil else { return false }
+        activatingASRProvider = provider
+        asrActivationErrors[provider] = nil
+        defer { activatingASRProvider = nil }
+
+        switch provider {
+        case .volcSeedASR:
+            let trimmed = volcSpeechKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                KeychainHelper.saveVolcSpeechAPIKey(trimmed)
+                volcSpeechKeyInput = KeychainHelper.loadVolcSpeechAPIKey()
+                syncASREngineConfig()
+            }
+            let key = KeychainHelper.loadVolcSpeechAPIKey().trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty else {
+                let err = "❌ 无法生效：请先填入火山豆包语音 API Key（当前配置未生效）"
+                asrActivationErrors[provider] = err
+                statusBanner = err
+                return false
+            }
+            do {
+                let rttMs = try await VolcSeedASRClient.probeHandshakeLatency(apiKey: key)
+                llmConfig.selectASRProvider(.volcSeedASR)
+                syncASREngineConfig()
+                speechAuthorized = StreamingASREngine.isSpeechAuthorized
+                let hotCount = min(65, lexiconStore.entries.count)
+                lastSeedASRProbeSummary = "⚡ 校验通过并已生效（volc.seedasr.sauc.duration）：国内直连首帧 \(rttMs)ms · 已挂载 \(hotCount) 个专属热词"
+                statusBanner = "✅ 豆包流式语音大模型 2.0 校验通过，已切换为当前唯一生效引擎"
+                return true
+            } catch {
+                let err = "❌ 校验未通过，未生效：\(error.localizedDescription)"
+                asrActivationErrors[provider] = err
+                statusBanner = err
+                return false
+            }
+
+        case .openAIWhisper:
+            llmConfig.openAIASRBaseURL = llmConfig.openAIASRBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            if llmConfig.openAIASRBaseURL.isEmpty {
+                llmConfig.openAIASRBaseURL = "https://api.openai.com/v1"
+            }
+            llmConfig.openAIASRModel = llmConfig.openAIASRModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            if llmConfig.openAIASRModel.isEmpty {
+                llmConfig.openAIASRModel = isGroqASRSelected ? "whisper-large-v3-turbo" : "gpt-4o-mini-transcribe"
+            }
+            let typedOverride = openAIASRKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !typedOverride.isEmpty {
+                KeychainHelper.saveOpenAIASRAPIKey(typedOverride)
+                openAIASRKeyInput = KeychainHelper.loadOpenAIASROverrideKey()
+            }
+            syncASREngineConfig()
+            let label = isGroqASRSelected ? "Groq Whisper" : "OpenAI 语音大模型"
+            guard hasEffectiveOpenAIASRKey else {
+                let err = isGroqASRSelected
+                    ? "❌ 无法生效：缺少 Groq API Key，请先填入有效密钥（当前配置未生效）"
+                    : "❌ 无法生效：缺少 OpenAI API Key，请先填入有效密钥（当前配置未生效）"
+                asrActivationErrors[provider] = err
+                statusBanner = err
+                return false
+            }
+            let effectiveKey = effectiveOpenAIASRKey
+            do {
+                let rttMs = try await OpenAITranscriptionClient.probeLatency(
+                    baseURL: llmConfig.openAIASRBaseURL,
+                    model: llmConfig.openAIASRModel,
+                    apiKey: effectiveKey
+                )
+                llmConfig.selectASRProvider(.openAIWhisper)
+                syncASREngineConfig()
+                speechAuthorized = StreamingASREngine.isSpeechAuthorized
+                let hotCount = min(40, lexiconStore.entries.count)
+                let keyMode = isOpenAIASRReusingLLMKey ? "自动复用 OpenAI Key" : "独立密钥"
+                lastOpenAIASRProbeSummary = "⚡ 校验通过并已生效（\(llmConfig.openAIASRModel)）：音频上传+转写 \(rttMs)ms · \(keyMode) · 将注入 Top-\(hotCount) 词库提示"
+                statusBanner = "✅ \(label) 校验通过，已切换为当前唯一生效引擎"
+                return true
+            } catch {
+                let err = "❌ 校验未通过，未生效：\(error.localizedDescription)"
+                asrActivationErrors[provider] = err
+                statusBanner = err
+                return false
+            }
+
+        case .localSenseVoice:
+            if StreamingASREngine.senseVoiceModelPaths() == nil {
+                let err = "❌ 无法生效：本机 SenseVoice 离线模型尚未下载就绪，请先下载离线模型包"
+                asrActivationErrors[provider] = err
+                statusBanner = err
+                return false
+            }
+            if !senseVoiceLoaded {
+                asrEngine.reloadSenseVoiceModelAsync()
+                refreshPermissionStatus()
+            }
+            llmConfig.selectASRProvider(.localSenseVoice)
+            syncASREngineConfig()
+            speechAuthorized = StreamingASREngine.isSpeechAuthorized
+            statusBanner = "✅ 纯本机 SenseVoice 离线模型已校验就绪并设为当前唯一生效引擎"
+            return true
+        }
+    }
+
+    public func saveLLMProviderDraft(provider: LLMProviderOption, baseURL: String, modelName: String, apiKey: String) {
+        let cleanModel = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalModel = cleanModel.isEmpty ? provider.defaultModelName : cleanModel
+        let cleanURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalURL = cleanURL.isEmpty ? provider.defaultBaseURL : cleanURL
+
+        llmConfig.providerModels[provider.rawValue] = finalModel
+        if provider == .custom {
+            llmConfig.customBaseURL = finalURL
+        }
+        if provider == .volcengine && finalModel.hasPrefix("ep-") {
+            UserDefaults.standard.set(finalModel, forKey: "tz_ark_ep_id")
+        }
+        if llmConfig.selectedProvider == provider {
+            llmConfig.modelName = finalModel
+            llmConfig.baseURL = finalURL
+        }
+
+        KeychainHelper.saveAPIKey(apiKey, for: provider)
+        if llmConfig.selectedProvider == provider {
+            apiKeyInput = KeychainHelper.loadAPIKey(for: provider)
+            polishEngine.prewarmConnection(baseURL: llmConfig.baseURL, apiKey: apiKeyInput)
+        }
+        refreshSavedKeyFlags()
+        syncASREngineConfig()
+        speechAuthorized = StreamingASREngine.isSpeechAuthorized
+        llmActivationErrors[provider] = nil
+        llmProviderBenchmarkSummaries[provider] = nil
+        if llmConfig.selectedProvider == provider {
+            lastBenchmarkSummary = ""
+        }
+        let savedKey = KeychainHelper.loadAPIKey(for: provider)
+        if savedKey.isEmpty && !PolishEngine.isKeylessLocalEndpoint(finalURL) {
+            statusBanner = "已清空「\(provider.shortName)」API Key"
+        } else if llmConfig.selectedProvider == provider {
+            statusBanner = "✅ 「\(provider.title)」密钥与模型已保存"
+        } else {
+            statusBanner = "💾 「\(provider.title)」配置已保存（尚未设为当前生效，点击「校验并生效」启用）"
+        }
+    }
+
+    /// Strict activation flow for LLM providers: verifies API key & live benchmark FIRST.
+    /// Only switches `llmConfig.selectedProvider` after the check passes.
+    @discardableResult
+    public func activateLLMProvider(
+        _ provider: LLMProviderOption,
+        baseURL: String,
+        modelName: String,
+        apiKey: String
+    ) async -> Bool {
+        guard activatingLLMProvider == nil else { return false }
+        activatingLLMProvider = provider
+        llmActivationErrors[provider] = nil
+        defer { activatingLLMProvider = nil }
+
+        let cleanModel = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalModel = cleanModel.isEmpty ? provider.defaultModelName : cleanModel
+        let cleanURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalURL = cleanURL.isEmpty ? provider.defaultBaseURL : cleanURL
+        let cleanKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let isKeylessLocal = PolishEngine.isKeylessLocalEndpoint(finalURL)
+        if cleanKey.isEmpty && !isKeylessLocal {
+            let err = "❌ 无法生效：请先填入「\(provider.shortName)」API Key（当前配置未生效）"
+            llmActivationErrors[provider] = err
+            statusBanner = err
+            return false
+        }
+
+        // Persist key & model draft first so user doesn't lose edits, without switching active provider yet.
+        KeychainHelper.saveAPIKey(cleanKey, for: provider)
+        llmConfig.providerModels[provider.rawValue] = finalModel
+        if provider == .custom {
+            llmConfig.customBaseURL = finalURL
+        }
+        if provider == .volcengine && finalModel.hasPrefix("ep-") {
+            UserDefaults.standard.set(finalModel, forKey: "tz_ark_ep_id")
+        }
+        refreshSavedKeyFlags()
+
+        var probeConfig = llmConfig
+        probeConfig.selectedProvider = provider
+        probeConfig.baseURL = finalURL
+        probeConfig.modelName = finalModel
+
+        do {
+            let res = try await polishEngine.benchmarkLatency(config: probeConfig, apiKey: cleanKey)
+            llmConfig.selectProvider(provider)
+            llmConfig.baseURL = finalURL
+            llmConfig.modelName = finalModel
+            llmConfig.syncActiveEndpointEdits()
+            apiKeyInput = KeychainHelper.loadAPIKey(for: provider)
+            refreshSavedKeyFlags()
+            syncASREngineConfig()
+            polishEngine.prewarmConnection(baseURL: llmConfig.baseURL, apiKey: apiKeyInput)
+
+            let flatSample = res.sampleOutput.replacingOccurrences(of: "\n", with: " ↵ ")
+            let summary = "⚡ 校验通过并已生效（\(finalModel)）：首字 TTFT \(res.ttftMs)ms · 总耗时 \(res.totalMs)ms · 样例：「\(flatSample)」"
+            llmProviderBenchmarkSummaries[provider] = summary
+            lastBenchmarkSummary = summary
+            statusBanner = "✅ 「\(provider.title)」校验通过，已切换为当前唯一生效排版模型"
+            return true
+        } catch {
+            let err = "❌ 校验未通过，未生效：\(error.localizedDescription)"
+            llmActivationErrors[provider] = err
+            statusBanner = err
+            return false
+        }
+    }
+
+    public func runLLMProviderBenchmark(
+        provider: LLMProviderOption,
+        baseURL: String,
+        modelName: String,
+        apiKey: String
+    ) async {
+        guard !isBenchmarkingLLM else { return }
+        isBenchmarkingLLM = true
+        llmActivationErrors[provider] = nil
+        let cleanModel = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalModel = cleanModel.isEmpty ? provider.defaultModelName : cleanModel
+        let cleanURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalURL = cleanURL.isEmpty ? provider.defaultBaseURL : cleanURL
+        let cleanKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        llmProviderBenchmarkSummaries[provider] = "正在预热连接并实测 \(finalModel) 首包延迟…"
+        if llmConfig.selectedProvider == provider {
+            lastBenchmarkSummary = llmProviderBenchmarkSummaries[provider] ?? ""
+        }
+        defer { isBenchmarkingLLM = false }
+
+        if !cleanKey.isEmpty {
+            KeychainHelper.saveAPIKey(cleanKey, for: provider)
+            refreshSavedKeyFlags()
+        }
+
+        var probeConfig = llmConfig
+        probeConfig.selectedProvider = provider
+        probeConfig.baseURL = finalURL
+        probeConfig.modelName = finalModel
+
+        do {
+            let res = try await polishEngine.benchmarkLatency(config: probeConfig, apiKey: cleanKey)
+            let flatSample = res.sampleOutput.replacingOccurrences(of: "\n", with: " ↵ ")
+            let summary = "⚡ 实测通过（\(finalModel)）：首字 TTFT \(res.ttftMs)ms · 总耗时 \(res.totalMs)ms · 样例：「\(flatSample)」"
+            llmProviderBenchmarkSummaries[provider] = summary
+            if llmConfig.selectedProvider == provider {
+                lastBenchmarkSummary = summary
+            }
+            statusBanner = "⚡ \(provider.shortName) 实测成功：首字 TTFT \(res.ttftMs)ms"
+        } catch {
+            let summary = "❌ 测速未通过：\(error.localizedDescription)"
+            llmProviderBenchmarkSummaries[provider] = summary
+            if llmConfig.selectedProvider == provider {
+                lastBenchmarkSummary = summary
+            }
+        }
+    }
+
     public func applyOpenAIASRPreset(baseURL: String, model: String) {
         llmConfig.openAIASRBaseURL = baseURL
         llmConfig.openAIASRModel = model
@@ -427,9 +699,14 @@ public final class AppState: ObservableObject {
         syncASREngineConfig()
         speechAuthorized = StreamingASREngine.isSpeechAuthorized
         lastSeedASRProbeSummary = ""
-        statusBanner = volcSpeechKeyInput.isEmpty
-            ? "已清空豆包语音密钥，建议勾选其他云端或本机离线识别"
-            : "✅ 豆包 Seed-ASR 2.0 语音密钥已保存并生效"
+        asrActivationErrors[.volcSeedASR] = nil
+        if volcSpeechKeyInput.isEmpty {
+            statusBanner = "已清空豆包语音密钥"
+        } else if llmConfig.asrProvider == .volcSeedASR {
+            statusBanner = "✅ 豆包 Seed-ASR 2.0 语音密钥已保存"
+        } else {
+            statusBanner = "💾 豆包语音密钥已保存（尚未设为当前生效，点击「校验并生效」启用）"
+        }
     }
 
     public func saveOpenAIASRConfig() {
@@ -446,11 +723,16 @@ public final class AppState: ObservableObject {
         syncASREngineConfig()
         speechAuthorized = StreamingASREngine.isSpeechAuthorized
         lastOpenAIASRProbeSummary = ""
+        asrActivationErrors[.openAIWhisper] = nil
         asrEngine.prewarmCloudSocketIfReady()
         let label = isGroqASRSelected ? "Groq Whisper" : "OpenAI 语音大模型"
         if hasEffectiveOpenAIASRKey {
             let keyNote = isOpenAIASRReusingLLMKey ? "（自动复用 OpenAI 密钥）" : ""
-            statusBanner = "✅ \(label)（\(llmConfig.openAIASRModel)）已保存并生效\(keyNote)"
+            if llmConfig.asrProvider == .openAIWhisper {
+                statusBanner = "✅ \(label)（\(llmConfig.openAIASRModel)）已保存\(keyNote)"
+            } else {
+                statusBanner = "💾 \(label)（\(llmConfig.openAIASRModel)）已保存\(keyNote)（点击「校验并生效」启用）"
+            }
         } else {
             statusBanner = "⚠️ 已保存 \(label) 接口设置，但当前尚未填入有效 API Key"
         }
@@ -616,7 +898,9 @@ public final class AppState: ObservableObject {
         phase = .listening(livePreview: "", mode: .dictate)
         playSubtleCue("Tink", volume: 0.30)
 
-        // 2. Offload ~4ms AX input-box context inspection + Doubao/OpenAI hotword ranking off MainActor!
+        // 2. Zero-wait parallel mic start!
+        // Launch ASR streaming immediately (~0.5ms using in-memory lexicon + history + clipboard)
+        // so the very first syllable is NEVER clipped while AXUIElement inspects heavy Electron/browser trees.
         syncASREngineConfig()
         let localeID = llmConfig.speechLocale
         let entriesSnapshot = lexiconStore.entries
@@ -629,29 +913,36 @@ public final class AppState: ObservableObject {
         let currentKey = KeychainHelper.loadAPIKey(for: llmConfig.selectedProvider)
         polishEngine.prewarmConnection(baseURL: currentBaseURL, apiKey: currentKey)
 
+        // Immediate hotword ranking + dialog_ctx from fast in-memory sources -> instant mic open!
+        let immediateHint = ([frontName, shortClipboardHint, ownSandboxSnapshot] + recentSnippets).joined(separator: " ")
+        var topTerms = PersonalLexiconStore.rankHotwords(from: entriesSnapshot, contextHint: immediateHint, limit: 64)
+        if shortClipboardHint.count >= 2,
+           shortClipboardHint.count <= 14,
+           !shortClipboardHint.contains(" "),
+           !topTerms.contains(where: { $0.caseInsensitiveCompare(shortClipboardHint) == .orderedSame }) {
+            topTerms.insert(shortClipboardHint, at: 0)
+        }
+        var dialogCtxItems: [String] = []
+        let cleanOwnPre = ownSandboxSnapshot.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanOwnPre.isEmpty {
+            dialogCtxItems.append(String(cleanOwnPre.suffix(100)))
+        }
+        for snippet in recentSnippets.prefix(2) {
+            let s = snippet.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !s.isEmpty {
+                dialogCtxItems.append(String(s.suffix(100)))
+            }
+        }
+        asrEngine.startStreamingAsync(
+            localeIdentifier: localeID,
+            contextualStrings: topTerms,
+            dialogContext: Array(dialogCtxItems.prefix(2))
+        )
+
+        // 3. In parallel, inspect active AX input-box context in background for Pass-2 LLM & rewrite-selection mode.
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
             let fullCtx = ContextInjector.captureCurrentContext()
             session?.updateContext(fullCtx)
-
-            let boxPreceding = !ownSandboxSnapshot.isEmpty ? ownSandboxSnapshot : fullCtx.precedingText
-            let liveScreenCtx = [fullCtx.windowTitle, boxPreceding]
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-                .joined(separator: " · ")
-            let combinedHint = ([frontName, shortClipboardHint, liveScreenCtx] + recentSnippets).joined(separator: " ")
-            var topTerms = PersonalLexiconStore.rankHotwords(from: entriesSnapshot, contextHint: combinedHint, limit: 64)
-            if shortClipboardHint.count >= 2,
-               shortClipboardHint.count <= 14,
-               !shortClipboardHint.contains(" "),
-               !topTerms.contains(where: { $0.caseInsensitiveCompare(shortClipboardHint) == .orderedSame }) {
-                topTerms.insert(shortClipboardHint, at: 0)
-            }
-            // Empirical A/B winner: pure context-ranked `hotwords` achieves 100% term hit at 121ms tail latency (vs 401ms with dialog_ctx)
-            self?.asrEngine.startStreamingAsync(
-                localeIdentifier: localeID,
-                contextualStrings: topTerms,
-                dialogContext: []
-            )
 
             DispatchQueue.main.async {
                 guard let self, self.isSessionActive else { return }
@@ -666,11 +957,15 @@ public final class AppState: ObservableObject {
 
     public func finishDictationSession() async {
         guard isSessionActive, !isFinalizingSession else { return }
-        isSessionActive = false
         isFinalizingSession = true
         defer { isFinalizingSession = false }
         hotkeyMonitor.syncRecordingState(false)
 
+        // Tail-capture grace window: keep microphone & ASR stream open for 0.1s after stop trigger
+        // so trailing syllables finish cleanly while keeping stop-to-paste feeling snappy.
+        try? await Task.sleep(nanoseconds: 100_000_000)
+
+        isSessionActive = false
         let sessionUsedPunctuatedCloudASR = asrEngine.activeSessionUsesAnyCloudASR
         if asrEngine.activeSessionUsesOpenAIASR {
             phase = .polishing(rawText: "云端语音转写中…")
@@ -708,18 +1003,15 @@ public final class AppState: ObservableObject {
             limit: 26
         )
         let recentTexts = history.prefix(3).map(\.polishedText).reversed() as [String]
-        llmConfig.syncActiveEndpointEdits()
         let effectiveConfig = llmConfig
-        var key = KeychainHelper.loadAPIKey(for: llmConfig.selectedProvider)
-        if key.isEmpty && !apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            KeychainHelper.saveAPIKey(apiKeyInput, for: llmConfig.selectedProvider)
-            key = KeychainHelper.loadAPIKey(for: llmConfig.selectedProvider)
-            refreshSavedKeyFlags()
+        var key = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        if key.isEmpty {
+            key = KeychainHelper.loadAPIKey(for: effectiveConfig.selectedProvider)
         }
         if key.isEmpty
             && !PolishEngine.isKeylessLocalEndpoint(effectiveConfig.baseURL)
             && effectiveConfig.formattingStyle != .verbatimLocal {
-            statusBanner = "⚠️ 当前勾选的「\(effectiveConfig.selectedProvider.shortName)」尚未填入 API Key，本次仅执行本地词库纠偏"
+            statusBanner = "⚠️ 当前生效的「\(effectiveConfig.selectedProvider.shortName)」尚未填入 API Key，本次仅执行本地词库纠偏"
         }
 
         phase = .polishing(rawText: tailFixed)

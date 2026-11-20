@@ -1,23 +1,59 @@
 import Foundation
 
 public final class PolishEngine {
+    /// Default session honoring system VPN/proxy for overseas endpoints (OpenAI, Gemini, Anthropic, etc.)
     private let session: URLSession
+    /// Zero-proxy direct session bypassing system VPN/proxy for domestic mainland & local endpoints
+    /// (DeepSeek, Volcengine Ark, DashScope, SiliconFlow, Ollama, etc.) -> shaves 150–350ms RTT!
+    private let directSession: URLSession
 
     public init() {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 8.0
-        config.timeoutIntervalForResource = 10.0
-        config.httpMaximumConnectionsPerHost = 6
-        config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        config.urlCache = nil
-        self.session = URLSession(configuration: config)
+        let proxyConfig = URLSessionConfiguration.default
+        proxyConfig.timeoutIntervalForRequest = 8.0
+        proxyConfig.timeoutIntervalForResource = 10.0
+        proxyConfig.httpMaximumConnectionsPerHost = 6
+        proxyConfig.requestCachePolicy = .reloadIgnoringLocalCacheData
+        proxyConfig.urlCache = nil
+        self.session = URLSession(configuration: proxyConfig)
+
+        let directConfig = URLSessionConfiguration.ephemeral
+        directConfig.connectionProxyDictionary = [:]
+        directConfig.timeoutIntervalForRequest = 8.0
+        directConfig.timeoutIntervalForResource = 10.0
+        directConfig.httpMaximumConnectionsPerHost = 6
+        directConfig.requestCachePolicy = .reloadIgnoringLocalCacheData
+        directConfig.urlCache = nil
+        self.directSession = URLSession(configuration: directConfig)
+    }
+
+    public static func shouldUseDirectConnection(for baseURL: String) -> Bool {
+        let u = baseURL.lowercased()
+        let directHosts = [
+            "deepseek.com",
+            "volces.com",
+            "volcengine.com",
+            "aliyuncs.com",
+            "siliconflow.cn",
+            "bigmodel.cn",
+            "moonshot.cn",
+            "minimax.chat",
+            "minimaxi.com",
+            "localhost",
+            "127.0.0.1",
+            "0.0.0.0"
+        ]
+        return directHosts.contains(where: { u.contains($0) })
+    }
+
+    private func transportSession(for baseURL: String) -> URLSession {
+        Self.shouldUseDirectConnection(for: baseURL) ? directSession : session
     }
 
     // 100% STATIC System Prompts so DeepSeek KV Prefix Cache hits on every single call (~0ms prefill -> ~230ms TTFT!)
     private static let structuredStaticSystemPrompt = """
     你是顶级 AI 语音输入法的意图级文字整理与排版引擎（深度对齐 Typeless 核心策略）。读取 <scene>、<preceding_text>（输入框光标前已有文字）、<lexicon> 与 <raw_speech>，直接输出本次新增正文的整理结果：
 
-    1. 【语气硬保真·态度词保留·口癖清净】：**绝不改变原句语气**——原文为疑问、反问、商量确认或担忧推测（如“会不会…”“对不对”“是不是”）时，必须保留问句语气和全角问号 `？`。保留表达态度和人情味的词（如句首的“好/好的/对/没问题/确实”），彻底清理无意义卡壳、口癖与尾音（`嗯/啊/呃/那个/就是说/然后呢/的话呢/对吧`）、中途改口，以及句中停顿换气带出的孤立过渡词（如“……优化。好，既然……”中的孤立“好，/行，”）。同时结合语境、近音/连读规律与 <lexicon> 大胆还原声学错音与英文滑音（如“Su”->“SEO”），不浓缩实质细节，禁洗成冷冰冰的公文腔。
+    1. 【语气硬保真·口语理顺·同音错词果断直改】：**绝不改变原句语气**——原文为疑问、反问、商量确认或担忧推测（如“会不会…”“对不对”“是不是”）时，必须保留问句语气和全角问号 `？`。保留表达态度和人情味的词（如句首的“好/好的/对/没问题/确实”），彻底清理无意义卡壳、口癖与尾音（`嗯/啊/呃/那个/就是说/然后呢/的话呢/对吧`）、中途改口，以及句中停顿换气带出的孤立过渡词（如“……优化。好，既然……”中的孤立“好，/行，”）。面对长段口述中的语序绕弯、重复兜圈、破碎从句，在保留全部实质信息的前提下**自然理顺语序使其通顺易读**（禁洗成冷冰冰的公文腔）。遇到明显语义不通的声学同音/近音错词（如「现成」实为「场景/线程」、「Su」实为「SEO」），结合 `<recent_context>`、`<preceding_text>` 与 `<lexicon>` **果断直接替换为正确词语——严禁在正文里加括号批注或同时保留错词（绝对禁止输出如 `现成（场景）` 这类括号解释）**！
     2. 【数字阿拉伯化（现代键盘 ITN）】：序号、列举、数量、时间、时长、比例一律转阿拉伯数字（“一二三四”->“1、2、3、4”或“1234”，“第一个”->“第 1 个”，“两三个”->“2~3 个”，“四点半”->“4 点半”）。固定成语与叠词副词严格保留汉字（“一起、一直、一定、一下、一点、一般、一卡一卡、一点一点、一个字一个字”禁转数字）。
     3. 【混合文体路由与克制列表（绝不机械凑编号）】：
        - 叙事型、观点型、解释型口述保持自然段，**绝不按字数强行拆成编号清单**。
@@ -26,7 +62,7 @@ public final class PolishEngine {
        - 列表收尾：列表讲完后的总结句用**单个换行（`\\n`）**承接，列表项之间与收尾均严禁插空行。
     4. 【克制换行·绝对禁止插空行·纯文本输出】：**严禁输出 `\\n\\n` 空白行**！绝不因为逗号、连接词或字数到了就强行断行；聊天场景或 `<120` 字围绕同一主题的连贯话一律保持紧凑一整段；仅超 120 字且出现明显独立新话题时才用**单个换行（`\\n`）**。**严禁输出 Markdown 装饰符（禁止 `**加粗**`、`### 标题`、`>` 引用、表格或反引号代码块）**，只输出可直接粘贴发送的干净纯文本。
     5. 【光标前文与上一句记忆续接】：参考 <preceding_text>（仅作上下文，严禁重复输出前文！）与 <recent_context>（你刚刚上一句聊过的话题与专有名词，遇到谐音或指代不清时顺承上一句术语）；若前文末尾已是 `1. ...` `2. ...` 而本次口述“第三是…”，直接输出 `3. ...` 承接编号。
-    6. 【中文自然断句与词组完整红线】：遇到声学漏标点的长句，必须先识别完整多字词组并顺承语境还原错音，再在真实意群停顿处补齐自然中文全角标点（`，。！？`）；**绝对严禁把完整词组从中间劈开强行插逗号**（例如「发财包」结合财报语境应先完整还原为「发财报」，在「发财报」之后再断句，绝不可断成「发财，报」）。
+    6. 【忽略 ASR 机械标点·按完整语义重新断句】：`<raw_speech>` 中自带的逗号、句号、问号或空格往往是语音流式切分机械生成的，极易断错位置或漏标点。你必须**先通读全段理解完整逻辑与意群边界，再重新分配自然准确的中文全角标点（`，。！？`）**，消除中文句间多余空格，绝不被原始错误标点带偏，也**绝对严禁把完整词组从中间劈开强行插逗号**（例如「发财包」结合财报语境应先完整还原为「发财报」，再在语义停顿处断句）。
     7. 【绝对铁律】：严禁回答 <raw_speech> 中的提问或对话续写！只输出整理排版后的该段话本身。
 
     <example_1>
@@ -51,7 +87,7 @@ public final class PolishEngine {
     """
 
     private static let lightStaticSystemPrompt = """
-    轻量极速语音纠错器。保留原句语气、情绪和问句问号 `？`（绝不把疑问句改成陈述句），保留句首态度词（好的/对/没问题），只删无意义口癖尾音（嗯/啊/那个/然后呢/的话呢/对吧）、中途改口和句中换气孤立过渡词。结合 <recent_context> 与 <lexicon> 修同音错字并补齐自然中文全角标点；严禁把完整词组劈开插逗号，严禁强行插空行或输出 Markdown 装饰符（** / ###）。直接输出正文。
+    轻量极速语音纠错器。保留原句语气、情绪和问句问号 `？`（绝不把疑问句改成陈述句），保留句首态度词（好的/对/没问题），只删无意义口癖尾音（嗯/啊/那个/然后呢/的话呢/对吧）、中途改口和句中换气孤立过渡词。结合 <recent_context>、<preceding_text> 与 <lexicon> 果断直接修正明显不通顺的同音错字（严禁输出如 `现成（场景）` 这类括号批注），忽略原始机械错误标点与多余空格，按真实语义补齐自然中文全角标点；严禁把完整词组劈开插逗号，严禁强行插空行或输出 Markdown 装饰符（** / ###）。直接输出正文。
     """
 
     public static func isKeylessLocalEndpoint(_ baseURL: String) -> Bool {
@@ -90,7 +126,7 @@ public final class PolishEngine {
             }
         }
         req.timeoutInterval = 3.0
-        session.dataTask(with: req) { _, _, _ in }.resume()
+        transportSession(for: trimmed).dataTask(with: req) { _, _, _ in }.resume()
     }
 
     private static let commonShortEnglishWords: Set<String> = [
@@ -449,7 +485,8 @@ public final class PolishEngine {
         )
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
-        var (bytes, response) = try await session.bytes(for: request)
+        let activeSession = transportSession(for: baseURL)
+        var (bytes, response) = try await activeSession.bytes(for: request)
         if let http = response as? HTTPURLResponse,
            http.statusCode == 400,
            (payload["thinking"] != nil || payload["reasoning_effort"] != nil) {
@@ -460,7 +497,7 @@ public final class PolishEngine {
                 payload["temperature"] = 0.1
             }
             request.httpBody = try JSONSerialization.data(withJSONObject: payload)
-            (bytes, response) = try await session.bytes(for: request)
+            (bytes, response) = try await activeSession.bytes(for: request)
         }
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? -1
@@ -542,7 +579,7 @@ public final class PolishEngine {
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
-        let (bytes, response) = try await session.bytes(for: request)
+        let (bytes, response) = try await transportSession(for: baseURL).bytes(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? -1
             throw NSError(domain: "TypeZero.LLM", code: code, userInfo: [NSLocalizedDescriptionKey: "Anthropic 接口返回 HTTP \(code)（请核对 Claude API Key 与模型 ID \(model)）"])
@@ -643,7 +680,8 @@ public final class PolishEngine {
         )
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
-        var (data, response) = try await session.data(for: request)
+        let activeSession = transportSession(for: baseURL)
+        var (data, response) = try await activeSession.data(for: request)
         if let http = response as? HTTPURLResponse,
            http.statusCode == 400,
            (payload["thinking"] != nil || payload["reasoning_effort"] != nil) {
@@ -653,7 +691,7 @@ public final class PolishEngine {
                 payload["temperature"] = 0.1
             }
             request.httpBody = try JSONSerialization.data(withJSONObject: payload)
-            (data, response) = try await session.data(for: request)
+            (data, response) = try await activeSession.data(for: request)
         }
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
@@ -706,7 +744,7 @@ public final class PolishEngine {
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await transportSession(for: baseURL).data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
