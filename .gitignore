@@ -34,3 +34,6 @@ personal_corpus/
 *.sqlite-shm
 *.sqlite-wal
 *.db
+
+# Local agent workspace rules (machine-specific ops paths, never publish)
+AGENTS.md

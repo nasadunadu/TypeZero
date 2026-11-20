@@ -57,17 +57,19 @@ if [ -n "$SIGN_HASH" ]; then
     echo "==> 3. Signed DMG with Developer ID certificate ($SIGN_HASH)"
 fi
 
-# Automatic Apple Cloud Notarization + Stapling if Keychain profile exists
+# Automatic Apple Cloud Notarization + Stapling (fail-fast unless ALLOW_UNNOTARIZED=1 for local test builds)
 if xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
     echo "==> 4. Submitting DMG to Apple Notary Service (profile: $NOTARY_PROFILE)..."
     xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
     xcrun stapler staple "$DMG_PATH"
+    xcrun stapler validate "$DMG_PATH"
     echo "==> 5. Notarization & ticket stapling complete! Zero Gatekeeper warnings on any Mac."
+elif [ "${ALLOW_UNNOTARIZED:-0}" = "1" ]; then
+    echo "==> [Warn] ALLOW_UNNOTARIZED=1 set; skipping Apple Notarization for local test build."
 else
-    echo "==> [Info] Signed DMG ready at: $DMG_PATH"
-    echo "    (Optional zero-popup Apple Notarization: run once to bind Apple ID App-Specific Password:"
-    echo "     xcrun notarytool store-credentials $NOTARY_PROFILE --apple-id <APPLE_ID> --team-id <TEAM_ID> --password <APP_SPECIFIC_PWD>"
-    echo "     then re-run ./scripts/package-dmg.sh)"
+    echo "==> [ERROR] Apple Notarization profile '$NOTARY_PROFILE' not found. Refusing to ship unnotarized DMG!" >&2
+    echo "    Set ALLOW_UNNOTARIZED=1 only for local test builds." >&2
+    exit 1
 fi
 
 ls -lh "$DMG_PATH"
