@@ -383,6 +383,7 @@ public struct LLMConfig: Codable, Equatable {
     public var enablePanguSpacing: Bool
     public var enableWhisperAGC: Bool
     public var enableAutoLearn: Bool
+    public var enableAutoMuteDuringDictation: Bool
     public var showInDock: Bool
     public var speechLocale: String
 
@@ -405,6 +406,7 @@ public struct LLMConfig: Codable, Equatable {
         enablePanguSpacing: Bool = true,
         enableWhisperAGC: Bool = true,
         enableAutoLearn: Bool = true,
+        enableAutoMuteDuringDictation: Bool = true,
         showInDock: Bool = false,
         speechLocale: String = "zh-CN"
     ) {
@@ -428,6 +430,7 @@ public struct LLMConfig: Codable, Equatable {
         self.enablePanguSpacing = enablePanguSpacing
         self.enableWhisperAGC = enableWhisperAGC
         self.enableAutoLearn = enableAutoLearn
+        self.enableAutoMuteDuringDictation = enableAutoMuteDuringDictation
         self.showInDock = showInDock
         self.speechLocale = speechLocale
     }
@@ -500,6 +503,7 @@ public struct LLMConfig: Codable, Equatable {
         self.enablePanguSpacing = (try? c.decode(Bool.self, forKey: .enablePanguSpacing)) ?? true
         self.enableWhisperAGC = (try? c.decode(Bool.self, forKey: .enableWhisperAGC)) ?? true
         self.enableAutoLearn = (try? c.decode(Bool.self, forKey: .enableAutoLearn)) ?? true
+        self.enableAutoMuteDuringDictation = (try? c.decode(Bool.self, forKey: .enableAutoMuteDuringDictation)) ?? true
         self.showInDock = (try? c.decode(Bool.self, forKey: .showInDock)) ?? false
         self.speechLocale = (try? c.decode(String.self, forKey: .speechLocale)) ?? "zh-CN"
     }

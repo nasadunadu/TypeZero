@@ -1725,6 +1725,8 @@ struct EngineSettingsSection: View {
 
                 HStack(alignment: .top, spacing: 24) {
                     VStack(spacing: 0) {
+                        CompactSwitchRow(icon: "speaker.slash.fill", title: "听写时自动静音外放（说完自动恢复）", isOn: $appState.llmConfig.enableAutoMuteDuringDictation)
+                        Divider().overlay(TZTheme.hairline)
                         CompactSwitchRow(icon: "hare.fill", title: "28 字内干净短句免检直通", isOn: $appState.llmConfig.enableFastBypassForShortPhrases)
                         Divider().overlay(TZTheme.hairline)
                         CompactSwitchRow(icon: "waveform.and.mic", title: "25dB 气声耳语自动增益", isOn: $appState.llmConfig.enableWhisperAGC)

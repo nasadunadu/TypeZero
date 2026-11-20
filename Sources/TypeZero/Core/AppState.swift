@@ -85,6 +85,7 @@ public final class AppState: ObservableObject {
     private let hotkeyMonitor = HotkeyMonitor()
     private let pillController = FloatingPillController()
     private let modelDownloader = OfflineModelDownloader()
+    private let audioDucker = SystemAudioDucker()
 
     private var activeContext: ActiveScreenContext = .empty
     private var activeMode: DictationMode = .dictate
@@ -154,6 +155,13 @@ public final class AppState: ObservableObject {
                     self.asrEngine.prewarmCloudSocketIfReady()
                 }
             }
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.willTerminateNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.audioDucker.restoreIfNeeded()
+            }
 
             if !self.micAuthorized || !self.speechAuthorized {
                 StreamingASREngine.requestPermissions { [weak self] mic, speech in
@@ -215,6 +223,7 @@ public final class AppState: ObservableObject {
         asrEngine.onError = { [weak self] errMsg in
             guard let self else { return }
             self.isSessionActive = false
+            self.audioDucker.restoreIfNeeded()
             self.hotkeyMonitor.syncRecordingState(false)
             self.phase = .error(message: errMsg)
             self.scheduleIdleReset(after: 2.5)
@@ -271,6 +280,7 @@ public final class AppState: ObservableObject {
     public func cancelDictationSession() {
         guard isSessionActive else { return }
         isSessionActive = false
+        audioDucker.restoreIfNeeded()
         hotkeyMonitor.syncRecordingState(false)
         asrEngine.cancel()
         AudioLevelBus.shared.reset()
@@ -896,7 +906,11 @@ public final class AppState: ObservableObject {
         let session: LiveInputSession? = llmConfig.enableLiveInlineTyping ? LiveInputSession(context: fastInitialContext) : nil
         liveInputSession = session
         phase = .listening(livePreview: "", mode: .dictate)
-        playSubtleCue("Tink", volume: 0.30)
+        if llmConfig.enableAutoMuteDuringDictation {
+            audioDucker.muteIfNeeded()
+        } else {
+            playSubtleCue("Tink", volume: 0.30)
+        }
 
         // 2. Zero-wait parallel mic start!
         // Launch ASR streaming immediately (~0.5ms using in-memory lexicon + history + clipboard)
@@ -958,7 +972,10 @@ public final class AppState: ObservableObject {
     public func finishDictationSession() async {
         guard isSessionActive, !isFinalizingSession else { return }
         isFinalizingSession = true
-        defer { isFinalizingSession = false }
+        defer {
+            isFinalizingSession = false
+            audioDucker.restoreIfNeeded()
+        }
         hotkeyMonitor.syncRecordingState(false)
 
         // Tail-capture grace window: keep microphone & ASR stream open for 0.1s after stop trigger
@@ -966,6 +983,8 @@ public final class AppState: ObservableObject {
         try? await Task.sleep(nanoseconds: 100_000_000)
 
         isSessionActive = false
+        // Immediately restore system audio output as soon as mic tail capture finishes (before LLM polishing)!
+        audioDucker.restoreIfNeeded()
         let sessionUsedPunctuatedCloudASR = asrEngine.activeSessionUsesAnyCloudASR
         if asrEngine.activeSessionUsesOpenAIASR {
             phase = .polishing(rawText: "云端语音转写中…")
