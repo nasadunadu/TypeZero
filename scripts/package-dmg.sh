@@ -8,7 +8,16 @@ APP_NAME="TypeZero"
 VERSION="0.4.9"
 DIST_DIR="$ROOT_DIR/dist"
 DMG_PATH="$DIST_DIR/${APP_NAME}-v${VERSION}-macOS-arm64.dmg"
-NOTARY_PROFILE="${NOTARY_PROFILE:-TypeZeroNotary}"
+NOTARY_PROFILE="${NOTARY_PROFILE:-}"
+if [ -z "$NOTARY_PROFILE" ]; then
+    for cand in ScreenCapture-Notary TypeZeroNotary; do
+        if xcrun notarytool history --keychain-profile "$cand" >/dev/null 2>&1; then
+            NOTARY_PROFILE="$cand"
+            break
+        fi
+    done
+    NOTARY_PROFILE="${NOTARY_PROFILE:-ScreenCapture-Notary}"
+fi
 
 echo "==> 1. Building & signing ${APP_NAME}.app v${VERSION}..."
 "$ROOT_DIR/scripts/build-app.sh"
