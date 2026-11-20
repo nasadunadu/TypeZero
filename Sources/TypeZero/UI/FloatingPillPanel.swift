@@ -65,7 +65,7 @@ public final class AudioLevelBus: @unchecked Sendable {
 /// - Strictly NEVER displays live transcribed text (text streams exclusively inside the user's selected input box!).
 /// - Decouples Accessibility IPC caret queries onto a background serial queue (zero main-thread stalls!).
 /// - Glides at 60fps in pure memory and renders a 60/120fps continuous fluid sine-wave visualization.
-public final class FloatingPillController {
+public final class FloatingPillController: @unchecked Sendable {
     private var panel: NSPanel?
     private weak var boundAppState: AppState?
     private var lerpTimer: DispatchSourceTimer?
@@ -75,6 +75,7 @@ public final class FloatingPillController {
     private let coordLock = NSLock()
     private var cachedTargetOrigin: CGPoint? = nil
     private var currentOrigin: CGPoint = .zero
+    private var isRequestedVisible: Bool = false
     private let pillSize = CGSize(width: 224, height: 58)
 
     public init() {}
@@ -114,25 +115,51 @@ public final class FloatingPillController {
 
     @MainActor
     public func setVisible(_ visible: Bool) {
+        isRequestedVisible = visible
         if visible {
             ensurePanelCreated()
             guard let panel else { return }
 
             if !panel.isVisible {
-                let fallback = defaultBottomOrigin()
-                coordLock.lock()
-                let startPos = cachedTargetOrigin ?? fallback
-                currentOrigin = startPos
-                coordLock.unlock()
-
-                panel.alphaValue = 0.0
-                panel.setFrame(NSRect(origin: startPos, size: pillSize), display: true)
-                panel.orderFrontRegardless()
-                NSAnimationContext.runAnimationGroup { ctx in
-                    ctx.duration = 0.10
-                    panel.animator().alphaValue = 1.0
+                let sizeSnapshot = pillSize
+                // Resolve initial anchor off-main-thread so the pill spawns right beneath the input box
+                // without flashing at the bottom Dock first (bounded by a 60ms fast-path fallback).
+                var hasShown = false
+                let presentAt: @MainActor (CGPoint) -> Void = { [weak self] pos in
+                    guard let self, self.isRequestedVisible, !hasShown, let panel = self.panel else { return }
+                    hasShown = true
+                    self.currentOrigin = pos
+                    panel.alphaValue = 0.0
+                    panel.setFrame(NSRect(origin: pos, size: sizeSnapshot), display: true)
+                    panel.orderFrontRegardless()
+                    NSAnimationContext.runAnimationGroup { ctx in
+                        ctx.duration = 0.10
+                        panel.animator().alphaValue = 1.0
+                    }
+                    self.startDualLayerCaretTracking()
                 }
-                startDualLayerCaretTracking()
+
+                axPollQueue.async { [weak self] in
+                    let resolved = ContextInjector.getFocusedCaretCocoaOrigin(pillSize: sizeSnapshot)
+                    if let resolved, let self {
+                        self.coordLock.lock()
+                        self.cachedTargetOrigin = resolved
+                        self.coordLock.unlock()
+                    }
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            let target = resolved ?? self?.defaultBottomOrigin() ?? .zero
+                            presentAt(target)
+                        }
+                    }
+                }
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(65)) { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        presentAt(self.defaultBottomOrigin())
+                    }
+                }
             }
         } else {
             stopDualLayerCaretTracking()

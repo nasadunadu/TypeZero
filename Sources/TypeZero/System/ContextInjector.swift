@@ -677,8 +677,69 @@ public enum ContextInjector {
         return nil
     }
 
-    /// Queries the exact Quartz screen coordinates (top-left origin) of the active text caret
-    /// so the minimalist waveform micro-pill can glide smoothly right beneath the cursor!
+    private static let manualAXLock = NSLock()
+    private static var manualAXEnabledPIDs: Set<pid_t> = []
+
+    /// Enables Chromium/Electron manual accessibility tree once per process so apps like Feishu,
+    /// Cursor, Notion, and Chrome expose accurate text-input & caret AX geometry.
+    private static func enableManualAccessibilityIfNeeded(appElem: AXUIElement, pid: pid_t) {
+        manualAXLock.lock()
+        let alreadyEnabled = manualAXEnabledPIDs.contains(pid)
+        if !alreadyEnabled {
+            if manualAXEnabledPIDs.count > 64 { manualAXEnabledPIDs.removeAll() }
+            manualAXEnabledPIDs.insert(pid)
+        }
+        manualAXLock.unlock()
+        if !alreadyEnabled {
+            _ = AXUIElementSetAttributeValue(appElem, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        }
+    }
+
+    private static func axElementQuartzRect(_ elem: AXUIElement) -> CGRect? {
+        var posRef: CFTypeRef?
+        var sizeRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(elem, kAXPositionAttribute as CFString, &posRef) == .success,
+              AXUIElementCopyAttributeValue(elem, kAXSizeAttribute as CFString, &sizeRef) == .success,
+              let pVal = asAXValue(posRef),
+              let sVal = asAXValue(sizeRef) else {
+            return nil
+        }
+        var pt = CGPoint.zero
+        var sz = CGSize.zero
+        guard AXValueGetValue(pVal, .cgPoint, &pt),
+              AXValueGetValue(sVal, .cgSize, &sz),
+              sz.width > 1, sz.height > 1 else {
+            return nil
+        }
+        return CGRect(origin: pt, size: sz)
+    }
+
+    /// Converts a Quartz screen rect (top-left origin) into a Cocoa origin for the floating pill,
+    /// placing it directly beneath the anchor rect (or flipping cleanly above if near the Dock/bottom).
+    private static func anchorPillCocoaOrigin(forQuartzRect qRect: CGRect, pillSize: CGSize, gap: CGFloat) -> CGPoint? {
+        guard let primaryScreen = NSScreen.screens.first else { return nil }
+        let primaryHeight = primaryScreen.frame.height
+        let cocoaBottomY = primaryHeight - qRect.maxY
+        let cocoaTopY = primaryHeight - qRect.minY
+        let anchorCenter = CGPoint(x: qRect.midX, y: (cocoaBottomY + cocoaTopY) * 0.5)
+
+        let activeScreen = NSScreen.screens.first(where: { $0.frame.contains(anchorCenter) }) ?? NSScreen.main ?? primaryScreen
+        let vf = activeScreen.visibleFrame
+
+        let rawX = qRect.midX - pillSize.width * 0.5
+        let belowY = cocoaBottomY - pillSize.height - gap
+        let aboveY = cocoaTopY + gap
+        let preferredY = (belowY >= vf.minY + 12) ? belowY : aboveY
+
+        let clampedX = max(vf.minX + 8, min(vf.maxX - pillSize.width - 8, rawX))
+        let clampedY = max(vf.minY + 12, min(vf.maxY - pillSize.height - 12, preferredY))
+        return CGPoint(x: clampedX, y: clampedY)
+    }
+
+    /// Queries the active text caret or focused input box coordinates using a 3-tier anchor cascade:
+    ///   Tier 1: Exact AX text caret bounds (`kAXBoundsForRange`)
+    ///   Tier 2: Focused text-input element frame (`kAXPosition` + `kAXSize`) for Electron/Chromium apps (Feishu, Cursor, Chrome)
+    ///   Tier 3: Mouse pointer inside the focused window (near where the user clicked to type), or focused window bottom-center
     public static func getFocusedCaretCocoaOrigin(pillSize: CGSize) -> CGPoint? {
         guard AXIsProcessTrusted(),
               let frontApp = NSWorkspace.shared.frontmostApplication,
@@ -686,47 +747,77 @@ public enum ContextInjector {
             return nil
         }
 
-        let appElem = AXUIElementCreateApplication(frontApp.processIdentifier)
-        AXUIElementSetMessagingTimeout(appElem, 0.035)
+        let pid = frontApp.processIdentifier
+        let appElem = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(appElem, 0.080)
+        enableManualAccessibilityIfNeeded(appElem: appElem, pid: pid)
+
         var focusedRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(appElem, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
-              let elem = asAXElement(focusedRef) else {
-            return nil
+        if AXUIElementCopyAttributeValue(appElem, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
+           let elem = asAXElement(focusedRef) {
+            AXUIElementSetMessagingTimeout(elem, 0.080)
+
+            // Tier 1: Exact caret bounds
+            var rangeRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(elem, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
+               let rangeVal = rangeRef {
+                var boundsRef: CFTypeRef?
+                if AXUIElementCopyParameterizedAttributeValue(
+                    elem,
+                    kAXBoundsForRangeParameterizedAttribute as CFString,
+                    rangeVal,
+                    &boundsRef
+                ) == .success, let bVal = asAXValue(boundsRef) {
+                    var quartzRect = CGRect.zero
+                    if AXValueGetValue(bVal, .cgRect, &quartzRect),
+                       quartzRect.height >= 4, quartzRect.height <= 220,
+                       (quartzRect.origin.x != 0 || quartzRect.origin.y != 0),
+                       let origin = anchorPillCocoaOrigin(forQuartzRect: quartzRect, pillSize: pillSize, gap: 10) {
+                        return origin
+                    }
+                }
+            }
+
+            // Tier 2: Focused input element box (ideal for Electron/Feishu/Chrome/Cursor compose boxes)
+            if let elemRect = axElementQuartzRect(elem),
+               elemRect.width >= 40, elemRect.height >= 16, elemRect.height <= 560,
+               let origin = anchorPillCocoaOrigin(forQuartzRect: elemRect, pillSize: pillSize, gap: 8) {
+                return origin
+            }
         }
 
-        var rangeRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(elem, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
-              let rangeVal = rangeRef else {
-            return nil
+        // Tier 3: Focused window + mouse proximity fallback (prevents dropping far away to the Dock)
+        var winRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(appElem, kAXFocusedWindowAttribute as CFString, &winRef) == .success,
+           let winElem = asAXElement(winRef),
+           let winQuartz = axElementQuartzRect(winElem),
+           let primaryScreen = NSScreen.screens.first {
+            let primaryHeight = primaryScreen.frame.height
+            let winCocoa = CGRect(
+                x: winQuartz.origin.x,
+                y: primaryHeight - winQuartz.maxY,
+                width: winQuartz.width,
+                height: winQuartz.height
+            )
+            let mouseCocoa = NSEvent.mouseLocation
+            if winCocoa.contains(mouseCocoa) {
+                let activeScreen = NSScreen.screens.first(where: { $0.frame.contains(mouseCocoa) }) ?? NSScreen.main ?? primaryScreen
+                let vf = activeScreen.visibleFrame
+                let rawX = mouseCocoa.x - pillSize.width * 0.5
+                let belowY = mouseCocoa.y - pillSize.height - 18
+                let aboveY = mouseCocoa.y + 18
+                let preferredY = (belowY >= vf.minY + 12) ? belowY : aboveY
+                return CGPoint(
+                    x: max(vf.minX + 8, min(vf.maxX - pillSize.width - 8, rawX)),
+                    y: max(vf.minY + 12, min(vf.maxY - pillSize.height - 12, preferredY))
+                )
+            }
+            if let origin = anchorPillCocoaOrigin(forQuartzRect: winQuartz, pillSize: pillSize, gap: 12) {
+                return origin
+            }
         }
 
-        var boundsRef: CFTypeRef?
-        guard AXUIElementCopyParameterizedAttributeValue(
-            elem,
-            kAXBoundsForRangeParameterizedAttribute as CFString,
-            rangeVal,
-            &boundsRef
-        ) == .success, let bVal = asAXValue(boundsRef) else {
-            return nil
-        }
-
-        var quartzRect = CGRect.zero
-        guard AXValueGetValue(bVal, .cgRect, &quartzRect),
-              quartzRect.height >= 4, quartzRect.height <= 140,
-              (quartzRect.origin.x != 0 || quartzRect.origin.y != 0) else {
-            return nil
-        }
-
-        guard let primaryScreen = NSScreen.screens.first else { return nil }
-        let primaryHeight = primaryScreen.frame.height
-        let rawX = quartzRect.midX - pillSize.width * 0.5
-        let rawY = primaryHeight - quartzRect.maxY - pillSize.height - 10
-
-        let activeScreen = NSScreen.screens.first(where: { $0.frame.contains(CGPoint(x: rawX, y: rawY)) }) ?? NSScreen.main ?? primaryScreen
-        let vf = activeScreen.visibleFrame
-        let clampedX = max(vf.minX + 8, min(vf.maxX - pillSize.width - 8, rawX))
-        let clampedY = max(vf.minY + 12, min(vf.maxY - pillSize.height - 12, rawY))
-        return CGPoint(x: clampedX, y: clampedY)
+        return nil
     }
 
     /// Captures frontmost app name, window title, and any highlighted text (for Selected-Text Rewrite mode).

@@ -8,19 +8,19 @@
 <meta name="description" content="TypeZero 是一款纯原生 Swift + C++ 打造的免费开源 macOS AI 语音输入法（MIT）。121ms 极速响应，自配 OpenAI / Groq / DeepSeek / Gemini / Claude / 豆包 API，内嵌 886MB SenseVoice FP32 离线满血热备与个人专属词库，速度与效果全面对标 Typeless 与闪电说，100% 本地隐私。">
 <meta name="keywords" content="TypeZero, macOS AI 语音输入法, Typeless 免费替代, 闪电说开源替代, BYOK 语音输入法, OpenAI Whisper macOS, Groq Whisper, SenseVoice macOS, 豆包 Seed-ASR, 开发者语音输入">
 <meta name="robots" content="index, follow, max-image-preview:large">
-<link rel="canonical" href="https://k.mykkai.com/typezero/">
-<link rel="alternate" hreflang="zh-Hans" href="https://k.mykkai.com/typezero/">
-<link rel="alternate" hreflang="en" href="https://k.mykkai.com/typezero/en/">
-<link rel="alternate" hreflang="ja" href="https://k.mykkai.com/typezero/ja/">
-<link rel="alternate" hreflang="x-default" href="https://k.mykkai.com/typezero/">
+<link rel="canonical" href="https://typezero.mykkai.com/">
+<link rel="alternate" hreflang="zh-Hans" href="https://typezero.mykkai.com/">
+<link rel="alternate" hreflang="en" href="https://typezero.mykkai.com/en/">
+<link rel="alternate" hreflang="ja" href="https://typezero.mykkai.com/ja/">
+<link rel="alternate" hreflang="x-default" href="https://typezero.mykkai.com/">
 
 <!-- Open Graph / Twitter Card -->
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="TypeZero">
 <meta property="og:title" content="TypeZero — 开口，即终稿 | 免费自配 API 的 macOS AI 语音输入法">
 <meta property="og:description" content="纯原生 Swift + C++ · 121ms 极速直出 · 自配 OpenAI / Groq / DeepSeek / Claude / 豆包 · 个人专属词库自学习 · 100% 本地隐私零订阅费。">
-<meta property="og:url" content="https://k.mykkai.com/typezero/">
-<meta property="og:image" content="https://k.mykkai.com/typezero/hero-typezero.png">
+<meta property="og:url" content="https://typezero.mykkai.com/">
+<meta property="og:image" content="https://typezero.mykkai.com/hero-typezero.jpg">
 <meta property="og:image:width" content="1672">
 <meta property="og:image:height" content="941">
 <meta property="og:locale" content="zh_CN">
@@ -29,7 +29,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="TypeZero — 开口，即终稿 | 免费开源 macOS AI 语音输入法">
 <meta name="twitter:description" content="比打字快 4 倍，零订阅费。自配任意 API，内嵌 886MB SenseVoice FP32 断网热备。">
-<meta name="twitter:image" content="https://k.mykkai.com/typezero/hero-typezero.png">
+<meta name="twitter:image" content="https://typezero.mykkai.com/hero-typezero.jpg">
 
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23070A12'/%3E%3Cpath d='M14 32c0-9 8-14 18-6 10 8 18 14 18 6 0-8-8-14-18-6-10 8-18 14-18 6z' fill='none' stroke='%2300E5C3' stroke-width='5.2' stroke-linecap='round'/%3E%3C/svg%3E">
 
@@ -42,10 +42,10 @@
   "description": "纯原生 Swift + C++ 打造的免费开源 macOS AI 语音输入法（MIT）。121ms 极速直出，自配 OpenAI、Groq、DeepSeek、Gemini、Claude 与豆包 API，内嵌 886MB SenseVoice FP32 离线热备与个人词库自学习。",
   "applicationCategory": "UtilitiesApplication",
   "operatingSystem": "macOS 14.0+ (Apple Silicon arm64)",
-  "softwareVersion": "0.4.5",
+  "softwareVersion": "0.4.9",
   "license": "https://opensource.org/licenses/MIT",
-  "url": "https://k.mykkai.com/typezero/",
-  "downloadUrl": "https://github.com/nasadunadu/TypeZero/releases/download/v0.4.5/TypeZero-v0.4.5-macOS-arm64.dmg",
+  "url": "https://typezero.mykkai.com/",
+  "downloadUrl": "https://typezero.mykkai.com/downloads/TypeZero-v0.4.9-macOS-arm64.dmg",
   "codeRepository": "https://github.com/nasadunadu/TypeZero",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -1327,6 +1327,435 @@ footer {
   .hub-core { margin-inline: auto; }
   .race-row { grid-template-columns: 88px 1fr 64px; font-size: 12px; }
 }
+
+/* ---------- 4.5 Crafted Details Grid (Icon + One-Line Highlights) ---------- */
+.craft-section {
+  position: relative;
+  z-index: 1;
+  padding: 28px 0 72px;
+}
+
+.craft-head {
+  text-align: center;
+  max-width: 720px;
+  margin: 0 auto 38px;
+}
+
+.craft-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 13px;
+  border-radius: 999px;
+  background: rgba(0, 229, 195, 0.08);
+  border: 1px solid rgba(0, 229, 195, 0.24);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--cyan);
+  text-transform: uppercase;
+  margin-bottom: 14px;
+}
+
+.craft-head h2 {
+  font-size: clamp(26px, 3.6vw, 40px);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.18;
+  margin-bottom: 10px;
+}
+
+.craft-head p {
+  color: var(--text-dim);
+  font-size: 15.5px;
+}
+
+.craft-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.craft-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 20px 20px 21px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(16, 23, 39, 0.86), rgba(9, 13, 24, 0.92));
+  border: 1px solid var(--border);
+  transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+}
+
+.craft-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(0, 229, 195, 0.36);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(0, 229, 195, 0.12) inset;
+}
+
+.craft-ico {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(120% 120% at 30% 20%, rgba(0, 229, 195, 0.18), rgba(59, 130, 246, 0.08));
+  border: 1px solid rgba(0, 229, 195, 0.24);
+  color: var(--cyan);
+}
+
+.craft-body h3 {
+  font-size: 15.5px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.01em;
+  margin-bottom: 5px;
+}
+
+.craft-body p {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+@media (max-width: 960px) {
+  .craft-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .craft-grid { grid-template-columns: 1fr; }
+}
+
+/* ---------- 8. Epic Knight Gradient Footer ---------- */
+footer.knight-footer {
+  position: relative;
+  z-index: 1;
+  margin-top: 64px;
+  padding: 0;
+  border-top: 0;
+  background-color: #F5E4D7;
+  overflow: hidden;
+}
+
+.knight-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 760px;
+  min-height: 360px;
+  overflow: hidden;
+  background-color: #E8EEF5;
+}
+
+.knight-stage img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 78%;
+}
+
+/* Smooth multi-stop ease-out transition from dark #05070D page sky into bright desert sky */
+.knight-stage::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 46%;
+  pointer-events: none;
+  z-index: 1;
+  background: linear-gradient(180deg,
+    #05070D 0%,
+    rgba(5, 7, 13, 0.94) 10%,
+    rgba(8, 12, 22, 0.80) 22%,
+    rgba(14, 21, 36, 0.58) 36%,
+    rgba(24, 34, 54, 0.36) 52%,
+    rgba(40, 54, 78, 0.18) 68%,
+    rgba(64, 82, 108, 0.06) 84%,
+    rgba(232, 238, 245, 0) 100%
+  );
+}
+
+/* Seamless warm-sand feathering at bottom edge matching sampled #F5E4D7 sand tone */
+.knight-stage::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 22%;
+  pointer-events: none;
+  z-index: 1;
+  background: linear-gradient(180deg,
+    rgba(245, 228, 215, 0) 0%,
+    rgba(245, 228, 215, 0.22) 38%,
+    rgba(245, 228, 215, 0.68) 74%,
+    #F5E4D7 100%
+  );
+}
+
+footer.knight-footer .foot-content {
+  position: relative;
+  z-index: 2;
+  background: linear-gradient(180deg, #F5E4D7 0%, #EFE0D1 100%);
+  padding: 20px 0 44px;
+}
+
+footer.knight-footer .foot-slogan-wrap {
+  text-align: center;
+  padding: 12px 0 36px;
+}
+
+footer.knight-footer .foot-slogan-kicker {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  color: #9E2A2B;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+  opacity: 0.85;
+}
+
+footer.knight-footer .foot-motto {
+  font-family: "Songti SC", "STSong", "Noto Serif SC", Georgia, serif;
+  font-size: clamp(26px, 3.6vw, 44px);
+  letter-spacing: 0.14em;
+  line-height: 1.3;
+  color: #2C2017;
+  margin: 0;
+  font-weight: 700;
+}
+
+footer.knight-footer .foot-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(74, 56, 43, 0.16);
+  font-size: 13px;
+  color: #6B5647;
+}
+
+footer.knight-footer .foot-links {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+footer.knight-footer .foot-links a {
+  color: #4A382B;
+  font-weight: 500;
+  transition: color 0.18s ease;
+}
+
+footer.knight-footer .foot-links a:hover {
+  color: #9E2A2B;
+}
+
+/* ---------- 6.5 Concise Release Changelog (<=3 bullets, <=15 chars each) ---------- */
+.changelog-section {
+  position: relative;
+  z-index: 1;
+  padding: 12px 0 64px;
+}
+
+.changelog-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.changelog-head h2 {
+  font-size: clamp(22px, 2.8vw, 30px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.changelog-head a {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--cyan);
+}
+
+.changelog-head a:hover { text-decoration: underline; }
+
+.changelog-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.cl-card {
+  padding: 18px 20px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(15, 22, 38, 0.84), rgba(9, 13, 24, 0.90));
+  border: 1px solid var(--border);
+}
+
+.cl-card.latest {
+  border-color: rgba(0, 229, 195, 0.34);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
+}
+
+.cl-ver {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.cl-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(0, 229, 195, 0.14);
+  color: var(--cyan);
+  border: 1px solid rgba(0, 229, 195, 0.3);
+}
+
+.cl-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cl-list li {
+  position: relative;
+  padding-left: 14px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.cl-list li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--cyan);
+  opacity: 0.78;
+}
+
+@media (max-width: 860px) {
+  .changelog-grid { grid-template-columns: 1fr; }
+}
+
+/* ---------- Official Launch Film Showcase ---------- */
+.film-section {
+  padding-top: 72px;
+  padding-bottom: 36px;
+}
+
+.film-frame {
+  position: relative;
+  max-width: 1040px;
+  margin: 0 auto;
+  aspect-ratio: 16 / 9;
+  border-radius: 22px;
+  overflow: hidden;
+  background: #060911;
+  border: 1px solid rgba(0, 229, 195, 0.28);
+  box-shadow:
+    0 32px 90px rgba(0, 0, 0, 0.62),
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset,
+    0 0 60px rgba(0, 229, 195, 0.08);
+}
+
+.film-frame video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #05070D;
+}
+
+.film-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: radial-gradient(circle at 50% 45%, rgba(5, 7, 13, 0.16), rgba(5, 7, 13, 0.56) 80%);
+  cursor: pointer;
+  border: 0;
+  padding: 0;
+  color: var(--text);
+  transition: opacity 0.28s ease, background 0.25s ease;
+}
+
+.film-overlay:hover {
+  background: radial-gradient(circle at 50% 45%, rgba(5, 7, 13, 0.08), rgba(5, 7, 13, 0.44) 80%);
+}
+
+.film-overlay.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.film-play-btn {
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(11, 16, 28, 0.72);
+  border: 1.5px solid rgba(0, 229, 195, 0.75);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5), 0 0 32px rgba(0, 229, 195, 0.28);
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.film-overlay:hover .film-play-btn {
+  transform: scale(1.08);
+  background: rgba(0, 229, 195, 0.22);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55), 0 0 44px rgba(0, 229, 195, 0.45);
+}
+
+.film-play-btn svg {
+  width: 30px;
+  height: 30px;
+  margin-left: 4px;
+  fill: #F4F7FB;
+}
+
+.film-pill {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  letter-spacing: 0.08em;
+  color: var(--cyan);
+  background: rgba(11, 16, 28, 0.78);
+  border: 1px solid rgba(0, 229, 195, 0.35);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  padding: 6px 14px;
+  border-radius: 999px;
+}
+
+@media (max-width: 640px) {
+  .film-frame { border-radius: 14px; }
+  .film-play-btn { width: 64px; height: 64px; }
+  .film-play-btn svg { width: 22px; height: 22px; }
+}
+
 </style>
 </head>
 <body>
@@ -1343,10 +1772,11 @@ footer {
         </svg>
       </span>
       <span>TypeZero</span>
-      <span class="brand-tag">v0.4.5</span>
+      <span class="brand-tag">v0.4.9</span>
     </a>
 
     <nav class="nav-links" aria-label="主导航">
+      <a href="#film">宣传片</a>
       <a href="#bento">硬核亮点</a>
       <a href="#compare">对比竞品</a>
       <a href="#faq">FAQ</a>
@@ -1360,7 +1790,7 @@ footer {
       </nav>
       <button type="button" id="motionToggleBtn" class="motion-toggle">暂停动效</button>
       <a class="btn btn-ghost" href="https://github.com/nasadunadu/TypeZero" target="_blank" rel="noopener">GitHub</a>
-      <a class="btn btn-glow" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.4.5/TypeZero-v0.4.5-macOS-arm64.dmg">免费下载</a>
+      <a class="btn btn-glow" href="./downloads/TypeZero-v0.4.9-macOS-arm64.dmg" download data-umami-event="download-dmg" data-umami-event-source="home-nav">国内直连下载</a>
     </div>
   </header>
 </div>
@@ -1387,11 +1817,11 @@ footer {
         </p>
 
         <div class="hero-cta">
-          <a class="btn btn-glow btn-lg" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.4.5/TypeZero-v0.4.5-macOS-arm64.dmg">
-            ⬇ 免费下载 macOS (v0.4.5)
+          <a class="btn btn-glow btn-lg" href="./downloads/TypeZero-v0.4.9-macOS-arm64.dmg" download data-umami-event="download-dmg" data-umami-event-source="home-hero">
+            ⬇ 国内高速下载 macOS (v0.4.9)
           </a>
-          <a class="btn btn-ghost btn-lg" href="https://github.com/nasadunadu/TypeZero" target="_blank" rel="noopener">
-            ★ GitHub 开源仓库
+          <a class="btn btn-ghost btn-lg" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.4.9/TypeZero-v0.4.9-macOS-arm64.dmg">
+            🌍 GitHub 全球线路 (US/Global)
           </a>
         </div>
 
@@ -1483,6 +1913,34 @@ footer {
         <span class="app-chip" aria-hidden="true"><i></i>Mail / Gmail</span>
         <span class="app-chip" aria-hidden="true"><i></i>Chrome / Arc</span>
       </div>
+    </div>
+  </section>
+
+  <!-- 3.5 Official Launch Film Showcase -->
+  <section class="wrap section film-section" id="film" aria-labelledby="film-h">
+    <div class="sec-header reveal-on-scroll">
+      <div class="sec-kicker">OFFICIAL LAUNCH FILM · 26s · 1080P</div>
+      <h2 id="film-h">26 秒，听见开口即终稿的爽感。</h2>
+      <p>建议开启声音观看：0ms 热麦秒开、自动静音外放、口误折叠一步成稿，直奔终点。</p>
+    </div>
+
+    <div class="film-frame reveal-on-scroll">
+      <video
+        id="launchFilm"
+        controls
+        playsinline
+        preload="metadata"
+        poster="./media/typezero-launch-zh-poster.jpg"
+      >
+        <source src="./media/typezero-launch-zh.mp4" type="video/mp4">
+        您的浏览器暂不支持 HTML5 视频播放，请直接下载观看。
+      </video>
+      <button type="button" class="film-overlay" id="launchFilmOverlay" aria-label="播放 TypeZero 官方宣传片">
+        <span class="film-play-btn" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M8 5.14v14l11-7-11-7z"/></svg>
+        </span>
+        <span class="film-pill">▶ 播放官方宣传片 · 00:26（带原声配乐）</span>
+      </button>
     </div>
   </section>
 
@@ -1631,6 +2089,62 @@ footer {
     </div>
   </section>
 
+
+  <!-- 4.5 Crafted Details Showcase -->
+  <section class="craft-section" id="details">
+    <div class="wrap">
+      <div class="craft-head reveal-on-scroll">
+        <div class="craft-kicker">CRAFTED IN MILLISECONDS · v0.4.9</div>
+        <h2>打动人的，往往是这些毫秒级小细节</h2>
+        <p>从按下快捷键的第 0 毫秒，到松手收音与外放静音，每一处都在为「开口即用」扫清障碍。</p>
+      </div>
+      <div class="craft-grid">
+      <article class="craft-card reveal-on-scroll">
+        <div class="craft-ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg></div>
+        <div class="craft-body">
+          <h3>0ms 热麦预录，告别吞首字</h3>
+          <p>按键刚按下瞬间唤醒麦克风并预录前 180ms 声音，抢跑开口也绝不丢第一个字。</p>
+        </div>
+      </article>
+      <article class="craft-card reveal-on-scroll">
+        <div class="craft-ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M8 7v10M16 7v10M4 10v4M20 10v4"/></svg></div>
+        <div class="craft-body">
+          <h3>0.1s 尾音保护，收尾干脆利落</h3>
+          <p>松开停止键后多留 100ms 尾音窗口，最后两个字稳稳落袋，体感零拖沓。</p>
+        </div>
+      </article>
+      <article class="craft-card reveal-on-scroll">
+        <div class="craft-ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/></svg></div>
+        <div class="craft-body">
+          <h3>听写自动静音外放，说完即恢复</h3>
+          <p>开口瞬间静音音乐、视频与系统提示音，录完毫秒恢复原音量，绝不误改手动静音。</p>
+        </div>
+      </article>
+      <article class="craft-card reveal-on-scroll">
+        <div class="craft-ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8"/><path d="M12 3a14 14 0 0 0 0 18M12 3a14 14 0 0 1 0 18"/></svg></div>
+        <div class="craft-body">
+          <h3>国内模型直连，开梯子照样秒出</h3>
+          <p>DeepSeek、豆包、百炼强制绕过系统代理走国内直连，海外模型自动走代理分流。</p>
+        </div>
+      </article>
+      <article class="craft-card reveal-on-scroll">
+        <div class="craft-ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15z"/></svg></div>
+        <div class="craft-body">
+          <h3>二遍重打分 + 语境平滑</h3>
+          <p>开启豆包 Two-Pass 全局双向重算与对话上下文，十几秒长段口述照样断句自然。</p>
+        </div>
+      </article>
+      <article class="craft-card reveal-on-scroll">
+        <div class="craft-ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.8-3 8.6-7 10-4-1.4-7-5.2-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <div class="craft-body">
+          <h3>校验通过才生效，杜绝误点切换</h3>
+          <p>点开引擎卡片只看不改，实测连通才点亮翠绿生效灯，缺 Key 直接拦截不静默降级。</p>
+        </div>
+      </article>
+      </div>
+    </div>
+  </section>
+
   <!-- 5. Crisp Visual Comparison Matrix -->
   <section class="wrap section" id="compare">
     <div class="sec-header reveal-on-scroll">
@@ -1718,14 +2232,51 @@ footer {
     </div>
   </section>
 
+
+  <!-- 6.5 Concise Release Changelog -->
+  <section class="changelog-section" id="changelog">
+    <div class="wrap">
+      <div class="changelog-head reveal-on-scroll">
+        <h2>最近更新</h2>
+        <a href="https://github.com/nasadunadu/TypeZero/releases" target="_blank" rel="noopener">全部版本记录 →</a>
+      </div>
+      <div class="changelog-grid">
+      <article class="cl-card latest reveal-on-scroll">
+        <div class="cl-ver"><span>v0.4.9</span><span class="cl-badge">最新</span></div>
+        <ul class="cl-list">
+          <li>长段智能分段，保留整段连贯</li>
+          <li>中途改口自动折叠，删掉废话</li>
+          <li>聊天/邮件/代码三场景自适应</li>
+        </ul>
+      </article>
+      <article class="cl-card reveal-on-scroll">
+        <div class="cl-ver"><span>v0.4.7</span></div>
+        <ul class="cl-list">
+          <li>听写自动静音外放，说完秒恢复</li>
+          <li>尊重手动静音，绝不误开声音</li>
+          <li>官网上线国内高速直连包</li>
+        </ul>
+      </article>
+      <article class="cl-card reveal-on-scroll">
+        <div class="cl-ver"><span>v0.4.6</span></div>
+        <ul class="cl-list">
+          <li>0ms 热麦预录，彻底不吞首字</li>
+          <li>0.1s 尾音保护，收尾稳且快</li>
+          <li>国内模型直连，开梯子照样秒出</li>
+        </ul>
+      </article>
+      </div>
+    </div>
+  </section>
+
   <!-- 7. Final CTA -->
   <section class="wrap">
     <div class="final-cta reveal-on-scroll">
       <h2><span class="grad-text">把打字，还给声音。</span></h2>
-      <p>TypeZero v0.4.5 · Apple 云端公证 · 12 MB 原生 DMG · MIT 永久免费</p>
+      <p>TypeZero v0.4.9 · 0ms 秒开麦 · 12 MB 原生 DMG · MIT 永久免费</p>
       <div class="hero-cta" style="margin-bottom:0">
-        <a class="btn btn-glow btn-lg" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.4.5/TypeZero-v0.4.5-macOS-arm64.dmg">⬇ 立即免费下载 DMG</a>
-        <a class="btn btn-ghost btn-lg" href="https://github.com/nasadunadu/TypeZero" target="_blank" rel="noopener">★ GitHub 源码</a>
+        <a class="btn btn-glow btn-lg" href="./downloads/TypeZero-v0.4.9-macOS-arm64.dmg" download data-umami-event="download-dmg" data-umami-event-source="home-footer">⬇ 国内高速直连 DMG</a>
+        <a class="btn btn-ghost btn-lg" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.4.9/TypeZero-v0.4.9-macOS-arm64.dmg">🌍 GitHub 全球线路</a>
       </div>
       <div class="brew-copy">
         <code id="brewCmd">brew install --cask https://raw.githubusercontent.com/nasadunadu/TypeZero/main/Casks/typezero.rb</code>
@@ -1735,16 +2286,29 @@ footer {
   </section>
 </main>
 
-<footer>
-  <div class="wrap foot-inner">
-    <div>TypeZero · Pure Native macOS AI Voice Dictation · MIT License</div>
-    <div class="foot-links">
+<footer class="knight-footer">
+  <div class="knight-stage">
+    <picture><source srcset="./footer-knight.webp" type="image/webp"><img src="./footer-knight.jpg" alt="风沙中的白马骑士" loading="lazy" decoding="async"></picture>
+  </div>
+  <div class="foot-content">
+    <div class="wrap">
+      <div class="foot-slogan-wrap">
+        <div class="foot-slogan-kicker">TYPEZERO · VOICE AT FULL GALLOP</div>
+        <div class="foot-motto">驭风而行，开口即终稿。</div>
+      </div>
+      <div class="foot-bar">
+        <div>TypeZero v0.4.9 · Pure Native macOS AI Voice Dictation · MIT License</div>
+        <div class="foot-links">
       <a href="./index.html" hreflang="zh-Hans">中文</a>
+      <a href="/vs-typeless/">对比 Typeless</a>
+      <a href="/vs-shandianshuo/">对比闪电说</a>
       <a href="./en/index.html" hreflang="en">English</a>
       <a href="./ja/index.html" hreflang="ja">日本語</a>
       <a href="https://github.com/nasadunadu/TypeZero" target="_blank" rel="noopener">GitHub</a>
-      <a href="https://github.com/nasadunadu/TypeZero/releases/tag/v0.4.5" target="_blank" rel="noopener">v0.4.5 Release</a>
+      <a href="https://github.com/nasadunadu/TypeZero/releases/tag/v0.4.9" target="_blank" rel="noopener">v0.4.9 Release</a>
       <a href="https://github.com/nasadunadu/TypeZero/issues" target="_blank" rel="noopener">Issues</a>
+    </div>
+      </div>
     </div>
   </div>
 </footer>
@@ -2043,6 +2607,18 @@ footer {
       copyBtn.textContent = "请手动复制";
     }
   });
+
+  // 7.5 Official Launch Film overlay controller
+  const launchFilm = document.getElementById("launchFilm");
+  const launchFilmOverlay = document.getElementById("launchFilmOverlay");
+  if (launchFilm && launchFilmOverlay) {
+    launchFilmOverlay.addEventListener("click", () => {
+      launchFilmOverlay.classList.add("is-hidden");
+      launchFilm.play().catch(() => {});
+    });
+    launchFilm.addEventListener("play", () => launchFilmOverlay.classList.add("is-hidden"));
+    launchFilm.addEventListener("ended", () => launchFilmOverlay.classList.remove("is-hidden"));
+  }
 
   // 8. IntersectionObserver fallback for Scroll-Driven Animations
   if (!CSS.supports("(animation-timeline: view()) and (animation-range: entry)") &&

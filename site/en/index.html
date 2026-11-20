@@ -8,19 +8,19 @@
 <meta name="description" content="TypeZero is a pure native Swift + C++ open-source AI voice dictation app for macOS (MIT). 121ms latency, BYOK support for OpenAI, Groq, DeepSeek, Gemini, Claude &amp; Doubao, embedded 886MB SenseVoice FP32 offline failover, self-learning personal lexicon, and 100% local privacy.">
 <meta name="keywords" content="TypeZero, macOS AI voice dictation, free Typeless alternative, open source Wispr Flow alternative, BYOK voice input macOS, OpenAI Whisper macOS, Groq Whisper, SenseVoice macOS, developer voice coding">
 <meta name="robots" content="index, follow, max-image-preview:large">
-<link rel="canonical" href="https://k.mykkai.com/typezero/en/">
-<link rel="alternate" hreflang="zh-Hans" href="https://k.mykkai.com/typezero/">
-<link rel="alternate" hreflang="en" href="https://k.mykkai.com/typezero/en/">
-<link rel="alternate" hreflang="ja" href="https://k.mykkai.com/typezero/ja/">
-<link rel="alternate" hreflang="x-default" href="https://k.mykkai.com/typezero/">
+<link rel="canonical" href="https://typezero.mykkai.com/en/">
+<link rel="alternate" hreflang="zh-Hans" href="https://typezero.mykkai.com/">
+<link rel="alternate" hreflang="en" href="https://typezero.mykkai.com/en/">
+<link rel="alternate" hreflang="ja" href="https://typezero.mykkai.com/ja/">
+<link rel="alternate" hreflang="x-default" href="https://typezero.mykkai.com/">
 
 <!-- Open Graph / Twitter Card -->
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="TypeZero">
 <meta property="og:title" content="TypeZero — Speak. Ship. | Free Open-Source BYOK AI Voice Dictation for macOS">
 <meta property="og:description" content="Pure native Swift + C++ · 121ms latency · BYOK OpenAI / Groq / DeepSeek / Gemini / Claude · Self-learning lexicon · 100% local privacy with zero subscription.">
-<meta property="og:url" content="https://k.mykkai.com/typezero/en/">
-<meta property="og:image" content="https://k.mykkai.com/typezero/hero-typezero.png">
+<meta property="og:url" content="https://typezero.mykkai.com/en/">
+<meta property="og:image" content="https://typezero.mykkai.com/hero-typezero.jpg">
 <meta property="og:image:width" content="1672">
 <meta property="og:image:height" content="941">
 <meta property="og:locale" content="en_US">
@@ -29,7 +29,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="TypeZero — Speak. Ship. | Open-Source macOS AI Voice Dictation">
 <meta name="twitter:description" content="4x faster than typing, $0 subscription forever. Bring your own API keys with embedded 886MB SenseVoice FP32 offline failover.">
-<meta name="twitter:image" content="https://k.mykkai.com/typezero/hero-typezero.png">
+<meta name="twitter:image" content="https://typezero.mykkai.com/hero-typezero.jpg">
 
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23070A12'/%3E%3Cpath d='M14 32c0-9 8-14 18-6 10 8 18 14 18 6 0-8-8-14-18-6-10 8-18 14-18 6z' fill='none' stroke='%2300E5C3' stroke-width='5.2' stroke-linecap='round'/%3E%3C/svg%3E">
 
@@ -43,10 +43,10 @@
   "description": "Pure native Swift + C++ free open-source AI voice dictation for macOS (MIT). 121ms response, BYOK OpenAI, Groq, DeepSeek, Gemini, Claude & Doubao APIs, embedded 886MB SenseVoice FP32 offline failover, and self-learning personal lexicon.",
   "applicationCategory": "UtilitiesApplication",
   "operatingSystem": "macOS 14.0+ (Apple Silicon arm64)",
-  "softwareVersion": "0.4.5",
+  "softwareVersion": "0.4.9",
   "license": "https://opensource.org/licenses/MIT",
-  "url": "https://k.mykkai.com/typezero/en/",
-  "downloadUrl": "https://github.com/nasadunadu/TypeZero/releases/download/v0.4.5/TypeZero-v0.4.5-macOS-arm64.dmg",
+  "url": "https://typezero.mykkai.com/en/",
+  "downloadUrl": "https://github.com/nasadunadu/TypeZero/releases/download/v0.4.9/TypeZero-v0.4.9-macOS-arm64.dmg",
   "codeRepository": "https://github.com/nasadunadu/TypeZero",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -1328,6 +1328,335 @@ footer {
   .hub-core { margin-inline: auto; }
   .race-row { grid-template-columns: 88px 1fr 64px; font-size: 12px; }
 }
+
+/* ---------- 4.5 Crafted Details Grid (Icon + One-Line Highlights) ---------- */
+.craft-section {
+  position: relative;
+  z-index: 1;
+  padding: 28px 0 72px;
+}
+
+.craft-head {
+  text-align: center;
+  max-width: 720px;
+  margin: 0 auto 38px;
+}
+
+.craft-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 13px;
+  border-radius: 999px;
+  background: rgba(0, 229, 195, 0.08);
+  border: 1px solid rgba(0, 229, 195, 0.24);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--cyan);
+  text-transform: uppercase;
+  margin-bottom: 14px;
+}
+
+.craft-head h2 {
+  font-size: clamp(26px, 3.6vw, 40px);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.18;
+  margin-bottom: 10px;
+}
+
+.craft-head p {
+  color: var(--text-dim);
+  font-size: 15.5px;
+}
+
+.craft-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.craft-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 20px 20px 21px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(16, 23, 39, 0.86), rgba(9, 13, 24, 0.92));
+  border: 1px solid var(--border);
+  transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+}
+
+.craft-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(0, 229, 195, 0.36);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(0, 229, 195, 0.12) inset;
+}
+
+.craft-ico {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(120% 120% at 30% 20%, rgba(0, 229, 195, 0.18), rgba(59, 130, 246, 0.08));
+  border: 1px solid rgba(0, 229, 195, 0.24);
+  color: var(--cyan);
+}
+
+.craft-body h3 {
+  font-size: 15.5px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.01em;
+  margin-bottom: 5px;
+}
+
+.craft-body p {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+@media (max-width: 960px) {
+  .craft-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .craft-grid { grid-template-columns: 1fr; }
+}
+
+/* ---------- 8. Epic Knight Gradient Footer ---------- */
+footer.knight-footer {
+  position: relative;
+  z-index: 1;
+  margin-top: 64px;
+  padding: 0;
+  border-top: 0;
+  background-color: #F5E4D7;
+  overflow: hidden;
+}
+
+.knight-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 760px;
+  min-height: 360px;
+  overflow: hidden;
+  background-color: #E8EEF5;
+}
+
+.knight-stage img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 78%;
+}
+
+/* Smooth multi-stop ease-out transition from dark #05070D page sky into bright desert sky */
+.knight-stage::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 46%;
+  pointer-events: none;
+  z-index: 1;
+  background: linear-gradient(180deg,
+    #05070D 0%,
+    rgba(5, 7, 13, 0.94) 10%,
+    rgba(8, 12, 22, 0.80) 22%,
+    rgba(14, 21, 36, 0.58) 36%,
+    rgba(24, 34, 54, 0.36) 52%,
+    rgba(40, 54, 78, 0.18) 68%,
+    rgba(64, 82, 108, 0.06) 84%,
+    rgba(232, 238, 245, 0) 100%
+  );
+}
+
+/* Seamless warm-sand feathering at bottom edge matching sampled #F5E4D7 sand tone */
+.knight-stage::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 22%;
+  pointer-events: none;
+  z-index: 1;
+  background: linear-gradient(180deg,
+    rgba(245, 228, 215, 0) 0%,
+    rgba(245, 228, 215, 0.22) 38%,
+    rgba(245, 228, 215, 0.68) 74%,
+    #F5E4D7 100%
+  );
+}
+
+footer.knight-footer .foot-content {
+  position: relative;
+  z-index: 2;
+  background: linear-gradient(180deg, #F5E4D7 0%, #EFE0D1 100%);
+  padding: 20px 0 44px;
+}
+
+footer.knight-footer .foot-slogan-wrap {
+  text-align: center;
+  padding: 12px 0 36px;
+}
+
+footer.knight-footer .foot-slogan-kicker {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  color: #9E2A2B;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+  opacity: 0.85;
+}
+
+footer.knight-footer .foot-motto {
+  font-family: "Songti SC", "STSong", "Noto Serif SC", Georgia, serif;
+  font-size: clamp(26px, 3.6vw, 44px);
+  letter-spacing: 0.14em;
+  line-height: 1.3;
+  color: #2C2017;
+  margin: 0;
+  font-weight: 700;
+}
+
+footer.knight-footer .foot-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(74, 56, 43, 0.16);
+  font-size: 13px;
+  color: #6B5647;
+}
+
+footer.knight-footer .foot-links {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+footer.knight-footer .foot-links a {
+  color: #4A382B;
+  font-weight: 500;
+  transition: color 0.18s ease;
+}
+
+footer.knight-footer .foot-links a:hover {
+  color: #9E2A2B;
+}
+
+/* ---------- 6.5 Concise Release Changelog (<=3 bullets, <=15 chars each) ---------- */
+.changelog-section {
+  position: relative;
+  z-index: 1;
+  padding: 12px 0 64px;
+}
+
+.changelog-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.changelog-head h2 {
+  font-size: clamp(22px, 2.8vw, 30px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.changelog-head a {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--cyan);
+}
+
+.changelog-head a:hover { text-decoration: underline; }
+
+.changelog-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.cl-card {
+  padding: 18px 20px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(15, 22, 38, 0.84), rgba(9, 13, 24, 0.90));
+  border: 1px solid var(--border);
+}
+
+.cl-card.latest {
+  border-color: rgba(0, 229, 195, 0.34);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
+}
+
+.cl-ver {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.cl-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(0, 229, 195, 0.14);
+  color: var(--cyan);
+  border: 1px solid rgba(0, 229, 195, 0.3);
+}
+
+.cl-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cl-list li {
+  position: relative;
+  padding-left: 14px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.cl-list li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--cyan);
+  opacity: 0.78;
+}
+
+@media (max-width: 860px) {
+  .changelog-grid { grid-template-columns: 1fr; }
+}
+
 </style>
 </head>
 <body>
@@ -1344,7 +1673,7 @@ footer {
         </svg>
       </span>
       <span>TypeZero</span>
-      <span class="brand-tag">v0.4.5</span>
+      <span class="brand-tag">v0.4.9</span>
     </a>
 
     <nav class="nav-links" aria-label="Primary navigation">
@@ -1361,7 +1690,7 @@ footer {
       </nav>
       <button type="button" id="motionToggleBtn" class="motion-toggle">Pause Motion</button>
       <a class="btn btn-ghost" href="https://github.com/nasadunadu/TypeZero" target="_blank" rel="noopener">GitHub</a>
-      <a class="btn btn-glow" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.4.5/TypeZero-v0.4.5-macOS-arm64.dmg">Download Free</a>
+      <a class="btn btn-glow" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.4.9/TypeZero-v0.4.9-macOS-arm64.dmg">Download Free</a>
     </div>
   </header>
 </div>
@@ -1388,8 +1717,8 @@ footer {
         </p>
 
         <div class="hero-cta">
-          <a class="btn btn-glow btn-lg" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.4.5/TypeZero-v0.4.5-macOS-arm64.dmg">
-            ⬇ Download for macOS (v0.4.5)
+          <a class="btn btn-glow btn-lg" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.4.9/TypeZero-v0.4.9-macOS-arm64.dmg">
+            ⬇ Download for macOS (v0.4.9 · Global)
           </a>
           <a class="btn btn-ghost btn-lg" href="https://github.com/nasadunadu/TypeZero" target="_blank" rel="noopener">
             ★ View on GitHub
@@ -1632,6 +1961,62 @@ footer {
     </div>
   </section>
 
+
+  <!-- 4.5 Crafted Details Showcase -->
+  <section class="craft-section" id="details">
+    <div class="wrap">
+      <div class="craft-head reveal-on-scroll">
+        <div class="craft-kicker">CRAFTED IN MILLISECONDS · v0.4.9</div>
+        <h2>Obsessive millisecond details that feel effortless</h2>
+        <p>From the exact millisecond you press the hotkey to auto-muting background audio, every edge case is engineered away.</p>
+      </div>
+      <div class="craft-grid">
+      <article class="craft-card reveal-on-scroll">
+        <div class="craft-ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg></div>
+        <div class="craft-body">
+          <h3>0ms Hot-Mic Pre-Roll</h3>
+          <p>Wakes the hardware mic on KeyDown and prepends 180ms of pre-roll audio so your opening word is never clipped.</p>
+        </div>
+      </article>
+      <article class="craft-card reveal-on-scroll">
+        <div class="craft-ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M8 7v10M16 7v10M4 10v4M20 10v4"/></svg></div>
+        <div class="craft-body">
+          <h3>0.1s Trailing-Syllable Guard</h3>
+          <p>Keeps capture open for 100ms after stopping so the last two syllables land cleanly with zero sluggishness.</p>
+        </div>
+      </article>
+      <article class="craft-card reveal-on-scroll">
+        <div class="craft-ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/></svg></div>
+        <div class="craft-body">
+          <h3>Auto-Mute External Audio</h3>
+          <p>Instantly mutes music, videos, and alerts the moment you speak, then restores volume right after capture.</p>
+        </div>
+      </article>
+      <article class="craft-card reveal-on-scroll">
+        <div class="craft-ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8"/><path d="M12 3a14 14 0 0 0 0 18M12 3a14 14 0 0 1 0 18"/></svg></div>
+        <div class="craft-body">
+          <h3>Smart Direct / Proxy Routing</h3>
+          <p>Mainland endpoints bypass VPN automatically while OpenAI, Gemini, and Claude keep native proxy routing.</p>
+        </div>
+      </article>
+      <article class="craft-card reveal-on-scroll">
+        <div class="craft-ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15z"/></svg></div>
+        <div class="craft-body">
+          <h3>Two-Pass Long-Dictation Accuracy</h3>
+          <p>Enables bidirectional second-pass rescoring and live dialog context for crisp punctuation across long speeches.</p>
+        </div>
+      </article>
+      <article class="craft-card reveal-on-scroll">
+        <div class="craft-ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.8-3 8.6-7 10-4-1.4-7-5.2-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <div class="craft-body">
+          <h3>Verify-to-Activate Engine Cards</h3>
+          <p>Expanding a provider never switches silently—live credential verification must pass before lighting up green.</p>
+        </div>
+      </article>
+      </div>
+    </div>
+  </section>
+
   <!-- 5. Crisp Visual Comparison Matrix -->
   <section class="wrap section" id="compare">
     <div class="sec-header reveal-on-scroll">
@@ -1719,13 +2104,50 @@ footer {
     </div>
   </section>
 
+
+  <!-- 6.5 Concise Release Changelog -->
+  <section class="changelog-section" id="changelog">
+    <div class="wrap">
+      <div class="changelog-head reveal-on-scroll">
+        <h2>Recent Updates</h2>
+        <a href="https://github.com/nasadunadu/TypeZero/releases" target="_blank" rel="noopener">All Releases →</a>
+      </div>
+      <div class="changelog-grid">
+      <article class="cl-card latest reveal-on-scroll">
+        <div class="cl-ver"><span>v0.4.9</span><span class="cl-badge">LATEST</span></div>
+        <ul class="cl-list">
+          <li>Smarter paragraph flow</li>
+          <li>Auto-fold mid-speech edits</li>
+          <li>Chat, mail & IDE tone adapt</li>
+        </ul>
+      </article>
+      <article class="cl-card reveal-on-scroll">
+        <div class="cl-ver"><span>v0.4.7</span></div>
+        <ul class="cl-list">
+          <li>Auto-mute audio on dictate</li>
+          <li>Instant volume restore</li>
+          <li>Direct China & Global mirrors</li>
+        </ul>
+      </article>
+      <article class="cl-card reveal-on-scroll">
+        <div class="cl-ver"><span>v0.4.6</span></div>
+        <ul class="cl-list">
+          <li>0ms hot-mic, no clipped start</li>
+          <li>0.1s tail-syllable capture</li>
+          <li>VPN-bypass for domestic LLMs</li>
+        </ul>
+      </article>
+      </div>
+    </div>
+  </section>
+
   <!-- 7. Final CTA -->
   <section class="wrap">
     <div class="final-cta reveal-on-scroll">
       <h2><span class="grad-text">Give typing back to your voice.</span></h2>
-      <p>TypeZero v0.4.5 · Apple Notarized · 12 MB Native DMG · MIT Free Forever</p>
+      <p>TypeZero v0.4.9 · Apple Notarized · 12 MB Native DMG · MIT Free Forever</p>
       <div class="hero-cta" style="margin-bottom:0">
-        <a class="btn btn-glow btn-lg" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.4.5/TypeZero-v0.4.5-macOS-arm64.dmg">⬇ Download DMG Free</a>
+        <a class="btn btn-glow btn-lg" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.4.9/TypeZero-v0.4.9-macOS-arm64.dmg">⬇ Download DMG Free</a>
         <a class="btn btn-ghost btn-lg" href="https://github.com/nasadunadu/TypeZero" target="_blank" rel="noopener">★ Star on GitHub</a>
       </div>
       <div class="brew-copy">
@@ -1736,16 +2158,27 @@ footer {
   </section>
 </main>
 
-<footer>
-  <div class="wrap foot-inner">
-    <div>TypeZero · Pure Native macOS AI Voice Dictation · MIT License</div>
-    <div class="foot-links">
+<footer class="knight-footer">
+  <div class="knight-stage">
+    <picture><source srcset="../footer-knight.webp" type="image/webp"><img src="../footer-knight.jpg" alt="White Horse Knight in the Desert Sandstorm" loading="lazy" decoding="async"></picture>
+  </div>
+  <div class="foot-content">
+    <div class="wrap">
+      <div class="foot-slogan-wrap">
+        <div class="foot-slogan-kicker">TYPEZERO · VOICE AT FULL GALLOP</div>
+        <div class="foot-motto">Ride the wind. Speak, and it is done.</div>
+      </div>
+      <div class="foot-bar">
+        <div>TypeZero v0.4.9 · Pure Native macOS AI Voice Dictation · MIT License</div>
+        <div class="foot-links">
       <a href="../index.html" hreflang="zh-Hans">中文</a>
       <a href="./index.html" hreflang="en">English</a>
       <a href="../ja/index.html" hreflang="ja">日本語</a>
       <a href="https://github.com/nasadunadu/TypeZero" target="_blank" rel="noopener">GitHub</a>
-      <a href="https://github.com/nasadunadu/TypeZero/releases/tag/v0.4.5" target="_blank" rel="noopener">v0.4.5 Release</a>
+      <a href="https://github.com/nasadunadu/TypeZero/releases/tag/v0.4.9" target="_blank" rel="noopener">v0.4.9 Release</a>
       <a href="https://github.com/nasadunadu/TypeZero/issues" target="_blank" rel="noopener">Issues</a>
+    </div>
+      </div>
     </div>
   </div>
 </footer>
