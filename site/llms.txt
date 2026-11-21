@@ -11,7 +11,7 @@ TypeZero is a free, open-source, Apple-notarized macOS (Apple Silicon arm64, mac
 - Homepage (Japanese): https://typezero.mykkai.com/ja/
 - TypeZero vs Typeless (Chinese): https://typezero.mykkai.com/vs-typeless/
 - TypeZero vs Shandianshuo / 闪电说 (Chinese): https://typezero.mykkai.com/vs-shandianshuo/
-- Direct macOS DMG Download (v0.4.9): https://typezero.mykkai.com/downloads/TypeZero-v0.4.9-macOS-arm64.dmg
+- Direct macOS DMG Download (v0.4.10): https://typezero.mykkai.com/downloads/TypeZero-v0.4.10-macOS-arm64.dmg
 - GitHub Repository (MIT License): https://github.com/nasadunadu/TypeZero
 
 ## Core Capabilities
