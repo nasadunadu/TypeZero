@@ -1,4 +1,17 @@
-# TypeZero 工程现状与架构演进日志 (v0.4.4 开源发布基线)
+# TypeZero 工程现状与架构演进日志 (v0.4.10 封版基线)
+
+## 版本演进摘要 (v0.4.5 → v0.4.10)
+
+| 版本 | 核心里程碑 | 验收与分发状态 |
+| :--- | :--- | :--- |
+| **v0.4.10** | **语义自然分段（告别文字墙）**：将黄金分段节奏调优为每段约 2~3 句（50~85 字），超 65 字且存在语义层次切换即自动 `\n` 自然分段，补充纯语义分段 Few-Shot；全多行输入框（飞书/微信/IDE/浏览器）通过剪贴板原子粘贴安全框内换行不误发；`package-dmg.sh` 固化 `ScreenCapture-Notary` 自动探测 + `stapler validate` 硬门禁 | ✅ 0 warnings · 44/44 通过 · Apple 公证 `Accepted` · 官网与 GitHub 同步上线 |
+| **v0.4.9** | **小波段 3 级智能跟随**：按 PID 自动开启 Chromium/Electron `AXManualAccessibility`，构建「L1 精准光标 → L2 聚焦输入框矩形 → L3 激活窗口内鼠标近场」3 级锚定阶梯（贴近 Dock 自动翻至输入框上方）与首帧异步预定位；正式启用独立官网域名 `https://typezero.mykkai.com/`（含旧址 301、中/英/日三语 + `/vs-typeless/` & `/vs-shandianshuo/` 对比页、Google & Bing Sitemap 收录） | ✅ 0 warnings · 44/44 通过 · Apple 公证 `Accepted` |
+| **v0.4.8** | 智能分段基础策略、句中反悔自我纠正折叠、反过度编辑保真与三场景（聊天/邮件/代码）自适应润色 | ✅ 已封版 |
+| **v0.4.7** | 听写期间自动静音系统外放、松手瞬间无损恢复（严格尊重用户原有静音状态） | ✅ 已封版 |
+| **v0.4.6** | `0ms` 热麦预录防吞首字、`0.1s` 尾音保护、Two-Pass Seed-ASR 与国内大模型直连免代理通道 | ✅ 已封版 |
+| **v0.4.5** | 新增 OpenAI (`gpt-4o-mini-transcribe` / `gpt-4o-transcribe`) & Groq (`whisper-large-v3-turbo`) 云端语音识别与断网自动零丢字切换本地 SenseVoice FP32 | ✅ 已封版 |
+
+---
 
 ## 一、 当前产品与系统状态总览
 
@@ -33,7 +46,7 @@
 - **编译器严格检查**：Swift 6 工具链 Release 构建 **0 Errors, 0 Warnings**。
 - **零强制解包与崩溃防御**：全库清除所有 `as!`、`try!` 与 `.first!` 强制解包；所有跨进程 `AXUIElement` / `AXValue` 指针均通过 `CFGetTypeID` 严格验型并设置 `35ms` IPC 超时上限；`CSherpaOnnx` C 桥接层具备完整空指针与 OOM 回收保护。
 - **会话重入互斥保护**：`AppState` 内置 `isSessionActive` 与 `isFinalizingSession` 双状态锁，杜绝快速连按快捷键引发的并发交叉注入。
-- **内置回归测试套件**：通过 `./scripts/run-tests.sh`（或 `TypeZero --self-test`）在纯 CommandLineTools 环境下 50ms 内执行 **40 项核心确定性断言**（覆盖模糊声韵骨架、词条改名合并去重、双倍列表头折叠、盘古间距与 ITN、钥匙串槽位隔离、多相抗混叠 `48kHz -> 16kHz` 重采样、本机 `886MB FP32` 满血底座探测、多段落改字自学习词边界对齐、选中语音纠偏入库、动态语境热词注入、胶囊微符计数模式、`<=28` 字干净短句直通判定、左右修饰键硬件隔离、自定义组合键格式化与多服务商模型状态隔离），当前通过率 **40 / 40 (100%)**。
+- **内置回归测试套件**：通过 `./scripts/run-tests.sh`（或 `TypeZero --self-test`）在纯 CommandLineTools 环境下 50ms 内执行 **44 项核心确定性断言**（覆盖模糊声韵骨架、词条改名合并去重、双倍列表头折叠、盘古间距与 ITN、钥匙串槽位隔离、多相抗混叠 `48kHz -> 16kHz` 重采样、本机 `886MB FP32` 满血底座探测、多段落改字自学习词边界对齐、选中语音纠偏入库、动态语境热词注入、胶囊微符计数模式、`<=28` 字干净短句直通判定、左右修饰键硬件隔离、自定义组合键格式化、多服务商模型状态隔离与 OpenAI/Groq ASR 路由及 WAV 编码），当前通过率 **44 / 44 (100%)**。
 
 ---
 
