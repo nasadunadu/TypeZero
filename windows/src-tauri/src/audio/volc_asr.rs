@@ -109,10 +109,46 @@ impl VolcSeedASRClient {
         FPartial: Fn(String, bool) + Send + Sync + 'static,
         FFailover: Fn(String) + Send + Sync + 'static,
     {
+        self.start_session_with_endpoint(
+            api_key,
+            ENDPOINT_URL,
+            false,
+            hotwords,
+            dialog_context,
+            on_partial,
+            on_failover,
+        );
+    }
+
+    pub fn start_session_with_endpoint<FPartial, FFailover>(
+        &self,
+        api_key: &str,
+        endpoint_url: &str,
+        use_bearer_auth: bool,
+        hotwords: &[String],
+        dialog_context: &[String],
+        on_partial: FPartial,
+        on_failover: FFailover,
+    ) where
+        FPartial: Fn(String, bool) + Send + Sync + 'static,
+        FFailover: Fn(String) + Send + Sync + 'static,
+    {
         self.stop_and_reset();
         let clean_key = api_key.trim().to_string();
+        let target_endpoint = if endpoint_url.trim().is_empty() {
+            ENDPOINT_URL.to_string()
+        } else {
+            endpoint_url.trim().to_string()
+        };
         if clean_key.is_empty() {
-            on_failover("未配置豆包语音 API Key".to_string());
+            on_failover(
+                if use_bearer_auth {
+                    "请先登录 TypeZero 云端体验账号"
+                } else {
+                    "未配置豆包语音 API Key"
+                }
+                .to_string(),
+            );
             return;
         }
 
@@ -139,7 +175,7 @@ impl VolcSeedASRClient {
         let has_failed_over = Arc::clone(&self.has_failed_over);
 
         tokio::spawn(async move {
-            let mut request = match ENDPOINT_URL.into_client_request() {
+            let mut request = match target_endpoint.into_client_request() {
                 Ok(r) => r,
                 Err(e) => {
                     Self::trigger_failover(&inner, &has_failed_over, &on_failover, format!("无效地址：{e}"));
@@ -147,13 +183,19 @@ impl VolcSeedASRClient {
                 }
             };
             let headers = request.headers_mut();
-            if let Ok(v) = HeaderValue::from_str(&clean_key) {
-                headers.insert("X-Api-Key", v);
+            if use_bearer_auth {
+                if let Ok(v) = HeaderValue::from_str(&format!("Bearer {clean_key}")) {
+                    headers.insert("Authorization", v);
+                }
+            } else {
+                if let Ok(v) = HeaderValue::from_str(&clean_key) {
+                    headers.insert("X-Api-Key", v);
+                }
+                headers.insert(
+                    "X-Api-Resource-Id",
+                    HeaderValue::from_static(DEFAULT_RESOURCE_ID),
+                );
             }
-            headers.insert(
-                "X-Api-Resource-Id",
-                HeaderValue::from_static(DEFAULT_RESOURCE_ID),
-            );
             if let Ok(v) = HeaderValue::from_str(&Uuid::new_v4().to_string()) {
                 headers.insert("X-Api-Connect-Id", v);
             }

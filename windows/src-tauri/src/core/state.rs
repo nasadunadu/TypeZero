@@ -39,6 +39,7 @@ pub struct AppState {
     is_session_active: Arc<AtomicBool>,
     is_finalizing: Arc<AtomicBool>,
     app_handle: Mutex<Option<AppHandle>>,
+    data_dir: PathBuf,
     config_path: PathBuf,
     history_path: PathBuf,
 }
@@ -57,6 +58,7 @@ struct StateInner {
     active_context: ActiveScreenContext,
     active_mode: DictationMode,
     live_session: Option<Arc<LiveInputSession>>,
+    cloud_user: Option<crate::core::cloud::CloudUserProfile>,
 }
 
 impl AppState {
@@ -92,10 +94,12 @@ impl AppState {
                 active_context: ActiveScreenContext::empty(),
                 active_mode: DictationMode::Dictate,
                 live_session: None,
+                cloud_user: None,
             })),
             is_session_active: Arc::new(AtomicBool::new(false)),
             is_finalizing: Arc::new(AtomicBool::new(false)),
             app_handle: Mutex::new(None),
+            data_dir,
             config_path,
             history_path,
         });
@@ -229,14 +233,35 @@ impl AppState {
         HotkeyMonitor::configure(cfg.trigger_key, cfg.custom_hotkey, cfg.trigger_behavior);
     }
 
+    pub fn is_official_cloud_trial_active(&self) -> bool {
+        let g = self.inner.lock();
+        if !g.config.use_official_cloud_trial {
+            return false;
+        }
+        let jwt = credentials::load_cloud_jwt();
+        if jwt.trim().is_empty() {
+            return false;
+        }
+        if let Some(u) = &g.cloud_user {
+            if u.balance_cny <= 0.0 || u.is_banned {
+                return false;
+            }
+        }
+        true
+    }
+
     pub fn sync_asr_engine_config(&self) {
         let cfg = self.inner.lock().config.clone();
         let volc_key = credentials::load_volc_speech_api_key();
+        let cloud_jwt = credentials::load_cloud_jwt();
+        let use_cloud = self.is_official_cloud_trial_active();
         let openai_asr_key =
             credentials::load_effective_openai_asr_api_key(&cfg.openai_asr_base_url);
         self.asr.update_config(ASREngineConfig {
             asr_provider: cfg.asr_provider,
             volc_speech_api_key: volc_key,
+            use_cloud_trial_relay: use_cloud,
+            cloud_trial_jwt: cloud_jwt,
             openai_asr_base_url: cfg.openai_asr_base_url,
             openai_asr_model: cfg.openai_asr_model,
             openai_asr_api_key: openai_asr_key,
@@ -502,7 +527,16 @@ impl AppState {
             .lexicon
             .recall_relevant_terms(&raw_text, &ctx.window_title, 26);
 
-        let api_key = credentials::load_api_key(cfg.selected_provider);
+        let mut cfg = cfg;
+        let use_cloud_trial = self.is_official_cloud_trial_active();
+        let api_key = if use_cloud_trial {
+            cfg.selected_provider = LLMProviderOption::Deepseek;
+            cfg.base_url = crate::core::cloud::CLOUD_LLM_BASE_URL.to_string();
+            cfg.model_name = "deepseek-flash".to_string();
+            credentials::load_cloud_jwt()
+        } else {
+            credentials::load_api_key(cfg.selected_provider)
+        };
         if api_key.trim().is_empty()
             && !PolishEngine::is_keyless_local_endpoint(&cfg.base_url)
             && cfg.formatting_style != FormattingStyle::VerbatimLocal
@@ -1221,6 +1255,13 @@ impl AppState {
             active_trigger_display_name: active_trigger_display,
             active_trigger_compact_label: active_trigger_compact,
             stats,
+            cloud_user: g.cloud_user.clone(),
+            is_official_cloud_trial_active: g.config.use_official_cloud_trial
+                && !credentials::load_cloud_jwt().trim().is_empty()
+                && g.cloud_user
+                    .as_ref()
+                    .map(|u| u.balance_cny > 0.0 && !u.is_banned)
+                    .unwrap_or(true),
         }
     }
 
@@ -1342,6 +1383,120 @@ impl AppState {
     pub fn remove_lexicon_batch(&self, ids: Vec<String>) {
         let set: HashSet<String> = ids.into_iter().collect();
         self.lexicon.remove_batch(&set);
+        self.emit_state_changed();
+    }
+
+    // ---------- TypeZero Cloud Auth & Official Free Trial ----------
+
+    pub fn cloud_device_id(&self) -> String {
+        crate::core::cloud::load_or_create_device_id(&self.data_dir)
+    }
+
+    pub async fn cloud_refresh_profile(&self) -> Result<Option<crate::core::cloud::CloudUserProfile>, String> {
+        let jwt = credentials::load_cloud_jwt();
+        if jwt.trim().is_empty() {
+            self.inner.lock().cloud_user = None;
+            self.sync_asr_engine_config();
+            self.emit_state_changed();
+            return Ok(None);
+        }
+        match crate::core::cloud::fetch_profile(&jwt).await {
+            Ok(profile) => {
+                let mut auto_disabled = false;
+                {
+                    let mut g = self.inner.lock();
+                    g.cloud_user = Some(profile.clone());
+                    if profile.balance_cny <= 0.0 && g.config.use_official_cloud_trial {
+                        g.config.use_official_cloud_trial = false;
+                        auto_disabled = true;
+                    }
+                }
+                if auto_disabled {
+                    self.save_config();
+                    self.set_status_banner("💡 免费体验额度已用完，已自动切回个人 API Key（BYOK）模式");
+                }
+                self.sync_asr_engine_config();
+                self.emit_state_changed();
+                Ok(Some(profile))
+            }
+            Err(err) => {
+                if err.contains("失效") || err.contains("401") || err.contains("暂停") {
+                    credentials::save_cloud_jwt("");
+                    {
+                        let mut g = self.inner.lock();
+                        g.cloud_user = None;
+                        g.config.use_official_cloud_trial = false;
+                    }
+                    self.save_config();
+                    self.sync_asr_engine_config();
+                    self.emit_state_changed();
+                }
+                Err(err)
+            }
+        }
+    }
+
+    pub fn apply_cloud_auth_success(
+        &self,
+        token: &str,
+        user: crate::core::cloud::CloudUserProfile,
+        granted_trial: bool,
+    ) {
+        credentials::save_cloud_jwt(token);
+        let msg = if granted_trial {
+            format!(
+                "🎁 新用户已自动获赠 ¥{:.2} 免费体验额度，现在即可直接按快捷键说话！",
+                user.balance_cny
+            )
+        } else {
+            format!("✅ 登录成功，当前体验余额 ¥{:.2}", user.balance_cny)
+        };
+        {
+            let mut g = self.inner.lock();
+            if user.balance_cny > 0.0 {
+                g.config.use_official_cloud_trial = true;
+                g.config.select_asr_provider(ASRProviderOption::VolcSeedASR);
+            }
+            g.cloud_user = Some(user);
+            g.status_banner = msg;
+        }
+        self.save_config();
+        self.sync_asr_engine_config();
+        self.emit_state_changed();
+    }
+
+    pub fn cloud_set_use_trial(&self, enabled: bool) -> Result<(), String> {
+        {
+            let mut g = self.inner.lock();
+            if enabled {
+                let bal = g.cloud_user.as_ref().map(|u| u.balance_cny).unwrap_or(0.0);
+                if bal <= 0.0 {
+                    return Err("体验余额不足，请配置您自己的 API Key".to_string());
+                }
+                g.config.use_official_cloud_trial = true;
+                g.config.select_asr_provider(ASRProviderOption::VolcSeedASR);
+                g.status_banner = "☁️ 已切换至官方免费体验通道（豆包 2.0 + DeepSeek 4 Flash）".to_string();
+            } else {
+                g.config.use_official_cloud_trial = false;
+                g.status_banner = "🔑 已切换至个人 API Key（BYOK）模式".to_string();
+            }
+        }
+        self.save_config();
+        self.sync_asr_engine_config();
+        self.emit_state_changed();
+        Ok(())
+    }
+
+    pub fn cloud_logout(&self) {
+        credentials::save_cloud_jwt("");
+        {
+            let mut g = self.inner.lock();
+            g.cloud_user = None;
+            g.config.use_official_cloud_trial = false;
+            g.status_banner = "已退出 TypeZero 云端体验账号".to_string();
+        }
+        self.save_config();
+        self.sync_asr_engine_config();
         self.emit_state_changed();
     }
 }

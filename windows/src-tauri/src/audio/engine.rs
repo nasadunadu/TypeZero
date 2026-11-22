@@ -19,6 +19,8 @@ use std::time::{Duration, Instant};
 pub struct ASREngineConfig {
     pub asr_provider: ASRProviderOption,
     pub volc_speech_api_key: String,
+    pub use_cloud_trial_relay: bool,
+    pub cloud_trial_jwt: String,
     pub openai_asr_base_url: String,
     pub openai_asr_model: String,
     pub openai_asr_api_key: String,
@@ -30,6 +32,8 @@ impl Default for ASREngineConfig {
         Self {
             asr_provider: ASRProviderOption::VolcSeedASR,
             volc_speech_api_key: String::new(),
+            use_cloud_trial_relay: false,
+            cloud_trial_jwt: String::new(),
             openai_asr_base_url: "https://api.openai.com/v1".to_string(),
             openai_asr_model: "gpt-4o-mini-transcribe".to_string(),
             openai_asr_api_key: String::new(),
@@ -469,9 +473,13 @@ impl StreamingASREngine {
 
         let cfg = self.config.lock().clone();
         let clean_volc = cfg.volc_speech_api_key.trim().to_string();
+        let clean_cloud_jwt = cfg.cloud_trial_jwt.trim().to_string();
+        let use_cloud_asr = cfg.use_cloud_trial_relay && !clean_cloud_jwt.is_empty();
         let clean_openai = cfg.openai_asr_api_key.trim().to_string();
-        let want_volc = cfg.asr_provider == ASRProviderOption::VolcSeedASR && !clean_volc.is_empty();
-        let want_openai = cfg.asr_provider == ASRProviderOption::OpenAIWhisper
+        let want_volc = use_cloud_asr
+            || (cfg.asr_provider == ASRProviderOption::VolcSeedASR && !clean_volc.is_empty());
+        let want_openai = !use_cloud_asr
+            && cfg.asr_provider == ASRProviderOption::OpenAIWhisper
             && (!clean_openai.is_empty()
                 || PolishEngine::is_keyless_local_endpoint(&cfg.openai_asr_base_url));
         let has_local = self.is_using_sense_voice();
@@ -540,8 +548,24 @@ impl StreamingASREngine {
             let seed_for_fail = Arc::clone(&self.seed_client);
             let vad_cancel_holder = Arc::clone(&self.vad_cancel);
 
-            self.seed_client.start_session(
-                &clean_volc,
+            let (asr_cred, asr_endpoint, use_bearer) = if use_cloud_asr {
+                (
+                    clean_cloud_jwt.as_str(),
+                    crate::core::cloud::CLOUD_ASR_WS_URL,
+                    true,
+                )
+            } else {
+                (
+                    clean_volc.as_str(),
+                    crate::audio::volc_asr::ENDPOINT_URL,
+                    false,
+                )
+            };
+
+            self.seed_client.start_session_with_endpoint(
+                asr_cred,
+                asr_endpoint,
+                use_bearer,
                 contextual_strings,
                 dialog_context,
                 move |text, is_def| {

@@ -77,6 +77,48 @@ export const SettingsSection: React.FC<Props> = ({ snapshot, onUpdateConfig, onR
   const [llmBusy, setLlmBusy] = useState<string | null>(null);
   const [llmNotice, setLlmNotice] = useState<Record<string, { ok: boolean; msg: string }>>({});
 
+  // Cloud Trial Auth state
+  const [cloudEmail, setCloudEmail] = useState("");
+  const [cloudCode, setCloudCode] = useState("");
+  const [cloudCodeSent, setCloudCodeSent] = useState(false);
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const [cloudMsg, setCloudMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const handleSendCloudCode = async () => {
+    const email = cloudEmail.trim();
+    if (!email) {
+      setCloudMsg({ ok: false, text: "请输入邮箱地址（推荐使用 Gmail）" });
+      return;
+    }
+    setCloudBusy(true);
+    setCloudMsg(null);
+    try {
+      const msg = await api.cloudSendEmailCode(email);
+      setCloudCodeSent(true);
+      setCloudMsg({ ok: true, text: msg });
+    } catch (e) {
+      setCloudMsg({ ok: false, text: String(e) });
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
+  const handleVerifyCloudCode = async () => {
+    setCloudBusy(true);
+    setCloudMsg(null);
+    try {
+      await api.cloudVerifyEmailCode(cloudEmail.trim(), cloudCode.trim());
+      setCloudCode("");
+      setCloudCodeSent(false);
+      setCloudMsg({ ok: true, text: "登录成功！已自动启用官方免费体验通道" });
+      await onRefresh();
+    } catch (e) {
+      setCloudMsg({ ok: false, text: String(e) });
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
   const isGroq = openaiAsrUrl.toLowerCase().includes("groq.com");
   const isOpenAILocalKeyless =
     openaiAsrUrl.toLowerCase().includes("localhost") ||
@@ -192,6 +234,116 @@ export const SettingsSection: React.FC<Props> = ({ snapshot, onUpdateConfig, onR
         </div>
         <div className="editorial-rule" />
       </header>
+
+      {/* Card 0: TypeZero Cloud Account & Official Free Trial */}
+      <section className="card" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>
+            0. 官方免费体验账号（免填 Key · 新用户即送 ¥1.00）
+          </span>
+          {snapshot.isOfficialCloudTrialActive && (
+            <span className="pill-badge pill-ok" style={{ marginLeft: "auto" }}>
+              ● 官方体验通道生效中
+            </span>
+          )}
+        </div>
+        <div style={{ height: 1, background: "var(--hairline)" }} />
+
+        {snapshot.cloudUser ? (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>{snapshot.cloudUser.email}</div>
+                <div style={{ fontSize: 11.5, color: "var(--ink-secondary)", marginTop: 2 }}>
+                  剩余体验额度：¥{snapshot.cloudUser.balanceCny.toFixed(4)} ｜ 已用语音{" "}
+                  {snapshot.cloudUser.asrSecondsUsed}s · 润色 {snapshot.cloudUser.llmRequestsUsed} 次
+                </div>
+              </div>
+              <div style={{ marginLeft: "auto", display: "flex", gap: 7 }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-compact"
+                  onClick={() => void api.cloudRefreshProfile().then(onRefresh)}
+                >
+                  刷新余额
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-compact"
+                  onClick={() => void api.cloudLogout().then(onRefresh)}
+                >
+                  退出登录
+                </button>
+              </div>
+            </div>
+            <ToggleSwitch
+              title="使用官方免费体验通道（豆包 2.0 语音 + DeepSeek 4 Flash 润色）"
+              desc="开启后无需填写个人 API Key；随时可关闭并切换为下方的个人 BYOK 引擎"
+              checked={Boolean(config.useOfficialCloudTrial)}
+              onChange={(next) => {
+                void api
+                  .cloudSetUseTrial(next)
+                  .then(onRefresh)
+                  .catch((e) => setCloudMsg({ ok: false, text: String(e) }));
+              }}
+            />
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 12, color: "var(--ink-secondary)", lineHeight: 1.55 }}>
+              登录即可免费领取 ¥1.00 官方体验额度（约 60 分钟豆包 2.0 语音 + 300 次 DeepSeek 润色），零配置开箱体验。支持 Gmail、QQ、163、Outlook 等任意常用邮箱 6 位验证码登录。
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <input
+                className="input"
+                style={{ flex: 1, minWidth: 220 }}
+                placeholder="输入常用邮箱（Gmail / QQ / 163 / Outlook）"
+                value={cloudEmail}
+                onChange={(e) => setCloudEmail(e.target.value)}
+              />
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={cloudBusy}
+                onClick={() => void handleSendCloudCode()}
+              >
+                {cloudCodeSent ? "重发验证码" : "发送验证码"}
+              </button>
+            </div>
+            {cloudCodeSent && (
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input
+                  className="input"
+                  style={{ width: 180 }}
+                  placeholder="输入 6 位邮箱验证码"
+                  value={cloudCode}
+                  onChange={(e) => setCloudCode(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={cloudBusy}
+                  onClick={() => void handleVerifyCloudCode()}
+                >
+                  验证并领取体验额度
+                </button>
+              </div>
+            )}
+          </>
+        )}
+
+        {cloudMsg && (
+          <div
+            style={{
+              fontSize: 11.5,
+              fontWeight: 500,
+              color: cloudMsg.ok ? "var(--violet)" : "#c9342d",
+            }}
+          >
+            {cloudMsg.text}
+          </div>
+        )}
+      </section>
 
       {/* Card 1: Hotkeys & Input Behavior */}
       <section className="card" style={{ display: "flex", flexDirection: "column", gap: 12 }}>

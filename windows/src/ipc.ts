@@ -340,6 +340,43 @@ export const api = {
     await invoke("open_windows_mic_settings");
   },
 
+  async cloudRefreshProfile(): Promise<void> {
+    if (!isTauriRuntime()) return;
+    await invoke("cloud_refresh_profile");
+  },
+
+  async cloudSendEmailCode(email: string): Promise<string> {
+    if (!isTauriRuntime()) return "演示模式：验证码已发送";
+    return invoke<string>("cloud_send_email_code", { email });
+  },
+
+  async cloudVerifyEmailCode(email: string, code: string): Promise<void> {
+    if (!isTauriRuntime()) return;
+    await invoke("cloud_verify_email_code", { email, code });
+  },
+
+  async cloudStartGoogleLogin(): Promise<{ sessionId: string; authUrl: string }> {
+    if (!isTauriRuntime()) {
+      throw new Error("请在 Windows 桌面客户端中使用 Google 登录");
+    }
+    return invoke<{ sessionId: string; authUrl: string }>("cloud_start_google_login");
+  },
+
+  async cloudPollGoogleLogin(sessionId: string): Promise<{ status: string; error?: string }> {
+    if (!isTauriRuntime()) return { status: "expired" };
+    return invoke<{ status: string; error?: string }>("cloud_poll_google_login", { sessionId });
+  },
+
+  async cloudSetUseTrial(enabled: boolean): Promise<void> {
+    if (!isTauriRuntime()) return;
+    await invoke("cloud_set_use_trial", { enabled });
+  },
+
+  async cloudLogout(): Promise<void> {
+    if (!isTauriRuntime()) return;
+    await invoke("cloud_logout");
+  },
+
   async listenStateChanged(cb: (snap: AppSnapshot) => void): Promise<UnlistenFn> {
     if (!isTauriRuntime()) return () => {};
     return listen<AppSnapshot>("state-changed", (ev) => cb(ev.payload));

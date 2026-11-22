@@ -134,6 +134,13 @@ pub fn run() {
             commands::cancel_offline_model_download,
             commands::complete_onboarding,
             commands::open_windows_mic_settings,
+            commands::cloud_refresh_profile,
+            commands::cloud_send_email_code,
+            commands::cloud_verify_email_code,
+            commands::cloud_start_google_login,
+            commands::cloud_poll_google_login,
+            commands::cloud_set_use_trial,
+            commands::cloud_logout,
         ])
         .build(tauri::generate_context!())
         .expect("error while building TypeZero Windows application");

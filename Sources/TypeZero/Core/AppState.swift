@@ -79,6 +79,25 @@ public final class AppState: ObservableObject {
     @Published public var offlineDownloadProgress: Double = 0.0
     @Published public var offlineDownloadStatusText: String = ""
 
+    // TypeZero Cloud Auth & Official Free Trial
+    @Published public var cloudUser: CloudUserProfile? = nil
+    @Published public var cloudCapabilities: CloudCapabilities? = nil
+    @Published public var cloudEmailInput: String = ""
+    @Published public var cloudCodeInput: String = ""
+    @Published public var cloudCodeSent: Bool = false
+    @Published public var isCloudAuthBusy: Bool = false
+    @Published public var isWaitingGoogleOAuth: Bool = false
+    @Published public var cloudAuthMessage: String = ""
+    private var googlePollTask: Task<Void, Never>? = nil
+
+    public var isOfficialCloudTrialActive: Bool {
+        guard llmConfig.useOfficialCloudTrial else { return false }
+        let token = KeychainHelper.loadCloudJWT().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else { return false }
+        if let u = cloudUser, u.balanceCny <= 0 || u.isBanned { return false }
+        return true
+    }
+
     public let lexiconStore = PersonalLexiconStore()
     private let asrEngine = StreamingASREngine()
     private let polishEngine = PolishEngine()
@@ -145,6 +164,9 @@ public final class AppState: ObservableObject {
             self.polishEngine.prewarmConnection(baseURL: self.llmConfig.baseURL)
             self.hotkeyMonitor.start()
             self.startPermissionWatcher()
+            Task { [weak self] in
+                await self?.refreshCloudAccount()
+            }
             self.workspaceActivateObserver = NSWorkspace.shared.notificationCenter.addObserver(
                 forName: NSWorkspace.didActivateApplicationNotification,
                 object: nil,
@@ -405,9 +427,162 @@ public final class AppState: ObservableObject {
         asrEngine.enableWhisperAGC = llmConfig.enableWhisperAGC
         asrEngine.asrProvider = llmConfig.asrProvider
         asrEngine.volcSpeechAPIKey = KeychainHelper.loadVolcSpeechAPIKey()
+        asrEngine.useCloudTrialRelay = isOfficialCloudTrialActive
+        asrEngine.cloudTrialJWT = KeychainHelper.loadCloudJWT()
         asrEngine.openAIASRBaseURL = llmConfig.openAIASRBaseURL
         asrEngine.openAIASRModel = llmConfig.openAIASRModel
         asrEngine.openAIASRAPIKey = effectiveOpenAIASRKey
+    }
+
+    // MARK: - TypeZero Cloud Auth & Official Free Trial
+
+    public func refreshCloudAccount() async {
+        if let caps = try? await CloudAuthClient.fetchCapabilities() {
+            cloudCapabilities = caps
+        }
+        let token = KeychainHelper.loadCloudJWT().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else {
+            cloudUser = nil
+            syncASREngineConfig()
+            return
+        }
+        do {
+            let profile = try await CloudAuthClient.fetchProfile(token: token)
+            cloudUser = profile
+            if profile.balanceCny <= 0 && llmConfig.useOfficialCloudTrial {
+                llmConfig.useOfficialCloudTrial = false
+                cloudAuthMessage = "体验额度已用完，已自动切回个人 API Key 模式"
+            }
+            syncASREngineConfig()
+        } catch {
+            // Keep token if transient network error; clear only if explicitly unauthorized
+            let msg = error.localizedDescription
+            if msg.contains("失效") || msg.contains("401") || msg.contains("暂停") {
+                KeychainHelper.saveCloudJWT("")
+                cloudUser = nil
+                llmConfig.useOfficialCloudTrial = false
+                syncASREngineConfig()
+            }
+        }
+    }
+
+    public func sendCloudEmailCode() async {
+        let email = cloudEmailInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !email.isEmpty else {
+            cloudAuthMessage = "请先输入邮箱地址（推荐使用 Gmail）"
+            return
+        }
+        isCloudAuthBusy = true
+        cloudAuthMessage = ""
+        defer { isCloudAuthBusy = false }
+        do {
+            let msg = try await CloudAuthClient.sendEmailCode(email: email)
+            cloudCodeSent = true
+            cloudAuthMessage = "✅ \(msg)"
+        } catch {
+            cloudAuthMessage = "❌ \(error.localizedDescription)"
+        }
+    }
+
+    public func verifyCloudEmailCode() async {
+        let email = cloudEmailInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let code = cloudCodeInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !email.isEmpty, code.count == 6 else {
+            cloudAuthMessage = "请输入邮箱和 6 位数字验证码"
+            return
+        }
+        isCloudAuthBusy = true
+        cloudAuthMessage = ""
+        defer { isCloudAuthBusy = false }
+        do {
+            let res = try await CloudAuthClient.verifyEmailCode(email: email, code: code)
+            applyCloudAuthSuccess(token: res.token, user: res.user, grantedTrial: res.grantedTrial ?? false)
+            cloudCodeInput = ""
+            cloudCodeSent = false
+        } catch {
+            cloudAuthMessage = "❌ \(error.localizedDescription)"
+        }
+    }
+
+    public func startCloudGoogleLogin() async {
+        googlePollTask?.cancel()
+        isCloudAuthBusy = true
+        cloudAuthMessage = ""
+        defer { isCloudAuthBusy = false }
+        do {
+            let started = try await CloudAuthClient.startGoogleLogin()
+            if let url = URL(string: started.authUrl) {
+                NSWorkspace.shared.open(url)
+            }
+            isWaitingGoogleOAuth = true
+            cloudAuthMessage = "请在浏览器中选择 Google 账号完成授权…"
+            let sid = started.sessionId
+            googlePollTask = Task { [weak self] in
+                for _ in 0..<90 {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    guard !Task.isCancelled, let self else { return }
+                    do {
+                        let poll = try await CloudAuthClient.pollGoogleLogin(sessionId: sid)
+                        if poll.status == "completed", let tok = poll.token, let u = poll.user {
+                            self.isWaitingGoogleOAuth = false
+                            self.applyCloudAuthSuccess(token: tok, user: u, grantedTrial: poll.grantedTrial ?? false)
+                            return
+                        } else if poll.status == "error" || poll.status == "expired" {
+                            self.isWaitingGoogleOAuth = false
+                            self.cloudAuthMessage = "❌ \(poll.error ?? "Google 登录未完成，请重试")"
+                            return
+                        }
+                    } catch {
+                        // Ignore transient poll hiccup
+                    }
+                }
+                self?.isWaitingGoogleOAuth = false
+            }
+        } catch {
+            isWaitingGoogleOAuth = false
+            cloudAuthMessage = "❌ \(error.localizedDescription)"
+        }
+    }
+
+    private func applyCloudAuthSuccess(token: String, user: CloudUserProfile, grantedTrial: Bool) {
+        KeychainHelper.saveCloudJWT(token)
+        cloudUser = user
+        if user.balanceCny > 0 {
+            llmConfig.useOfficialCloudTrial = true
+            llmConfig.selectASRProvider(.volcSeedASR)
+        }
+        syncASREngineConfig()
+        let bonusNote = grantedTrial
+            ? String(format: "🎁 新用户已自动获赠 ¥%.2f 免费体验额度，现在即可直接按快捷键说话！", user.balanceCny)
+            : String(format: "✅ 登录成功，当前体验余额 ¥%.2f", user.balanceCny)
+        cloudAuthMessage = bonusNote
+        statusBanner = bonusNote
+    }
+
+    public func setUseOfficialCloudTrial(_ enabled: Bool) {
+        if enabled {
+            guard let u = cloudUser, u.balanceCny > 0 else {
+                cloudAuthMessage = "体验余额不足，请配置您自己的 API Key"
+                return
+            }
+            llmConfig.useOfficialCloudTrial = true
+            llmConfig.selectASRProvider(.volcSeedASR)
+            statusBanner = "☁️ 已切换至官方免费体验通道（豆包 2.0 + DeepSeek 4 Flash）"
+        } else {
+            llmConfig.useOfficialCloudTrial = false
+            statusBanner = "🔑 已切换至个人 API Key（BYOK）模式"
+        }
+        syncASREngineConfig()
+    }
+
+    public func logoutCloudAccount() {
+        googlePollTask?.cancel()
+        isWaitingGoogleOAuth = false
+        KeychainHelper.saveCloudJWT("")
+        cloudUser = nil
+        llmConfig.useOfficialCloudTrial = false
+        cloudAuthMessage = "已退出云端账号"
+        syncASREngineConfig()
     }
 
     public func selectASRProvider(_ provider: ASRProviderOption) {
@@ -1022,9 +1197,14 @@ public final class AppState: ObservableObject {
             limit: 26
         )
         let recentTexts = history.prefix(3).map(\.polishedText).reversed() as [String]
-        let effectiveConfig = llmConfig
+        var effectiveConfig = llmConfig
         var key = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        if key.isEmpty {
+        if isOfficialCloudTrialActive {
+            effectiveConfig.selectedProvider = .deepseek
+            effectiveConfig.baseURL = CloudAuthClient.cloudLLMBaseURL
+            effectiveConfig.modelName = "deepseek-flash"
+            key = KeychainHelper.loadCloudJWT().trimmingCharacters(in: .whitespacesAndNewlines)
+        } else if key.isEmpty {
             key = KeychainHelper.loadAPIKey(for: effectiveConfig.selectedProvider)
         }
         if key.isEmpty
@@ -1071,6 +1251,12 @@ public final class AppState: ObservableObject {
             liveInputSession = nil
             phase = .idle
             return
+        }
+
+        if isOfficialCloudTrialActive {
+            Task { [weak self] in
+                await self?.refreshCloudAccount()
+            }
         }
 
         var landedInInput = true

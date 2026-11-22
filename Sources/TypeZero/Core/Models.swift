@@ -386,6 +386,7 @@ public struct LLMConfig: Codable, Equatable {
     public var enableAutoMuteDuringDictation: Bool
     public var showInDock: Bool
     public var speechLocale: String
+    public var useOfficialCloudTrial: Bool
 
     public static let `default` = LLMConfig()
 
@@ -408,7 +409,8 @@ public struct LLMConfig: Codable, Equatable {
         enableAutoLearn: Bool = true,
         enableAutoMuteDuringDictation: Bool = true,
         showInDock: Bool = false,
-        speechLocale: String = "zh-CN"
+        speechLocale: String = "zh-CN",
+        useOfficialCloudTrial: Bool = false
     ) {
         let resolvedProvider = selectedProvider ?? LLMProviderOption.infer(from: baseURL)
         self.selectedProvider = resolvedProvider
@@ -433,6 +435,7 @@ public struct LLMConfig: Codable, Equatable {
         self.enableAutoMuteDuringDictation = enableAutoMuteDuringDictation
         self.showInDock = showInDock
         self.speechLocale = speechLocale
+        self.useOfficialCloudTrial = useOfficialCloudTrial
     }
 
     public mutating func selectASRProvider(_ provider: ASRProviderOption) {
@@ -506,5 +509,6 @@ public struct LLMConfig: Codable, Equatable {
         self.enableAutoMuteDuringDictation = (try? c.decode(Bool.self, forKey: .enableAutoMuteDuringDictation)) ?? true
         self.showInDock = (try? c.decode(Bool.self, forKey: .showInDock)) ?? false
         self.speechLocale = (try? c.decode(String.self, forKey: .speechLocale)) ?? "zh-CN"
+        self.useOfficialCloudTrial = (try? c.decode(Bool.self, forKey: .useOfficialCloudTrial)) ?? false
     }
 }

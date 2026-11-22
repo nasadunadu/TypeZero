@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TypeZero Cloud 管理后台</title>
+  <style>
+    :root {
+      --bg: #F6F5F0; --card: #FDFCF9; --well: #EAE6DB; --ink: #17161B; --muted: #66646D;
+      --violet: #5A46E8; --lilac: #ECE9FB; --green: #14804A; --green-bg: #E3F5EA;
+      --amber: #C76F0E; --amber-bg: #FCF2E1; --red: #D1323C; --line: rgba(23,22,27,.1);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, "Segoe UI", "Microsoft YaHei UI", sans-serif; background: var(--bg); color: var(--ink); padding: 24px 18px 60px; }
+    .wrap { max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+    header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
+    h1 { margin: 0; font-size: 24px; font-family: Georgia, "Songti SC", serif; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+    .kpi-val { font-size: 26px; font-weight: 700; font-family: Georgia, serif; color: var(--violet); }
+    .kpi-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    input, button { font-family: inherit; font-size: 13px; border-radius: 8px; }
+    input { padding: 8px 11px; border: 1px solid var(--line); background: #fff; }
+    button { padding: 8px 14px; border: none; cursor: pointer; font-weight: 600; background: var(--violet); color: #fff; }
+    button.sec { background: var(--well); color: var(--ink); }
+    button.red { background: rgba(209,50,60,.12); color: var(--red); }
+    .pill { display: inline-block; padding: 3px 9px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+    .ok { background: var(--green-bg); color: var(--green); }
+    .warn { background: var(--amber-bg); color: var(--amber); }
+    table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--line); }
+    th { color: var(--muted); font-weight: 600; }
+    .mono { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>TypeZero Cloud · 体验额度与预算控制台</h1>
+      </div>
+      <div class="row" id="authBar">
+        <input id="adminToken" type="password" placeholder="输入管理员密钥 (ADMIN_TOKEN)" style="width:260px" />
+        <button onclick="login()">进入后台</button>
+      </div>
+    </header>
+
+    <div id="app" class="hidden" style="display:flex;flex-direction:column;gap:18px;">
+      <div class="card row" id="envBadges"></div>
+
+      <div class="kpis" id="kpiGrid"></div>
+
+      <div class="card">
+        <h3 style="margin:0 0 12px;font-size:15px;">全局额度与防刷熔断开关</h3>
+        <div class="row">
+          <label>新用户赠送 (¥) <input id="cfgBonus" type="number" step="0.1" style="width:90px" /></label>
+          <label>每日上限 (¥) <input id="cfgDaily" type="number" step="1" style="width:95px" /></label>
+          <label>总预算熔断 (¥) <input id="cfgTotal" type="number" step="10" style="width:105px" /></label>
+          <label><input id="cfgTrial" type="checkbox" /> 开启新用户自动赠送</label>
+          <label><input id="cfgRelay" type="checkbox" /> 开启免费中转总开关</label>
+          <button onclick="saveSettings()">保存熔断配置</button>
+          <button class="sec" onclick="loadOverview()">刷新数据</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin:0 0 10px;font-size:15px;">注册用户与余额管理</h3>
+        <div style="overflow-x:auto">
+          <table>
+            <thead>
+              <tr><th>邮箱</th><th>平台</th><th>剩余余额</th><th>累计消耗</th><th>语音时长</th><th>排版次数</th><th>状态</th><th>操作</th></tr>
+            </thead>
+            <tbody id="usersBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin:0 0 10px;font-size:15px;">最近 60 条调用与成本流水</h3>
+        <div style="overflow-x:auto">
+          <table>
+            <thead>
+              <tr><th>时间</th><th>邮箱</th><th>服务</th><th>模型</th><th>计量</th><th>成本 (¥)</th></tr>
+            </thead>
+            <tbody id="logsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let token = sessionStorage.getItem("tz_admin_token") || "";
+    if (token) {
+      document.getElementById("adminToken").value = token;
+      loadOverview();
+    }
+
+    function login() {
+      token = document.getElementById("adminToken").value.trim();
+      if (!token) return alert("请先输入管理员密钥");
+      sessionStorage.setItem("tz_admin_token", token);
+      loadOverview();
+    }
+
+    async function api(path, opts = {}) {
+      const res = await fetch(path, {
+        ...opts,
+        headers: { "Content-Type": "application/json", "X-Admin-Token": token, ...(opts.headers || {}) },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      return data;
+    }
+
+    async function loadOverview() {
+      try {
+        const d = await api("/api/admin/overview");
+        document.getElementById("app").classList.remove("hidden");
+
+        const env = d.envStatus;
+        document.getElementById("envBadges").innerHTML = [
+          ["豆包 Seed-ASR Key", env.volcAsrKeyConfigured],
+          ["DeepSeek 4 Flash Key", env.deepseekKeyConfigured],
+          ["邮箱验证码 SMTP", env.smtpConfigured],
+          ["Google 一键登录 OAuth", env.googleOAuthConfigured],
+        ].map(([name, ok]) => `<span class="pill ${ok ? "ok" : "warn"}">${ok ? "✓" : "○"} ${name}</span>`).join("");
+
+        document.getElementById("kpiGrid").innerHTML = `
+          <div class="card"><div class="kpi-val">${d.totalUsers}</div><div class="kpi-label">总注册用户（已领体验金 ${d.trialUsers}）</div></div>
+          <div class="card"><div class="kpi-val">¥${d.budget.todaySpentCny.toFixed(3)}</div><div class="kpi-label">今日消耗 / 上限 ¥${d.budget.dailyBudgetCny}</div></div>
+          <div class="card"><div class="kpi-val">¥${d.budget.totalSpentCny.toFixed(3)}</div><div class="kpi-label">累计消耗 / 总熔断 ¥${d.budget.totalBudgetCny}</div></div>
+          <div class="card"><div class="kpi-val" style="color:${d.budget.withinBudget ? "var(--green)" : "var(--red)"}">${d.budget.withinBudget ? "运行中" : "已熔断"}</div><div class="kpi-label">服务熔断状态</div></div>
+        `;
+
+        document.getElementById("cfgBonus").value = d.budget.trialBonusCny;
+        document.getElementById("cfgDaily").value = d.budget.dailyBudgetCny;
+        document.getElementById("cfgTotal").value = d.budget.totalBudgetCny;
+        document.getElementById("cfgTrial").checked = d.budget.trialSignupEnabled;
+        document.getElementById("cfgRelay").checked = d.budget.relayEnabled;
+
+        document.getElementById("usersBody").innerHTML = d.users.map((u) => `
+          <tr>
+            <td class="mono">${u.email}</td>
+            <td>${u.platform || "-"}</td>
+            <td class="mono"><strong>¥${u.balanceCny.toFixed(3)}</strong></td>
+            <td class="mono">¥${u.totalUsedCny.toFixed(4)}</td>
+            <td class="mono">${u.asrSecondsUsed}s</td>
+            <td class="mono">${u.llmRequestsUsed}</td>
+            <td><span class="pill ${u.isBanned ? "warn" : "ok"}">${u.isBanned ? "已封禁" : "正常"}</span></td>
+            <td class="row">
+              <button class="sec" onclick="grant('${u.id}', 1)">+¥1</button>
+              <button class="${u.isBanned ? "sec" : "red"}" onclick="toggleBan('${u.id}', ${!u.isBanned})">${u.isBanned ? "解封" : "封禁"}</button>
+            </td>
+          </tr>
+        `).join("");
+
+        document.getElementById("logsBody").innerHTML = d.recentLogs.map((l) => `
+          <tr>
+            <td class="mono">${l.created_at.slice(5, 19).replace("T", " ")}</td>
+            <td class="mono">${l.email}</td>
+            <td>${l.service.toUpperCase()}</td>
+            <td class="mono">${l.model}</td>
+            <td class="mono">${l.service === "asr" ? l.units + "s" : l.units + " tok"}</td>
+            <td class="mono">¥${l.costCny.toFixed(5)}</td>
+          </tr>
+        `).join("");
+      } catch (e) {
+        alert("加载失败：" + e.message);
+      }
+    }
+
+    async function saveSettings() {
+      try {
+        await api("/api/admin/settings", {
+          method: "POST",
+          body: JSON.stringify({
+            trialBonusCny: Number(document.getElementById("cfgBonus").value),
+            dailyBudgetCny: Number(document.getElementById("cfgDaily").value),
+            totalBudgetCny: Number(document.getElementById("cfgTotal").value),
+            trialSignupEnabled: document.getElementById("cfgTrial").checked,
+            relayEnabled: document.getElementById("cfgRelay").checked,
+          }),
+        });
+        alert("熔断配置已保存并立即生效");
+        loadOverview();
+      } catch (e) {
+        alert(e.message);
+      }
+    }
+
+    async function grant(id, amountCny) {
+      await api(`/api/admin/users/${id}/grant`, { method: "POST", body: JSON.stringify({ amountCny }) });
+      loadOverview();
+    }
+
+    async function toggleBan(id, banned) {
+      await api(`/api/admin/users/${id}/ban`, { method: "POST", body: JSON.stringify({ banned }) });
+      loadOverview();
+    }
+  </script>
+</body>
+</html>

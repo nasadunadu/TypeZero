@@ -122,8 +122,9 @@ private struct TypeZeroMenuBarContent: View {
         }
         .keyboardShortcut("q")
         .onAppear {
-            TypeZeroAppDelegate.openMainWindowAction = { [weak appState] in
-                guard appState != nil else { return }
+            let stateRef = appState
+            TypeZeroAppDelegate.openMainWindowAction = { [weak stateRef] in
+                guard stateRef != nil else { return }
                 presentMainWindow(tab: nil)
             }
         }

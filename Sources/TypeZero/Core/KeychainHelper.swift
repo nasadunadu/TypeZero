@@ -6,6 +6,15 @@ public enum KeychainHelper {
     private static let legacyAccount = "llm_api_key"
     private static let volcSpeechAccount = "volc_speech_api_key"
     private static let openAIASRAccount = "openai_asr_api_key"
+    private static let cloudJWTAccount = "typezero_cloud_jwt"
+
+    public static func saveCloudJWT(_ token: String) {
+        saveAPIKeyInSlot(token, slot: cloudJWTAccount)
+    }
+
+    public static func loadCloudJWT() -> String {
+        return readSlot(cloudJWTAccount) ?? ""
+    }
 
     public static func saveVolcSpeechAPIKey(_ key: String) {
         let cleaned = key.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -464,6 +464,8 @@ pub struct LLMConfig {
     pub launch_at_login: bool,
     #[serde(default)]
     pub onboarding_completed: bool,
+    #[serde(default)]
+    pub use_official_cloud_trial: bool,
 }
 
 fn default_true() -> bool {
@@ -520,6 +522,7 @@ impl Default for LLMConfig {
             minimize_to_tray: true,
             launch_at_login: false,
             onboarding_completed: false,
+            use_official_cloud_trial: false,
         }
     }
 }
@@ -775,6 +778,8 @@ pub struct AppSnapshot {
     pub active_trigger_display_name: String,
     pub active_trigger_compact_label: String,
     pub stats: DashboardStats,
+    pub cloud_user: Option<crate::core::cloud::CloudUserProfile>,
+    pub is_official_cloud_trial_active: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

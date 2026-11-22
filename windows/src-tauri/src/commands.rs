@@ -256,3 +256,59 @@ pub fn complete_onboarding(state: State<'_, Arc<AppState>>) {
 pub fn open_windows_mic_settings() {
     autostart::open_microphone_privacy_settings();
 }
+
+#[tauri::command]
+pub async fn cloud_refresh_profile(
+    state: State<'_, Arc<AppState>>,
+) -> Result<Option<crate::core::cloud::CloudUserProfile>, String> {
+    state.cloud_refresh_profile().await
+}
+
+#[tauri::command]
+pub async fn cloud_send_email_code(email: String) -> Result<String, String> {
+    crate::core::cloud::send_email_code(&email).await
+}
+
+#[tauri::command]
+pub async fn cloud_verify_email_code(
+    email: String,
+    code: String,
+    state: State<'_, Arc<AppState>>,
+) -> Result<crate::core::cloud::CloudAuthSuccess, String> {
+    let device_id = state.cloud_device_id();
+    let res = crate::core::cloud::verify_email_code(&email, &code, &device_id).await?;
+    state.apply_cloud_auth_success(&res.token, res.user.clone(), res.granted_trial);
+    Ok(res)
+}
+
+#[tauri::command]
+pub async fn cloud_start_google_login(
+    state: State<'_, Arc<AppState>>,
+) -> Result<crate::core::cloud::CloudGoogleStartResponse, String> {
+    let device_id = state.cloud_device_id();
+    crate::core::cloud::start_google_login(&device_id).await
+}
+
+#[tauri::command]
+pub async fn cloud_poll_google_login(
+    session_id: String,
+    state: State<'_, Arc<AppState>>,
+) -> Result<crate::core::cloud::CloudGooglePollResponse, String> {
+    let res = crate::core::cloud::poll_google_login(&session_id).await?;
+    if res.status == "completed" {
+        if let (Some(tok), Some(user)) = (res.token.as_ref(), res.user.as_ref()) {
+            state.apply_cloud_auth_success(tok, user.clone(), res.granted_trial);
+        }
+    }
+    Ok(res)
+}
+
+#[tauri::command]
+pub fn cloud_set_use_trial(enabled: bool, state: State<'_, Arc<AppState>>) -> Result<(), String> {
+    state.cloud_set_use_trial(enabled)
+}
+
+#[tauri::command]
+pub fn cloud_logout(state: State<'_, Arc<AppState>>) {
+    state.cloud_logout();
+}

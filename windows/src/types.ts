@@ -94,6 +94,19 @@ export interface LLMConfig {
   minimizeToTray: boolean;
   launchAtLogin: boolean;
   onboardingCompleted: boolean;
+  useOfficialCloudTrial?: boolean;
+}
+
+export interface CloudUserProfile {
+  id: string;
+  email: string;
+  balanceCny: number;
+  balanceMicroCny?: number;
+  totalUsedCny: number;
+  asrSecondsUsed: number;
+  llmRequestsUsed: number;
+  trialGranted: boolean;
+  isBanned: boolean;
 }
 
 export interface DashboardStats {
@@ -128,6 +141,8 @@ export interface AppSnapshot {
   activeTriggerDisplayName: string;
   activeTriggerCompactLabel: string;
   stats: DashboardStats;
+  cloudUser?: CloudUserProfile | null;
+  isOfficialCloudTrialActive?: boolean;
 }
 
 export interface PillTelemetry {

@@ -1202,8 +1202,11 @@ struct EngineSettingsSection: View {
             TZEditorialHeader(
                 badge: "STUDIO PREFERENCES",
                 title: "引擎与快捷键设置",
-                subtitle: "左右侧全套修饰键与自定义组合键一键绑定 ｜ 点开配置并校验通过后才切换唯一生效引擎"
+                subtitle: "左右侧全套修饰键与自定义组合键一键绑定 ｜ 登录即享官方免费体验额度，或随时切回个人 API Key"
             )
+
+            // Card 0: TypeZero Cloud Account & Official Free Trial
+            CloudTrialAccountCard(appState: appState)
 
             // Card 1: Global Hotkey (Full Left & Right + Custom Recorder) & Input Behavior
             VStack(alignment: .leading, spacing: 11) {
@@ -2477,5 +2480,134 @@ struct OnboardingWizardSheet: View {
         .frame(width: 590)
         .background(TZTheme.paperBg)
         .preferredColorScheme(.light)
+    }
+}
+
+struct CloudTrialAccountCard: View {
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            HStack(spacing: 8) {
+                Text("0. 官方免费体验账号（免填 Key · 新用户即送 ¥1.00）")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(TZTheme.inkPrimary)
+                Spacer()
+                if appState.isOfficialCloudTrialActive {
+                    HStack(spacing: 5) {
+                        Circle().fill(Color(red: 0.08, green: 0.50, blue: 0.29)).frame(width: 6, height: 6)
+                        Text("官方体验通道生效中")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.08, green: 0.50, blue: 0.29))
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3)
+                    .background(Color(red: 0.90, green: 0.97, blue: 0.93))
+                    .clipShape(Capsule())
+                }
+            }
+
+            Divider().overlay(TZTheme.hairline)
+
+            if let user = appState.cloudUser {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(user.email)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(TZTheme.inkPrimary)
+                        Text(String(format: "剩余免费体验额度：¥%.4f ｜ 已用语音 %ds · 润色 %d 次", user.balanceCny, user.asrSecondsUsed, user.llmRequestsUsed))
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(TZTheme.inkSecondary)
+                    }
+                    Spacer()
+                    Button("刷新余额") {
+                        Task { await appState.refreshCloudAccount() }
+                    }
+                    .buttonStyle(TZSecondaryButtonStyle())
+
+                    Button("退出") {
+                        appState.logoutCloudAccount()
+                    }
+                    .buttonStyle(TZSecondaryButtonStyle())
+                }
+
+                HStack(spacing: 10) {
+                    Toggle(isOn: Binding(
+                        get: { appState.llmConfig.useOfficialCloudTrial },
+                        set: { appState.setUseOfficialCloudTrial($0) }
+                    )) {
+                        Text("使用官方免费通道（豆包 2.0 语音 + DeepSeek 4 Flash 润色，免配置 Key）")
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundStyle(TZTheme.inkPrimary)
+                    }
+                    .toggleStyle(.switch)
+                    .disabled(user.balanceCny <= 0)
+                }
+
+                if user.balanceCny <= 0 {
+                    Text("💡 免费体验额度已用完，您可在下方填入自己的火山豆包 / DeepSeek API Key 继续 0 抽成无限使用。")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(TZTheme.violet)
+                }
+            } else {
+                Text("登录即可免费领取 ¥1.00 官方体验额度（约 60 分钟豆包 2.0 语音 + 300 次 DeepSeek 润色），无需先申请 API Key。支持 Gmail、QQ、163、Outlook 等任意常用邮箱验证码登录。")
+                    .font(.system(size: 12))
+                    .foregroundStyle(TZTheme.inkSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if appState.cloudCapabilities?.googleOAuthEnabled == true {
+                    HStack(spacing: 10) {
+                        Button {
+                            Task { await appState.startCloudGoogleLogin() }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "globe")
+                                Text(appState.isWaitingGoogleOAuth ? "等待浏览器完成 Google 授权…" : "使用 Google 账号一键登录 (Gmail)")
+                            }
+                        }
+                        .buttonStyle(TZPrimaryButtonStyle())
+                        .disabled(appState.isCloudAuthBusy)
+
+                        if appState.isWaitingGoogleOAuth {
+                            ProgressView().scaleEffect(0.65)
+                        }
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    TextField("输入常用邮箱（Gmail / QQ / 163 / Outlook）", text: $appState.cloudEmailInput)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12.5))
+
+                    Button(appState.cloudCodeSent ? "重发验证码" : "发送验证码") {
+                        Task { await appState.sendCloudEmailCode() }
+                    }
+                    .buttonStyle(TZSecondaryButtonStyle())
+                    .disabled(appState.isCloudAuthBusy)
+                }
+
+                if appState.cloudCodeSent {
+                    HStack(spacing: 8) {
+                        TextField("输入 6 位邮箱验证码", text: $appState.cloudCodeInput)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 12.5))
+                            .frame(maxWidth: 200)
+
+                        Button("验证并领取体验额度") {
+                            Task { await appState.verifyCloudEmailCode() }
+                        }
+                        .buttonStyle(TZPrimaryButtonStyle())
+                        .disabled(appState.isCloudAuthBusy)
+                    }
+                }
+            }
+
+            if !appState.cloudAuthMessage.isEmpty {
+                Text(appState.cloudAuthMessage)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(appState.cloudAuthMessage.hasPrefix("❌") ? Color.red : TZTheme.violet)
+            }
+        }
+        .tzCardSurface(cornerRadius: 12, padding: 14)
     }
 }

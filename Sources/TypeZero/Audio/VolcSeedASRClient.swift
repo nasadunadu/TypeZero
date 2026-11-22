@@ -18,6 +18,8 @@ public final class VolcSeedASRClient: @unchecked Sendable {
 
     private var activeAPIKey: String = ""
     private var activeResourceID: String = VolcSeedASRClient.defaultResourceID
+    private var activeEndpointURLString: String = VolcSeedASRClient.endpointURLString
+    private var activeUseBearerAuth: Bool = false
     private var didRetryFreshSocket: Bool = false
     private var replayHandshakeFrames: [Data] = []
     private var sentAudioChunkCount: Int = 0
@@ -69,11 +71,15 @@ public final class VolcSeedASRClient: @unchecked Sendable {
         directSession.dataTask(with: req) { _, _, _ in }.resume()
     }
 
-    private func makeWebSocketTask(apiKey: String, resourceID: String, wsURL: URL) -> URLSessionWebSocketTask {
+    private func makeWebSocketTask(apiKey: String, resourceID: String, wsURL: URL, useBearerAuth: Bool = false) -> URLSessionWebSocketTask {
         var req = URLRequest(url: wsURL)
         req.timeoutInterval = 4.5
-        req.setValue(apiKey, forHTTPHeaderField: "X-Api-Key")
-        req.setValue(resourceID, forHTTPHeaderField: "X-Api-Resource-Id")
+        if useBearerAuth {
+            req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        } else {
+            req.setValue(apiKey, forHTTPHeaderField: "X-Api-Key")
+            req.setValue(resourceID, forHTTPHeaderField: "X-Api-Resource-Id")
+        }
         req.setValue(UUID().uuidString, forHTTPHeaderField: "X-Api-Connect-Id")
         req.setValue(UUID().uuidString, forHTTPHeaderField: "X-Api-Request-Id")
         let t = directSession.webSocketTask(with: req)
@@ -87,16 +93,21 @@ public final class VolcSeedASRClient: @unchecked Sendable {
         dialogContext: [String] = [],
         enableDDC: Bool = true,
         enableNonstream: Bool = true,
-        resourceID: String = VolcSeedASRClient.defaultResourceID
+        resourceID: String = VolcSeedASRClient.defaultResourceID,
+        customEndpointURL: String? = nil,
+        useBearerAuth: Bool = false
     ) {
         stopAndReset()
         let cleanKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanKey.isEmpty, let wsURL = URL(string: Self.endpointURLString) else {
-            onConnectionFallbackNeeded?("未配置豆包语音 API Key")
+        let targetURLString = (customEndpointURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+            ? customEndpointURL!.trimmingCharacters(in: .whitespacesAndNewlines)
+            : Self.endpointURLString
+        guard !cleanKey.isEmpty, let wsURL = URL(string: targetURLString) else {
+            onConnectionFallbackNeeded?(useBearerAuth ? "请先登录 TypeZero 云端体验账号" : "未配置豆包语音 API Key")
             return
         }
 
-        let task = makeWebSocketTask(apiKey: cleanKey, resourceID: resourceID, wsURL: wsURL)
+        let task = makeWebSocketTask(apiKey: cleanKey, resourceID: resourceID, wsURL: wsURL, useBearerAuth: useBearerAuth)
 
         stateLock.lock()
         isActive = true
@@ -107,6 +118,8 @@ public final class VolcSeedASRClient: @unchecked Sendable {
         sentAudioChunkCount = 0
         activeAPIKey = cleanKey
         activeResourceID = resourceID
+        activeEndpointURLString = targetURLString
+        activeUseBearerAuth = useBearerAuth
         didRetryFreshSocket = false
         replayHandshakeFrames.removeAll(keepingCapacity: true)
         pendingPCM16Bytes.removeAll(keepingCapacity: true)
@@ -349,15 +362,16 @@ public final class VolcSeedASRClient: @unchecked Sendable {
            !didRetryFreshSocket,
            receivedServerFrameCount == 0,
            !replayHandshakeFrames.isEmpty,
-           let wsURL = URL(string: Self.endpointURLString) {
+           let wsURL = URL(string: activeEndpointURLString) {
             didRetryFreshSocket = true
             let key = activeAPIKey
             let resID = activeResourceID
+            let useBearer = activeUseBearerAuth
             let framesToReplay = replayHandshakeFrames
             stateLock.unlock()
 
             failedTask.cancel(with: .normalClosure, reason: nil)
-            let replacement = makeWebSocketTask(apiKey: key, resourceID: resID, wsURL: wsURL)
+            let replacement = makeWebSocketTask(apiKey: key, resourceID: resID, wsURL: wsURL, useBearerAuth: useBearer)
             stateLock.lock()
             guard isActive else {
                 stateLock.unlock()

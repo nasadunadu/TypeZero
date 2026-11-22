@@ -61,6 +61,8 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
         set { asrProvider = newValue ? .volcSeedASR : .localSenseVoice }
     }
     public var volcSpeechAPIKey: String = ""
+    public var useCloudTrialRelay: Bool = false
+    public var cloudTrialJWT: String = ""
     public var openAIASRBaseURL: String = "https://api.openai.com/v1"
     public var openAIASRModel: String = "gpt-4o-mini-transcribe"
     public var openAIASRAPIKey: String = ""
@@ -427,9 +429,11 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
         sessionStartTime = Date()
 
         let cleanSpeechKey = volcSpeechAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanCloudJWT = cloudTrialJWT.trimmingCharacters(in: .whitespacesAndNewlines)
+        let useCloudASR = useCloudTrialRelay && !cleanCloudJWT.isEmpty
         let cleanOpenAIKey = openAIASRAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        let wantCloudSeedASR = (asrProvider == .volcSeedASR) && !cleanSpeechKey.isEmpty
-        let wantOpenAIASR = (asrProvider == .openAIWhisper) && (!cleanOpenAIKey.isEmpty || PolishEngine.isKeylessLocalEndpoint(openAIASRBaseURL))
+        let wantCloudSeedASR = useCloudASR || ((asrProvider == .volcSeedASR) && !cleanSpeechKey.isEmpty)
+        let wantOpenAIASR = !useCloudASR && (asrProvider == .openAIWhisper) && (!cleanOpenAIKey.isEmpty || PolishEngine.isKeylessLocalEndpoint(openAIASRBaseURL))
         let hasLocalSenseVoice = isUsingSenseVoice && (senseVoiceHandle != nil)
 
         if wantCloudSeedASR || wantOpenAIASR || hasLocalSenseVoice {
@@ -451,11 +455,21 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
             let isAnyCloudMode = wantCloudSeedASR || wantOpenAIASR
 
             if wantCloudSeedASR {
-                seedASRClient.startSession(
-                    apiKey: cleanSpeechKey,
-                    hotwords: contextualStrings,
-                    dialogContext: dialogContext
-                )
+                if useCloudASR {
+                    seedASRClient.startSession(
+                        apiKey: cleanCloudJWT,
+                        hotwords: contextualStrings,
+                        dialogContext: dialogContext,
+                        customEndpointURL: CloudAuthClient.cloudASRWSURL,
+                        useBearerAuth: true
+                    )
+                } else {
+                    seedASRClient.startSession(
+                        apiKey: cleanSpeechKey,
+                        hotwords: contextualStrings,
+                        dialogContext: dialogContext
+                    )
+                }
             } else if wantOpenAIASR {
                 openAIASRClient.prewarmConnection(baseURL: openAIASRBaseURL, apiKey: cleanOpenAIKey)
             }

@@ -2,6 +2,7 @@ use crate::models::LLMProviderOption;
 
 pub const VOLC_SPEECH_SLOT: &str = "volc_speech_api_key";
 pub const OPENAI_ASR_SLOT: &str = "openai_asr_api_key";
+pub const CLOUD_JWT_SLOT: &str = "typezero_cloud_jwt";
 
 pub fn provider_slot(provider: LLMProviderOption) -> &'static str {
     match provider {
@@ -140,6 +141,14 @@ pub fn save_volc_speech_api_key(value: &str) {
 
 pub fn load_volc_speech_api_key() -> String {
     platform::load_secret(VOLC_SPEECH_SLOT)
+}
+
+pub fn save_cloud_jwt(value: &str) {
+    platform::save_secret(CLOUD_JWT_SLOT, value);
+}
+
+pub fn load_cloud_jwt() -> String {
+    platform::load_secret(CLOUD_JWT_SLOT)
 }
 
 pub fn save_openai_asr_api_key(value: &str) {
