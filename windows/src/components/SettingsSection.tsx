@@ -501,9 +501,10 @@ export const SettingsSection: React.FC<Props> = ({ snapshot, onUpdateConfig, onR
       ) : null}
 
       {/* Card 1: Hotkeys & Input Behavior */}
-      <section className="card" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 14, fontWeight: 600 }}>1. 全局快捷键与输入方式</span>
+      <section className="card card-titled">
+        <div className="card-header-band">
+          <span className="section-num-badge">01</span>
+          <span style={{ fontSize: 13.5, fontWeight: 600 }}>全局快捷键与输入方式</span>
           <div style={{ marginLeft: "auto", display: "flex", gap: 7, alignItems: "center" }}>
             <span className={`pill-badge ${snapshot.micAvailable ? "pill-ok" : "pill-warn"}`}>
               {snapshot.micAvailable ? <CheckCircle2 size={11} /> : <TriangleAlert size={11} />}
@@ -521,10 +522,9 @@ export const SettingsSection: React.FC<Props> = ({ snapshot, onUpdateConfig, onR
           </div>
         </div>
 
-        <div style={{ height: 1, background: "var(--hairline)" }} />
-
+        <div className="card-body-pad">
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 12.5, color: "var(--ink-secondary)", fontWeight: 500 }}>全局快捷键</span>
+          <span className="row-label-pill">全局快捷键</span>
           <span className="pill-badge pill-lilac">
             ● 当前生效：{snapshot.activeTriggerDisplayName}
           </span>
@@ -587,7 +587,7 @@ export const SettingsSection: React.FC<Props> = ({ snapshot, onUpdateConfig, onR
         <div style={{ height: 1, background: "var(--hairline)" }} />
 
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <span style={{ width: 78, fontSize: 12.5, color: "var(--ink-secondary)", fontWeight: 500 }}>
+          <span className="row-label-pill" style={{ width: 78 }}>
             触发方式
           </span>
           <div className="segment-bar">
@@ -629,16 +629,19 @@ export const SettingsSection: React.FC<Props> = ({ snapshot, onUpdateConfig, onR
             </button>
           </div>
         </div>
+        </div>
       </section>
 
       {/* Card 2: ASR Triple Engine */}
-      <section className="card" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontSize: 14, fontWeight: 600 }}>2. 语音识别引擎与密钥</span>
-          <span style={{ fontSize: 11.5, color: "var(--ink-muted)" }}>
+      <section className="card card-titled">
+        <div className="card-header-band">
+          <span className="section-num-badge">02</span>
+          <span style={{ fontSize: 13.5, fontWeight: 600 }}>语音识别引擎与密钥</span>
+          <span style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--ink-secondary)" }}>
             密钥加密存入 Windows 凭据管理器 · 唯一生效引擎
           </span>
         </div>
+        <div className="card-body-pad">
 
         {/* ASR A: Volcengine Seed-ASR 2.0 */}
         {(() => {
@@ -979,16 +982,19 @@ export const SettingsSection: React.FC<Props> = ({ snapshot, onUpdateConfig, onR
             </div>
           );
         })()}
+        </div>
       </section>
 
       {/* Card 3: LLM Polishing & 7 Providers */}
-      <section className="card" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontSize: 14, fontWeight: 600 }}>3. 智能排版大模型与密钥</span>
-          <span style={{ fontSize: 11.5, color: "var(--ink-muted)" }}>
+      <section className="card card-titled">
+        <div className="card-header-band">
+          <span className="section-num-badge">03</span>
+          <span style={{ fontSize: 13.5, fontWeight: 600 }}>智能排版大模型与密钥</span>
+          <span style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--ink-secondary)" }}>
             支持 DeepSeek / 豆包 / 通义 / OpenAI / Gemini / Claude / 本地 Ollama
           </span>
         </div>
+        <div className="card-body-pad">
 
         <div className="segment-bar">
           {(
@@ -1128,11 +1134,16 @@ export const SettingsSection: React.FC<Props> = ({ snapshot, onUpdateConfig, onR
             </div>
           );
         })}
+        </div>
       </section>
 
       {/* Card 4: Everyday Windows System & Smart Guard Switches */}
-      <section className="card">
-        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>4. Windows 系统体验与智能护航</div>
+      <section className="card card-titled">
+        <div className="card-header-band">
+          <span className="section-num-badge">04</span>
+          <span style={{ fontSize: 13.5, fontWeight: 600 }}>Windows 系统体验与智能护航</span>
+        </div>
+        <div className="card-body-pad" style={{ gap: 2 }}>
         <ToggleSwitch
           title="开机自动启动（静默驻留右下角托盘）"
           desc="登录 Windows 后自动后台待命，随时按快捷键开口成文"
@@ -1181,6 +1192,7 @@ export const SettingsSection: React.FC<Props> = ({ snapshot, onUpdateConfig, onR
           checked={config.enableAutoLearn}
           onChange={(v) => void toggleFlag("enableAutoLearn", v)}
         />
+        </div>
       </section>
     </div>
   );

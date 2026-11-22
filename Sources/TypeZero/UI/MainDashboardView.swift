@@ -4,11 +4,14 @@ import AppKit
 // MARK: - Swiss Warm Editorial Design System (Warm Parchment #F6F5F0 × Royal Violet #5A46E8)
 
 enum TZTheme {
-    static let paperBg      = Color(red: 0.965, green: 0.961, blue: 0.941) // #F6F5F0 Warm Parchment
-    static let sidebarBg    = Color(red: 0.937, green: 0.925, blue: 0.894) // #EFECE4 Warm Linen
-    static let cardBg       = Color(red: 0.992, green: 0.988, blue: 0.976) // #FDFCF9 Warm Porcelain
-    static let sandWell     = Color(red: 0.918, green: 0.902, blue: 0.859) // #EAE6DB Sand Capsule / Well
-    static let softWell     = Color(red: 0.953, green: 0.945, blue: 0.922) // #F3F1EB Subtle Input Fill
+    static let paperBg           = Color(red: 0.957, green: 0.951, blue: 0.928) // #F4F2ED Warm Parchment Canvas
+    static let sidebarBg         = Color(red: 0.933, green: 0.922, blue: 0.890) // #EEEBE3 Warm Linen Sidebar
+    static let headerBlockTop    = Color(red: 0.925, green: 0.914, blue: 0.878) // #ECE9E0 Editorial Header Skeleton Top
+    static let headerBlockBottom = Color(red: 0.946, green: 0.938, blue: 0.910) // #F1EFE8 Editorial Header Skeleton Bottom
+    static let sectionHeaderBg   = Color(red: 0.948, green: 0.939, blue: 0.912) // #F2EFE8 Tinted Card Header Band
+    static let cardBg            = Color(red: 0.996, green: 0.994, blue: 0.986) // #FEFDFB Bright Porcelain Card Body
+    static let sandWell          = Color(red: 0.914, green: 0.898, blue: 0.855) // #E9E5DA Sand Capsule / Well
+    static let softWell          = Color(red: 0.950, green: 0.941, blue: 0.916) // #F2F0EA Subtle Input / Row Pill Fill
     static let inkPrimary   = Color(red: 0.090, green: 0.086, blue: 0.106) // #17161B Deep Pine Ink
     static let inkSecondary = Color(red: 0.400, green: 0.392, blue: 0.427) // #66646D Warm Graphite
     static let inkMuted     = Color(red: 0.565, green: 0.553, blue: 0.592) // #908D97 Muted Slate
@@ -74,10 +77,10 @@ struct TZEditorialHeader: View {
     let subtitle: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center) {
                 Text(title)
-                    .font(.system(size: 30, weight: .bold, design: .serif))
+                    .font(.system(size: 28, weight: .bold, design: .serif))
                     .foregroundStyle(TZTheme.inkPrimary)
                 Spacer()
                 Text(badge)
@@ -85,25 +88,115 @@ struct TZEditorialHeader: View {
                     .tracking(0.8)
                     .foregroundStyle(TZTheme.inkSecondary)
                     .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(TZTheme.sandWell)
+                    .padding(.vertical, 4.5)
+                    .background(TZTheme.cardBg.opacity(0.92))
                     .clipShape(Capsule())
+                    .overlay(Capsule().strokeBorder(TZTheme.hairline, lineWidth: 0.8))
             }
 
             HStack(spacing: 10) {
-                Rectangle()
+                RoundedRectangle(cornerRadius: 1.5)
                     .fill(TZTheme.violet)
-                    .frame(width: 2.5, height: 14)
+                    .frame(width: 3, height: 14)
                 Text(subtitle)
-                    .font(.system(size: 13))
+                    .font(.system(size: 12.5))
                     .foregroundStyle(TZTheme.inkSecondary)
             }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+        .background(
+            LinearGradient(
+                colors: [TZTheme.headerBlockTop, TZTheme.headerBlockBottom],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(TZTheme.strongLine.opacity(0.65), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.025), radius: 6, x: 0, y: 2)
+    }
+}
+
+struct TZSectionCard<Trailing: View, Content: View>: View {
+    let indexBadge: String?
+    let title: String
+    let subtitle: String?
+    let bodyPadding: CGFloat
+    @ViewBuilder let trailing: () -> Trailing
+    @ViewBuilder let content: () -> Content
+
+    init(
+        indexBadge: String? = nil,
+        title: String,
+        subtitle: String? = nil,
+        bodyPadding: CGFloat = 16,
+        @ViewBuilder trailing: @escaping () -> Trailing,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.indexBadge = indexBadge
+        self.title = title
+        self.subtitle = subtitle
+        self.bodyPadding = bodyPadding
+        self.trailing = trailing
+        self.content = content
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Tinted Header Band lifting the block title cleanly off the card body
+            HStack(alignment: .center, spacing: 9) {
+                if let indexBadge {
+                    Text(indexBadge)
+                        .font(.system(size: 10.5, weight: .bold, design: .monospaced))
+                        .foregroundStyle(TZTheme.violet)
+                        .padding(.horizontal, 7.5)
+                        .padding(.vertical, 3)
+                        .background(TZTheme.lilacTint)
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                } else {
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(TZTheme.violet.opacity(0.85))
+                        .frame(width: 3, height: 14)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundStyle(TZTheme.inkPrimary)
+                    if let subtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(TZTheme.inkSecondary)
+                    }
+                }
+
+                Spacer(minLength: 8)
+                trailing()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 11)
+            .background(TZTheme.sectionHeaderBg)
 
             Rectangle()
-                .fill(TZTheme.strongLine)
+                .fill(TZTheme.hairline)
                 .frame(height: 1)
-                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 11) {
+                content()
+            }
+            .padding(bodyPadding)
+            .background(TZTheme.cardBg)
         }
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(TZTheme.strongLine.opacity(0.62), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.028), radius: 8, x: 0, y: 3)
     }
 }
 
@@ -436,7 +529,7 @@ struct HomeInsightsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             TZEditorialHeader(
-                badge: "ZERO-LATENCY VOICE ENGINE · V0.4",
+                badge: "ZERO-LATENCY VOICE ENGINE · V0.5",
                 title: "说话，不要打字",
                 subtitle: "端侧 SenseVoice 16kHz 单字匀速流式生长 ｜ 云端 DeepSeek 4 Flash 亚秒级结构化排版与专属词库纠偏"
             )
@@ -468,47 +561,33 @@ struct HomeInsightsSection: View {
                     label: "云端平均首包延迟"
                 )
             }
-            .tzCardSurface(cornerRadius: 15, padding: 22)
+            .tzCardSurface(cornerRadius: 15, padding: 20)
 
             // Activity Rhythm Heatmap Card
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("创作节律热力矩阵")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(TZTheme.inkPrimary)
-                        Text("过去 26 周每日语音创作密度分布 · 活跃 \(appState.activeDaysCount) 天 · 词库守护 \(appState.lexiconStore.entries.count) 词")
-                            .font(.system(size: 12))
-                            .foregroundStyle(TZTheme.inkSecondary)
+            TZSectionCard(
+                title: "创作节律热力矩阵",
+                subtitle: "过去 26 周每日语音创作密度分布 · 活跃 \(appState.activeDaysCount) 天 · 词库守护 \(appState.lexiconStore.entries.count) 词",
+                bodyPadding: 18
+            ) {
+                HStack(spacing: 5) {
+                    Text("少").font(.system(size: 10.5)).foregroundStyle(TZTheme.inkMuted)
+                    ForEach([0, 120, 450, 1000], id: \.self) { sample in
+                        RoundedRectangle(cornerRadius: 2.5)
+                            .fill(ActivityHeatmapGrid.cellColor(for: sample))
+                            .frame(width: 10, height: 10)
                     }
-                    Spacer()
-                    HStack(spacing: 5) {
-                        Text("少").font(.system(size: 10.5)).foregroundStyle(TZTheme.inkMuted)
-                        ForEach([0, 120, 450, 1000], id: \.self) { sample in
-                            RoundedRectangle(cornerRadius: 2.5)
-                                .fill(ActivityHeatmapGrid.cellColor(for: sample))
-                                .frame(width: 10, height: 10)
-                        }
-                        Text("多").font(.system(size: 10.5)).foregroundStyle(TZTheme.inkMuted)
-                    }
+                    Text("多").font(.system(size: 10.5)).foregroundStyle(TZTheme.inkMuted)
                 }
-
+            } content: {
                 ActivityHeatmapGrid(dailyMap: appState.dailyCountMap())
             }
-            .tzCardSurface(cornerRadius: 15, padding: 22)
 
             // Instant Test Playground
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(isRecordingNow ? TZTheme.crimson : TZTheme.violet)
-                            .frame(width: 8, height: 8)
-                        Text("原位试音与排版沙盒")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(TZTheme.inkPrimary)
-                    }
-                    Spacer()
+            TZSectionCard(
+                title: "原位试音与排版沙盒",
+                bodyPadding: 18
+            ) {
+                HStack(spacing: 8) {
                     if !appState.sandboxText.isEmpty {
                         Button("清空") {
                             appState.sandboxText = ""
@@ -530,7 +609,7 @@ struct HomeInsightsSection: View {
                     }
                     .buttonStyle(TZPrimaryButtonStyle(compact: true))
                 }
-
+            } content: {
                 Text("日常在任意外部软件（Antigravity / Cursor / 飞书 / 邮件）聚焦输入框后点按 \(appState.activeTriggerDisplayName) 即可直接原位出字；也可在此沙盒内试测 `1. 2. 3.` 列表与专属词库命中效果。")
                     .font(.system(size: 12))
                     .foregroundStyle(TZTheme.inkSecondary)
@@ -558,7 +637,6 @@ struct HomeInsightsSection: View {
                         .strokeBorder(isRecordingNow ? TZTheme.violet.opacity(0.55) : TZTheme.hairline, lineWidth: isRecordingNow ? 1.4 : 1)
                 )
             }
-            .tzCardSurface(cornerRadius: 15, padding: 22)
         }
     }
 
@@ -1236,24 +1314,30 @@ struct EngineSettingsSection: View {
             CloudTrialAccountCard(appState: appState)
 
             // Card 1: Global Hotkey (Full Left & Right + Custom Recorder) & Input Behavior
-            VStack(alignment: .leading, spacing: 11) {
-                HStack(spacing: 8) {
-                    Text("1. 快捷键与输入方式")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(TZTheme.inkPrimary)
-                    Spacer()
+            TZSectionCard(
+                indexBadge: "01",
+                title: "快捷键与输入方式",
+                bodyPadding: 16
+            ) {
+                HStack(spacing: 6) {
                     PermissionBadge(title: "麦克风", ok: appState.micAuthorized)
                     PermissionBadge(title: "辅助功能上屏", ok: appState.accessibilityGranted)
                 }
-
-                Divider().overlay(TZTheme.hairline)
-
+            } content: {
                 // Symmetric Left & Right Hotkey Selector + Click-to-Record
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 9) {
                     HStack(spacing: 8) {
                         Text("全局快捷键")
-                            .font(.system(size: 12.5, weight: .medium))
-                            .foregroundStyle(TZTheme.inkSecondary)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(TZTheme.inkPrimary.opacity(0.82))
+                            .padding(.vertical, 4.5)
+                            .padding(.horizontal, 9)
+                            .background(TZTheme.sectionHeaderBg)
+                            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    .strokeBorder(TZTheme.hairline, lineWidth: 0.8)
+                            )
 
                         HStack(spacing: 5) {
                             Circle()
@@ -1323,19 +1407,17 @@ struct EngineSettingsSection: View {
                     )
                 }
             }
-            .tzCardSurface(cornerRadius: 14, padding: 16)
 
             // Card 2: Acoustic Recognition Engine & Key (Expand to Inspect -> Verify & Activate Only on Explicit Confirm)
-            VStack(alignment: .leading, spacing: 11) {
-                HStack {
-                    Text("2. 语音识别引擎与密钥")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(TZTheme.inkPrimary)
-                    Spacer()
-                    Text("点开配置并校验通过后才生效 · 唯一生效引擎")
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(TZTheme.inkMuted)
-                }
+            TZSectionCard(
+                indexBadge: "02",
+                title: "语音识别引擎与密钥",
+                bodyPadding: 16
+            ) {
+                Text("点开配置并校验通过后才生效 · 唯一生效引擎")
+                    .font(.system(size: 11))
+                    .foregroundStyle(TZTheme.inkSecondary)
+            } content: {
 
                 // ASR Option A: Doubao Seed-ASR 2.0 + Inline Key
                 let volcASRActive = (appState.llmConfig.asrProvider == .volcSeedASR)
@@ -1694,19 +1776,17 @@ struct EngineSettingsSection: View {
                 }
                 .tzSelectableEngineCard(isSelected: localASRActive, isExpanded: localASRExpanded)
             }
-            .tzCardSurface(cornerRadius: 14, padding: 16)
 
             // Card 3: Formatting LLM Engine & Keys (Expand to Inspect -> Verify & Activate Only on Explicit Confirm)
-            VStack(alignment: .leading, spacing: 11) {
-                HStack {
-                    Text("3. 排版大模型与密钥")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(TZTheme.inkPrimary)
-                    Spacer()
-                    Text("点开配置并校验通过后才生效 · 唯一生效模型")
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(TZTheme.inkMuted)
-                }
+            TZSectionCard(
+                indexBadge: "03",
+                title: "排版大模型与密钥",
+                bodyPadding: 16
+            ) {
+                Text("点开配置并校验通过后才生效 · 唯一生效模型")
+                    .font(.system(size: 11))
+                    .foregroundStyle(TZTheme.inkSecondary)
+            } content: {
 
                 TZMatrixControlRow(label: "整理力度") {
                     TZSegmentBar(
@@ -1737,22 +1817,17 @@ struct EngineSettingsSection: View {
                     }
                 }
             }
-            .tzCardSurface(cornerRadius: 14, padding: 16)
 
             // Card 4: Compact Smart Switches (2-Col) & System Maintenance Bar
-            VStack(alignment: .leading, spacing: 11) {
-                HStack {
-                    Text("4. 智能细节开关与系统维护")
-                        .font(.system(size: 13.5, weight: .semibold))
-                        .foregroundStyle(TZTheme.inkPrimary)
-                    Spacer()
-                    Text("录音中按 Esc 随时取消并撤回已上屏草稿")
-                        .font(.system(size: 11))
-                        .foregroundStyle(TZTheme.inkMuted)
-                }
-
-                Divider().overlay(TZTheme.hairline)
-
+            TZSectionCard(
+                indexBadge: "04",
+                title: "智能细节开关与系统维护",
+                bodyPadding: 15
+            ) {
+                Text("录音中按 Esc 随时取消并撤回已上屏草稿")
+                    .font(.system(size: 11))
+                    .foregroundStyle(TZTheme.inkSecondary)
+            } content: {
                 HStack(alignment: .top, spacing: 24) {
                     VStack(spacing: 0) {
                         CompactSwitchRow(icon: "speaker.slash.fill", title: "听写时自动静音外放（说完自动恢复）", isOn: $appState.llmConfig.enableAutoMuteDuringDictation)
@@ -1796,7 +1871,6 @@ struct EngineSettingsSection: View {
                     .buttonStyle(TZSecondaryButtonStyle(compact: true))
                 }
             }
-            .tzCardSurface(cornerRadius: 14, padding: 15)
         }
         .onDisappear {
             if appState.isRecordingShortcut {
@@ -2218,14 +2292,22 @@ struct TZMatrixControlRow<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             Text(label)
-                .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(TZTheme.inkSecondary)
-                .frame(width: 78, alignment: .leading)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(TZTheme.inkPrimary.opacity(0.82))
+                .frame(width: 74, alignment: .center)
+                .padding(.vertical, 5)
+                .padding(.horizontal, 6)
+                .background(TZTheme.sectionHeaderBg)
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(TZTheme.hairline, lineWidth: 0.8)
+                )
             content()
         }
-        .padding(.vertical, 7.5)
+        .padding(.vertical, 5)
     }
 }
 
@@ -2339,7 +2421,7 @@ struct OnboardingWizardSheet: View {
                         .foregroundStyle(TZTheme.inkSecondary)
                 }
                 Spacer()
-                Text("v0.5.3")
+                Text("v0.5.4")
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(TZTheme.violet)
                     .padding(.horizontal, 9)

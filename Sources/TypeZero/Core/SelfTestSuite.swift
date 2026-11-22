@@ -440,6 +440,60 @@ public enum SelfTestSuite {
             "Tier-3 window anchor locks pill beneath WeChat compose pane and stays tucked at bottom when window is flush with Dock"
         )
 
+        // 49. Live inline typing zero-deadlock under deep (>6 char) early punctuation/word revisions across many turns
+        var simEmitted = "我发现有一个问题就是我在打字用语音的过程中"
+        var simTarget = simEmitted
+        var simCloudRaw = simEmitted
+        // Seed-ASR inserts a comma 12 chars earlier AND adds new words at the end
+        let rev1 = LiveInputSession.reconcileLiveTargetAdvance(
+            emitted: simEmitted,
+            targetConfirmed: simTarget,
+            lastCloudRaw: simCloudRaw,
+            newStable: "我发现有一个问题，就是我在打字用语音的过程中，出着出着字就不继续往前出了",
+            isCloudStream: true
+        )
+        simTarget = rev1.nextTarget
+        simCloudRaw = rev1.nextCloudRaw
+        simEmitted = simTarget
+        let rev2 = LiveInputSession.reconcileLiveTargetAdvance(
+            emitted: simEmitted,
+            targetConfirmed: simTarget,
+            lastCloudRaw: simCloudRaw,
+            newStable: "我发现有一个问题，就是我在打字用语音的过程中，出着出着字就不继续往前出了，现在测试连续跟出",
+            isCloudStream: true
+        )
+        expect(
+            rev1.didAdvanceOrRevise
+                && rev1.nextTarget.hasPrefix("我发现有一个问题就是我在打字用语音的过程中")
+                && rev1.nextTarget.contains("出着出着字就不继续往前出了")
+                && rev2.didAdvanceOrRevise
+                && rev2.nextTarget.hasSuffix("现在测试连续跟出"),
+            "Live inline typing never deadlocks on deep (>6 char) cloud revisions and continues streaming every utterance"
+        )
+
+        // 50. Live inline typing zero-stall when Doubao DDC deletes filler words mid-sentence
+        let ddcEmitted = "我觉得那个嗯就是这个方案"
+        let ddcShrink = LiveInputSession.reconcileLiveTargetAdvance(
+            emitted: ddcEmitted,
+            targetConfirmed: ddcEmitted,
+            lastCloudRaw: ddcEmitted,
+            newStable: "我觉得这个方案",
+            isCloudStream: true
+        )
+        let ddcNext = LiveInputSession.reconcileLiveTargetAdvance(
+            emitted: ddcEmitted,
+            targetConfirmed: ddcShrink.nextTarget,
+            lastCloudRaw: ddcShrink.nextCloudRaw,
+            newStable: "我觉得这个方案非常丝滑",
+            isCloudStream: true
+        )
+        expect(
+            ddcShrink.nextCloudRaw == "我觉得这个方案"
+                && ddcNext.didAdvanceOrRevise
+                && ddcNext.nextTarget == "我觉得那个嗯就是这个方案非常丝滑",
+            "Live inline typing absorbs Doubao DDC filler deletion with 0 payback stall on the very next syllable"
+        )
+
         print("==> Summary: \(passed) passed, \(failed) failed.")
         return failed == 0 ? 0 : 1
     }

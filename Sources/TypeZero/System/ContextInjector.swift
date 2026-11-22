@@ -81,6 +81,8 @@ public final class LiveInputSession: @unchecked Sendable {
     private var emittedText: String = ""
     /// Characters confirmed by Local Agreement, waiting in the smooth adaptive cruise queue
     private var targetConfirmedText: String = ""
+    /// Latest raw hypothesis accepted from the cloud ASR stream (tracked separately so DDC filler deletion never stalls forward output!)
+    private var lastAcceptedCloudRaw: String = ""
     private var previousHypothesis: String = ""
     private var pacerTimer: DispatchSourceTimer?
     private var isPacerStopped: Bool = false
@@ -380,8 +382,8 @@ public final class LiveInputSession: @unchecked Sendable {
             stateLock.unlock()
             return
         }
-        // Doubao iOS-style Live Tail Revision: if Seed-ASR 2.0 revised the last 1–6 chars near the cursor
-        // (e.g. "星合" -> "星河", "期末" -> "契合"), snap back those <=6 chars in <1ms on this serial queue!
+        // Doubao iOS-style Live Tail Revision: if Seed-ASR 2.0 revised the last 1–8 chars near the cursor
+        // (e.g. "星合" -> "星河", "期末" -> "契合"), snap back those <=8 chars in <1ms on this serial queue!
         if !targetConfirmedText.hasPrefix(emittedText) {
             let eChars = Array(emittedText)
             let tChars = Array(targetConfirmedText)
@@ -391,15 +393,22 @@ public final class LiveInputSession: @unchecked Sendable {
                 common += 1
             }
             let eraseCount = eChars.count - common
-            if eraseCount > 0 && eraseCount <= 6 && !emittedText.suffix(eraseCount).contains("\n") {
+            if eraseCount > 0 && eraseCount <= 8 && !emittedText.suffix(eraseCount).contains("\n") {
                 emittedText = String(eChars.prefix(common))
                 lastEmitUptimeNs = DispatchTime.now().uptimeNanoseconds
                 stateLock.unlock()
                 ContextInjector.sendCleanBackspaces(count: eraseCount)
                 return
             }
-            stateLock.unlock()
-            return
+            // ZERO-DEADLOCK FAILSAFE: if divergence somehow exceeded 8 chars (e.g. race with in-flight char
+            // or newline boundary), NEVER stall forever! Re-anchor `targetConfirmedText` onto `emittedText`
+            // plus any un-emitted continuation suffix so forward streaming immediately resumes.
+            let cont = Self.extractNewContinuationSuffix(alreadyConfirmed: emittedText, newStable: targetConfirmedText) ?? ""
+            targetConfirmedText = emittedText + cont
+            if cont.isEmpty {
+                stateLock.unlock()
+                return
+            }
         }
 
         let emittedCount = emittedText.count
@@ -477,38 +486,16 @@ public final class LiveInputSession: @unchecked Sendable {
 
         var didAdvanceOrRevise = false
         stateLock.lock()
-        if isCloudStream {
-            if stableCandidate.hasPrefix(targetConfirmedText) {
-                if stableCandidate.count > targetConfirmedText.count {
-                    targetConfirmedText = stableCandidate
-                    didAdvanceOrRevise = true
-                }
-            } else {
-                // Check if divergence from currently `emittedText` is strictly within the last <= 6 characters near cursor
-                let eChars = Array(emittedText)
-                let sChars = Array(stableCandidate)
-                var common = 0
-                let lim = min(eChars.count, sChars.count)
-                while common < lim && eChars[common] == sChars[common] {
-                    common += 1
-                }
-                let eraseFromEmitted = eChars.count - common
-                if eraseFromEmitted <= 6 && sChars.count >= common + 1 && !stableCandidate.contains("\n") {
-                    targetConfirmedText = stableCandidate
-                    didAdvanceOrRevise = true
-                } else if let continuation = Self.extractNewContinuationSuffix(alreadyConfirmed: targetConfirmedText, newStable: stableCandidate),
-                          !continuation.isEmpty {
-                    targetConfirmedText.append(continuation)
-                    didAdvanceOrRevise = true
-                }
-            }
-        } else {
-            if let continuation = Self.extractNewContinuationSuffix(alreadyConfirmed: targetConfirmedText, newStable: stableCandidate),
-               !continuation.isEmpty {
-                targetConfirmedText.append(continuation)
-                didAdvanceOrRevise = true
-            }
-        }
+        let reconciled = Self.reconcileLiveTargetAdvance(
+            emitted: emittedText,
+            targetConfirmed: targetConfirmedText,
+            lastCloudRaw: lastAcceptedCloudRaw,
+            newStable: stableCandidate,
+            isCloudStream: isCloudStream
+        )
+        targetConfirmedText = reconciled.nextTarget
+        lastAcceptedCloudRaw = reconciled.nextCloudRaw
+        didAdvanceOrRevise = reconciled.didAdvanceOrRevise
         stateLock.unlock()
 
         // Fire first character IMMEDIATELY (`0.0ms` wait) on `pacerQueue` instead of waiting for next timer tick!
@@ -518,6 +505,76 @@ public final class LiveInputSession: @unchecked Sendable {
             }
         }
         return true
+    }
+
+    /// Pure, deadlock-free reconciliation for live inline dictation:
+    /// 1. Fast-path exact growth when `newStable` extends `targetConfirmed`.
+    /// 2. Live near-cursor self-correction when divergence from `emitted` is `<= 6` chars (with no newline).
+    /// 3. Deep revision / DDC filler-deletion recovery: aligns against `lastCloudRaw` so shrinking an earlier
+    ///    filler phrase NEVER stalls subsequent spoken words from streaming onto screen immediately!
+    public static func reconcileLiveTargetAdvance(
+        emitted: String,
+        targetConfirmed: String,
+        lastCloudRaw: String,
+        newStable: String,
+        isCloudStream: Bool
+    ) -> (nextTarget: String, nextCloudRaw: String, didAdvanceOrRevise: Bool) {
+        guard !newStable.isEmpty else {
+            return (targetConfirmed, lastCloudRaw, false)
+        }
+        if !isCloudStream {
+            if let continuation = extractNewContinuationSuffix(alreadyConfirmed: targetConfirmed, newStable: newStable),
+               !continuation.isEmpty {
+                return (targetConfirmed + continuation, lastCloudRaw, true)
+            }
+            return (targetConfirmed, lastCloudRaw, false)
+        }
+
+        // Cloud Stream Fast Path 1: exact prefix growth on screen target
+        if newStable.hasPrefix(targetConfirmed) {
+            if newStable.count > targetConfirmed.count {
+                return (newStable, newStable, true)
+            }
+            return (targetConfirmed, newStable, false)
+        }
+
+        // Cloud Stream Path 2: near-cursor self-correction (<= 6 chars from emitted, no newline in erased tail)
+        let eChars = Array(emitted)
+        let sChars = Array(newStable)
+        var common = 0
+        let lim = min(eChars.count, sChars.count)
+        while common < lim && eChars[common] == sChars[common] {
+            common += 1
+        }
+        let eraseFromEmitted = eChars.count - common
+        if eraseFromEmitted <= 6
+            && sChars.count >= common + 1
+            && !emitted.suffix(eraseFromEmitted).contains("\n")
+            && !newStable.contains("\n") {
+            return (newStable, newStable, true)
+        }
+
+        // Cloud Stream Path 3: Deep revision (>6 chars back) or DDC filler deletion.
+        // Align new spoken words against `lastCloudRaw` (falling back to `targetConfirmed`) so even if DDC
+        // deleted 5 filler chars earlier in the sentence, EVERY new word still appends immediately with 0 stall!
+        let baseline = lastCloudRaw.isEmpty ? targetConfirmed : lastCloudRaw
+        if newStable.hasPrefix(baseline) {
+            let delta = String(newStable.dropFirst(baseline.count))
+            if !delta.isEmpty {
+                return (targetConfirmed + delta, newStable, true)
+            }
+            return (targetConfirmed, newStable, false)
+        }
+        if let continuation = extractNewContinuationSuffix(alreadyConfirmed: baseline, newStable: newStable),
+           !continuation.isEmpty {
+            return (targetConfirmed + continuation, newStable, true)
+        }
+        // If DDC shrunk `newStable` compared to `baseline` with no new words yet, advance `lastCloudRaw` to the
+        // shrunk string immediately so the VERY NEXT syllable spoken extends `newStable` with 0 payback stall!
+        if alphanumericOnly(newStable).count < alphanumericOnly(baseline).count {
+            return (targetConfirmed, newStable, false)
+        }
+        return (targetConfirmed, lastCloudRaw.isEmpty ? newStable : lastCloudRaw, false)
     }
 
     /// Pass 2 (On stop tap): Stops pacer, flushes any remaining confirmed chars, and applies final text cleanly.

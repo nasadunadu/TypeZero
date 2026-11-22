@@ -133,6 +133,7 @@ struct LiveSessionState {
     context: ActiveScreenContext,
     emitted_text: String,
     previous_hypothesis: String,
+    last_cloud_raw: String,
     draft_before_sse: String,
     sse_accumulated: String,
     sse_has_diverged: bool,
@@ -146,6 +147,7 @@ impl LiveInputSession {
                 context,
                 emitted_text: String::new(),
                 previous_hypothesis: String::new(),
+                last_cloud_raw: String::new(),
                 draft_before_sse: String::new(),
                 sse_accumulated: String::new(),
                 sse_has_diverged: false,
@@ -205,12 +207,39 @@ impl LiveInputSession {
                 common += 1;
             }
             let erase = e_chars.len().saturating_sub(common);
-            if erase > 6 || s.emitted_text.chars().rev().take(erase).any(|c| c == '\n') {
-                return;
+            if erase <= 6 && !s.emitted_text.chars().rev().take(erase).any(|c| c == '\n') {
+                let append: String = t_chars[common..].iter().collect();
+                s.emitted_text = target.clone();
+                if is_cloud_stream {
+                    s.last_cloud_raw = target;
+                }
+                (erase, append)
+            } else {
+                // ZERO-DEADLOCK RECOVERY for deep (>6 char) cloud revisions or DDC filler deletion:
+                // Never freeze forward output; extract newly spoken continuation relative to `last_cloud_raw`!
+                let baseline = if is_cloud_stream && !s.last_cloud_raw.is_empty() {
+                    s.last_cloud_raw.clone()
+                } else {
+                    s.emitted_text.clone()
+                };
+                let continuation = if let Some(rest) = target.strip_prefix(&baseline) {
+                    rest.to_string()
+                } else {
+                    Self::extract_continuation_suffix(&baseline, &target).unwrap_or_default()
+                };
+                if is_cloud_stream {
+                    let base_core = baseline.chars().filter(|c| c.is_alphanumeric()).count();
+                    let next_core = target.chars().filter(|c| c.is_alphanumeric()).count();
+                    if !continuation.is_empty() || next_core < base_core {
+                        s.last_cloud_raw = target;
+                    }
+                }
+                if continuation.is_empty() {
+                    return;
+                }
+                s.emitted_text.push_str(&continuation);
+                (0, continuation)
             }
-            let append: String = t_chars[common..].iter().collect();
-            s.emitted_text = target;
-            (erase, append)
         };
 
         if erase_count > 0 {
@@ -219,6 +248,37 @@ impl LiveInputSession {
         }
         if !to_type.is_empty() {
             ContextInjector::type_clean_unicode(&to_type);
+        }
+    }
+
+    fn extract_continuation_suffix(already_confirmed: &str, new_stable: &str) -> Option<String> {
+        let confirmed_core: Vec<char> = already_confirmed
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect();
+        let target_core = confirmed_core.len();
+        if target_core == 0 {
+            return Some(new_stable.to_string());
+        }
+        let new_chars: Vec<char> = new_stable.chars().collect();
+        let mut core_end_to_raw = Vec::new();
+        for (idx, ch) in new_chars.iter().enumerate() {
+            if ch.is_alphanumeric() {
+                core_end_to_raw.push(idx);
+            }
+        }
+        if core_end_to_raw.len() <= target_core {
+            return None;
+        }
+        let cut_raw_idx = core_end_to_raw[target_core - 1];
+        if cut_raw_idx + 1 >= new_chars.len() {
+            return None;
+        }
+        let suffix: String = new_chars[cut_raw_idx + 1..].iter().collect();
+        if suffix.is_empty() {
+            None
+        } else {
+            Some(suffix)
         }
     }
 
