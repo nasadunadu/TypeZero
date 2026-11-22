@@ -1657,6 +1657,43 @@ footer.knight-footer .foot-links a:hover {
   .changelog-grid { grid-template-columns: 1fr; }
 }
 
+
+/* ---------- Official Launch Film Showcase ---------- */
+.film-section { padding-top: 72px; padding-bottom: 36px; }
+.film-frame {
+  position: relative; max-width: 1040px; margin: 0 auto; aspect-ratio: 16 / 9;
+  border-radius: 22px; overflow: hidden; background: #060911;
+  border: 1px solid rgba(0, 229, 195, 0.28);
+  box-shadow: 0 32px 90px rgba(0, 0, 0, 0.62), 0 0 0 1px rgba(255, 255, 255, 0.05) inset, 0 0 60px rgba(0, 229, 195, 0.08);
+}
+.film-frame video { display: block; width: 100%; height: 100%; object-fit: cover; background: #05070D; }
+.film-overlay {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  background: radial-gradient(circle at 50% 45%, rgba(5, 7, 13, 0.16), rgba(5, 7, 13, 0.56) 80%);
+  cursor: pointer; border: 0; padding: 0; color: var(--text); transition: opacity 0.28s ease, background 0.25s ease;
+}
+.film-overlay:hover { background: radial-gradient(circle at 50% 45%, rgba(5, 7, 13, 0.08), rgba(5, 7, 13, 0.44) 80%); }
+.film-overlay.is-hidden { opacity: 0; pointer-events: none; }
+.film-play-btn {
+  width: 84px; height: 84px; border-radius: 50%; display: grid; place-items: center;
+  background: rgba(11, 16, 28, 0.72); border: 1.5px solid rgba(0, 229, 195, 0.75);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5), 0 0 32px rgba(0, 229, 195, 0.28);
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease, box-shadow 0.2s ease;
+}
+.film-overlay:hover .film-play-btn { transform: scale(1.08); background: rgba(0, 229, 195, 0.22); box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55), 0 0 44px rgba(0, 229, 195, 0.45); }
+.film-play-btn svg { width: 30px; height: 30px; margin-left: 4px; fill: #F4F7FB; }
+.film-pill {
+  font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.08em; color: var(--cyan);
+  background: rgba(11, 16, 28, 0.78); border: 1px solid rgba(0, 229, 195, 0.35);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 6px 14px; border-radius: 999px;
+}
+@media (max-width: 640px) {
+  .film-frame { border-radius: 14px; }
+  .film-play-btn { width: 64px; height: 64px; }
+  .film-play-btn svg { width: 22px; height: 22px; }
+}
+
 </style>
 </head>
 <body>
@@ -1706,29 +1743,32 @@ footer.knight-footer .foot-links a:hover {
       <div class="hero-center">
         <div class="hero-badge">
           <span class="pulse-dot" aria-hidden="true"></span>
-          <span>MIT OPEN SOURCE · BYOK · APPLE SILICON MACOS</span>
+          <span>MIT OPEN SOURCE · BYOK · MACOS &amp; WINDOWS 10/11</span>
         </div>
 
         <h1><span class="grad-text">Speak. Ship.</span></h1>
 
         <p class="hero-sub">
-          <strong>Free, open-source, BYOK</strong> native macOS AI voice dictation.<br>
+          <strong>Free, open-source, BYOK</strong> native macOS &amp; Windows AI voice dictation.<br>
           121ms latency, self-learning personal lexicon, 100% local privacy.
         </p>
 
         <div class="hero-cta">
           <a class="btn btn-glow btn-lg" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.4.10/TypeZero-v0.4.10-macOS-arm64.dmg">
-            ⬇ Download for macOS (v0.4.10 · Global)
+            ⬇ Download macOS (v0.4.10)
+          </a>
+          <a class="btn btn-glow btn-lg" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.5.0-windows/TypeZero-v0.5.0-Windows-x64-setup.exe">
+            ⬇ Download Windows (v0.5.0 · x64)
           </a>
           <a class="btn btn-ghost btn-lg" href="https://github.com/nasadunadu/TypeZero" target="_blank" rel="noopener">
-            ★ View on GitHub
+            ★ GitHub
           </a>
         </div>
 
         <div class="hero-micro">
-          <span>Apple Notarized · Zero Gatekeeper Warnings</span>
-          <span>macOS 14+ (M1–M4)</span>
-          <span>12 MB Native · $0 Forever</span>
+          <span>Apple Notarized macOS</span>
+          <span>Native Rust + Win32 Windows 10/11</span>
+          <span>MIT Open Source · $0 Forever</span>
         </div>
       </div>
 
@@ -1817,6 +1857,26 @@ footer.knight-footer .foot-links a:hover {
   </section>
 
   <!-- 4. Visual Interactive Bento Showcase -->
+  <!-- 3.5 Official Launch Film Showcase -->
+  <section class="wrap section film-section" id="film" aria-labelledby="film-h">
+    <div class="sec-header reveal-on-scroll">
+      <div class="sec-kicker">OFFICIAL LAUNCH FILM · 26s · 1080P</div>
+      <h2 id="film-h">26 Seconds. Hear Speech Turn Straight Into Ship-Ready Text.</h2>
+      <p>Sound on recommended: 0ms hot-mic pre-roll, auto-muted speakers, instant self-correction folding, straight to final draft.</p>
+    </div>
+
+    <div class="film-frame reveal-on-scroll">
+      <video id="launchFilm" controls playsinline preload="metadata" poster="../media/typezero-launch-en-poster.jpg">
+        <source src="../media/typezero-launch-en.mp4" type="video/mp4">
+        Your browser does not support HTML5 video playback.
+      </video>
+      <button type="button" class="film-overlay" id="launchFilmOverlay" aria-label="Play TypeZero Official Launch Film">
+        <span class="film-play-btn" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5.14v14l11-7-11-7z"/></svg></span>
+        <span class="film-pill">▶ PLAY OFFICIAL LAUNCH FILM · 00:26 (SOUND ON)</span>
+      </button>
+    </div>
+  </section>
+
   <section class="wrap section" id="bento">
     <div class="sec-header reveal-on-scroll">
       <div class="sec-kicker">BUILT FOR BUILDERS &amp; HEAVY WRITERS</div>
@@ -2147,8 +2207,9 @@ footer.knight-footer .foot-links a:hover {
       <h2><span class="grad-text">Give typing back to your voice.</span></h2>
       <p>TypeZero v0.4.10 · Apple Notarized · 12 MB Native DMG · MIT Free Forever</p>
       <div class="hero-cta" style="margin-bottom:0">
-        <a class="btn btn-glow btn-lg" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.4.10/TypeZero-v0.4.10-macOS-arm64.dmg">⬇ Download DMG Free</a>
-        <a class="btn btn-ghost btn-lg" href="https://github.com/nasadunadu/TypeZero" target="_blank" rel="noopener">★ Star on GitHub</a>
+        <a class="btn btn-glow btn-lg" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.4.10/TypeZero-v0.4.10-macOS-arm64.dmg">⬇ Download macOS DMG</a>
+        <a class="btn btn-glow btn-lg" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.5.0-windows/TypeZero-v0.5.0-Windows-x64-setup.exe">⬇ Download Windows Setup (.exe)</a>
+        <a class="btn btn-ghost btn-lg" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.5.0-windows/TypeZero-v0.5.0-Windows-x64-portable.zip">📦 Portable ZIP</a>
       </div>
       <div class="brew-copy">
         <code id="brewCmd">brew install --cask https://raw.githubusercontent.com/nasadunadu/TypeZero/main/Casks/typezero.rb</code>
@@ -2477,6 +2538,19 @@ footer.knight-footer .foot-links a:hover {
       copyBtn.textContent = "Copy Manually";
     }
   });
+
+
+  // 7.5 Official Launch Film overlay controller
+  const launchFilm = document.getElementById("launchFilm");
+  const launchFilmOverlay = document.getElementById("launchFilmOverlay");
+  if (launchFilm && launchFilmOverlay) {
+    launchFilmOverlay.addEventListener("click", () => {
+      launchFilmOverlay.classList.add("is-hidden");
+      launchFilm.play().catch(() => {});
+    });
+    launchFilm.addEventListener("play", () => launchFilmOverlay.classList.add("is-hidden"));
+    launchFilm.addEventListener("ended", () => launchFilmOverlay.classList.remove("is-hidden"));
+  }
 
   // 8. IntersectionObserver fallback for Scroll-Driven Animations
   if (!CSS.supports("(animation-timeline: view()) and (animation-range: entry)") &&

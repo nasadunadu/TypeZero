@@ -1,17 +1,17 @@
 # TypeZero — 说话，不要打字
 
-**纯原生 Swift + C++ 打造的 macOS 超低延迟 AI 语音成稿与结构化排版工具**
+**纯原生 macOS (Swift + C++) & Windows 10/11 (Rust + Win32 + Tauri v2) 超低延迟 AI 语音成稿与结构化排版工具**
 
-[![Release](https://img.shields.io/badge/release-v0.4.10-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
-[![Platform](https://img.shields.io/badge/macOS-14--27%20%7C%20Apple%20Silicon%20arm64-17161B?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
+[![macOS](https://img.shields.io/badge/macOS-v0.4.10%20%7C%20Apple%20Silicon-17161B?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/tag/v0.4.10)
+[![Windows](https://img.shields.io/badge/Windows-v0.5.0%20%7C%20Win10%2F11%20x64-0078D4?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/tag/v0.5.0-windows)
 [![Notarized](https://img.shields.io/badge/公证签名-Apple%20Notarized%20%C2%B7%20Developer%20ID-14804A?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![ASR](https://img.shields.io/badge/双擎声学-Seed--ASR%202.0%20%2B%20SenseVoice%20FP32-14804A?style=flat-square)](#双擎声学与极速管线架构)
-[![Privacy](https://img.shields.io/badge/隐私安全-BYOK%20%C2%B7%20macOS%20钥匙串-5A46E8?style=flat-square)](./SECURITY.md)
+[![Privacy](https://img.shields.io/badge/隐私安全-BYOK%20%C2%B7%20钥匙串%20%2F%20凭据管理器-5A46E8?style=flat-square)](./SECURITY.md)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
 
 [English](./README.md) · **简体中文** · [日本語](./README.ja.md) · [한국어](./README.ko.md) · [Français](./README.fr.md)
 
-[**直接下载 macOS 安装包 (DMG v0.4.10)**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.10-macOS-arm64.dmg) · [架构演进日志](./docs/STATUS_LOG.md)
+[**下载 macOS DMG (v0.4.10)**](https://github.com/nasadunadu/TypeZero/releases/download/v0.4.10/TypeZero-v0.4.10-macOS-arm64.dmg) · [**下载 Windows 一键安装包 .exe (v0.5.0)**](https://github.com/nasadunadu/TypeZero/releases/download/v0.5.0-windows/TypeZero-v0.5.0-Windows-x64-setup.exe) · [**Windows 绿色便携版 .zip**](https://github.com/nasadunadu/TypeZero/releases/download/v0.5.0-windows/TypeZero-v0.5.0-Windows-x64-portable.zip) · [架构演进日志](./docs/STATUS_LOG.md)
 
 ![TypeZero Hero Showcase](./docs/images/hero-showcase-zh.svg)
 
@@ -23,11 +23,15 @@
 1. 下载 [**`TypeZero-v0.4.10-macOS-arm64.dmg`**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.10-macOS-arm64.dmg)，将 **`TypeZero.app`** 拖入右侧 **`Applications`**。
 2. 打开 **TypeZero**，按内置 **3 步新手引导** 授予麦克风与辅助功能权限、填入个人 API Key（仅加密存于本机 macOS 钥匙串）并选定快捷键即可全局使用。
 
-### 方式二：Homebrew Cask 一键安装
+### 方式二：Homebrew Cask 一键安装（macOS）
 ```bash
 brew tap nasadunadu/typezero https://github.com/nasadunadu/TypeZero
 brew install --cask typezero
 ```
+
+### 方式三：Windows 10 / 11 (x64) 安装
+1. 下载 [**`TypeZero-v0.5.0-Windows-x64-setup.exe`**](https://github.com/nasadunadu/TypeZero/releases/download/v0.5.0-windows/TypeZero-v0.5.0-Windows-x64-setup.exe) 双击一键安装（用户态免管理员权限，自带桌面快捷方式）；或下载 [**免安装绿色便携版 `.zip`**](https://github.com/nasadunadu/TypeZero/releases/download/v0.5.0-windows/TypeZero-v0.5.0-Windows-x64-portable.zip)。
+2. 若首次打开出现 Windows Defender SmartScreen 蓝色提示，点击 **「更多信息」→「仍要运行」** 即可。默认快捷键为 **`右侧 Alt`**，支持微信/飞书/Word/VS Code 等任意输入框直接上屏，密钥加密存于 Windows 凭据管理器。详情见 [windows/README.md](./windows/README.md)。
 
 ---
 

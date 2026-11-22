@@ -1806,29 +1806,32 @@ footer.knight-footer .foot-links a:hover {
       <div class="hero-center">
         <div class="hero-badge">
           <span class="pulse-dot" aria-hidden="true"></span>
-          <span>MIT OPEN SOURCE · BYOK · APPLE SILICON MACOS</span>
+          <span>MIT OPEN SOURCE · BYOK · MACOS &amp; WINDOWS 10/11</span>
         </div>
 
         <h1><span class="grad-text">开口，即终稿。</span></h1>
 
         <p class="hero-sub">
-          <strong>免费开源、自配 API</strong> 的原生 macOS AI 语音输入法。<br>
+          <strong>免费开源、自配 API</strong> 的原生 macOS &amp; Windows AI 语音输入法。<br>
           121ms 极速直出，个人专属词库，100% 本地隐私。
         </p>
 
         <div class="hero-cta">
           <a class="btn btn-glow btn-lg" href="./downloads/TypeZero-v0.4.10-macOS-arm64.dmg" download data-umami-event="download-dmg" data-umami-event-source="home-hero">
-            ⬇ 国内高速下载 macOS (v0.4.10)
+            ⬇ 下载 macOS 版 (v0.4.10)
           </a>
-          <a class="btn btn-ghost btn-lg" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.4.10/TypeZero-v0.4.10-macOS-arm64.dmg">
-            🌍 GitHub 全球线路 (US/Global)
+          <a class="btn btn-glow btn-lg" href="./downloads/TypeZero-v0.5.0-Windows-x64-setup.exe" download data-umami-event="download-win-exe" data-umami-event-source="home-hero">
+            ⬇ 下载 Windows 版 (v0.5.0 · x64)
+          </a>
+          <a class="btn btn-ghost btn-lg" href="https://github.com/nasadunadu/TypeZero/releases" target="_blank" rel="noopener">
+            🌍 GitHub 全部线路 / 绿色版
           </a>
         </div>
 
         <div class="hero-micro">
-          <span>Apple 云端公证 · 零拦截</span>
-          <span>macOS 14+ (M1–M4)</span>
-          <span>仅 12 MB · 零订阅费</span>
+          <span>macOS Apple 公证零拦截</span>
+          <span>Windows 10/11 原生一键安装</span>
+          <span>MIT 开源 · 零订阅费</span>
         </div>
       </div>
 
@@ -2226,8 +2229,8 @@ footer.knight-footer .foot-links a:hover {
         <div class="faq-body">100%。无开发者中转服务器、无账号体系、无埋点统计。API Key 加密存放在 macOS Keychain，所有代码全量开源可审计。</div>
       </details>
       <details>
-        <summary>支持哪些 Mac？打开会被安全拦截吗？</summary>
-        <div class="faq-body">支持 Apple Silicon（M1 / M2 / M3 / M4）与 macOS 14+。安装包已通过 Apple Developer ID 签名与 Apple 云端公证装订，拖入 Applications 直接打开零弹窗。</div>
+        <summary>支持哪些系统？macOS 和 Windows 首次打开会被拦截吗？</summary>
+        <div class="faq-body"><strong>macOS</strong> 支持 Apple Silicon（M1–M4）与 macOS 14+，安装包已通过 Apple Developer ID 签名与云端公证装订，拖入 Applications 零弹窗。<strong>Windows</strong> 支持 Windows 10/11 (x64)，采用 Rust + Win32 + Tauri v2 原生构建，用户态一键安装免管理员权限；因开源版本暂未采购商业代码签名，首次运行若弹出 Windows SmartScreen 蓝色提示，点「更多信息 → 仍要运行」即可。</div>
       </details>
     </div>
   </section>
@@ -2242,7 +2245,15 @@ footer.knight-footer .foot-links a:hover {
       </div>
       <div class="changelog-grid">
       <article class="cl-card latest reveal-on-scroll">
-        <div class="cl-ver"><span>v0.4.10</span><span class="cl-badge">最新</span></div>
+        <div class="cl-ver"><span>v0.5.0 Win</span><span class="cl-badge">新平台</span></div>
+        <ul class="cl-list">
+          <li>Windows 10/11 原生版正式发布（Rust + Win32 + Tauri v2）</li>
+          <li>默认右侧 Alt 一键启停（自动屏蔽菜单栏误激活）</li>
+          <li>无焦点悬浮音波 + 三擎声学 + Windows 凭据管理器</li>
+        </ul>
+      </article>
+      <article class="cl-card reveal-on-scroll">
+        <div class="cl-ver"><span>v0.4.10 Mac</span></div>
         <ul class="cl-list">
           <li>语义自然分段（50–85 字黄金呼吸节奏）</li>
           <li>飞书/微信/IDE 全框内换行绝不误发送</li>
@@ -2250,19 +2261,11 @@ footer.knight-footer .foot-links a:hover {
         </ul>
       </article>
       <article class="cl-card reveal-on-scroll">
-        <div class="cl-ver"><span>v0.4.9</span></div>
+        <div class="cl-ver"><span>v0.4.9 Mac</span></div>
         <ul class="cl-list">
           <li>小波段 3 级智能跟随，紧贴输入框下方</li>
           <li>深度适配飞书 / Cursor / Chrome 输入框</li>
           <li>独立官网 typezero.mykkai.com 正式上线</li>
-        </ul>
-      </article>
-      <article class="cl-card reveal-on-scroll">
-        <div class="cl-ver"><span>v0.4.8</span></div>
-        <ul class="cl-list">
-          <li>中途改口自动折叠，精准保留最终意图</li>
-          <li>反过度编辑，保留疑问语气与口语人味</li>
-          <li>聊天/邮件/代码三场景自适应排版</li>
         </ul>
       </article>
       </div>
@@ -2273,10 +2276,11 @@ footer.knight-footer .foot-links a:hover {
   <section class="wrap">
     <div class="final-cta reveal-on-scroll">
       <h2><span class="grad-text">把打字，还给声音。</span></h2>
-      <p>TypeZero v0.4.10 · 0ms 秒开麦 · 12 MB 原生 DMG · MIT 永久免费</p>
+      <p>TypeZero macOS v0.4.10 &amp; Windows v0.5.0 · 双端原生 · MIT 永久免费</p>
       <div class="hero-cta" style="margin-bottom:0">
-        <a class="btn btn-glow btn-lg" href="./downloads/TypeZero-v0.4.10-macOS-arm64.dmg" download data-umami-event="download-dmg" data-umami-event-source="home-footer">⬇ 国内高速直连 DMG</a>
-        <a class="btn btn-ghost btn-lg" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.4.10/TypeZero-v0.4.10-macOS-arm64.dmg">🌍 GitHub 全球线路</a>
+        <a class="btn btn-glow btn-lg" href="./downloads/TypeZero-v0.4.10-macOS-arm64.dmg" download data-umami-event="download-dmg" data-umami-event-source="home-footer">⬇ macOS 高速直连 DMG</a>
+        <a class="btn btn-glow btn-lg" href="./downloads/TypeZero-v0.5.0-Windows-x64-setup.exe" download data-umami-event="download-win-exe" data-umami-event-source="home-footer">⬇ Windows 一键安装包 (.exe)</a>
+        <a class="btn btn-ghost btn-lg" href="./downloads/TypeZero-v0.5.0-Windows-x64-portable.zip" download data-umami-event="download-win-zip" data-umami-event-source="home-footer">📦 Windows 绿色便携版 (.zip)</a>
       </div>
       <div class="brew-copy">
         <code id="brewCmd">brew install --cask https://raw.githubusercontent.com/nasadunadu/TypeZero/main/Casks/typezero.rb</code>

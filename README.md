@@ -1,17 +1,17 @@
 # TypeZero — Speak, Don't Type
 
-**Ultra-low-latency native macOS AI voice dictation & Typeless-grade text structuring — built in pure Swift + C++.**
+**Ultra-low-latency native macOS (Swift + C++) & Windows 10/11 (Rust + Win32 + Tauri v2) AI voice dictation & Typeless-grade text structuring.**
 
-[![Release](https://img.shields.io/badge/release-v0.4.10-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
-[![Platform](https://img.shields.io/badge/macOS-14--27%20%7C%20Apple%20Silicon%20arm64-17161B?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
+[![macOS Release](https://img.shields.io/badge/macOS-v0.4.10%20%7C%20Apple%20Silicon-17161B?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/tag/v0.4.10)
+[![Windows Release](https://img.shields.io/badge/Windows-v0.5.0%20%7C%20Win10%2F11%20x64-0078D4?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/tag/v0.5.0-windows)
 [![Notarized](https://img.shields.io/badge/Gatekeeper-Apple%20Notarized%20%C2%B7%20Developer%20ID-14804A?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![ASR](https://img.shields.io/badge/ASR-Seed--ASR%202.0%20%2B%20SenseVoice%20FP32-14804A?style=flat-square)](#dual-engine-architecture)
-[![Privacy](https://img.shields.io/badge/Security-BYOK%20%C2%B7%20macOS%20Keychain-5A46E8?style=flat-square)](./SECURITY.md)
+[![Privacy](https://img.shields.io/badge/Security-BYOK%20%C2%B7%20Keychain%20%2F%20CredMan-5A46E8?style=flat-square)](./SECURITY.md)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
 
 **English** · [简体中文](./README.zh-CN.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md) · [Français](./README.fr.md)
 
-[**Download macOS DMG (v0.4.10)**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.10-macOS-arm64.dmg) · [Architecture Log](./docs/STATUS_LOG.md)
+[**Download macOS DMG (v0.4.10)**](https://github.com/nasadunadu/TypeZero/releases/download/v0.4.10/TypeZero-v0.4.10-macOS-arm64.dmg) · [**Download Windows Setup .exe (v0.5.0)**](https://github.com/nasadunadu/TypeZero/releases/download/v0.5.0-windows/TypeZero-v0.5.0-Windows-x64-setup.exe) · [**Windows Portable .zip**](https://github.com/nasadunadu/TypeZero/releases/download/v0.5.0-windows/TypeZero-v0.5.0-Windows-x64-portable.zip) · [Architecture Log](./docs/STATUS_LOG.md)
 
 ![TypeZero Hero Showcase](./docs/images/hero-showcase-en.svg)
 
@@ -23,11 +23,15 @@
 1. Download [**`TypeZero-v0.4.10-macOS-arm64.dmg`**](https://github.com/nasadunadu/TypeZero/releases/latest/download/TypeZero-v0.4.10-macOS-arm64.dmg) and drag **`TypeZero.app`** into **`Applications`**.
 2. Open **TypeZero** — the built-in 3-step onboarding wizard guides you through Microphone & Accessibility permissions, API keys (stored solely in your macOS Keychain), and your preferred global hotkey.
 
-### Homebrew Cask
+### Homebrew Cask (macOS)
 ```bash
 brew tap nasadunadu/typezero https://github.com/nasadunadu/TypeZero
 brew install --cask typezero
 ```
+
+### Windows 10 / 11 (x64)
+1. Download [**`TypeZero-v0.5.0-Windows-x64-setup.exe`**](https://github.com/nasadunadu/TypeZero/releases/download/v0.5.0-windows/TypeZero-v0.5.0-Windows-x64-setup.exe) (per-user installer, no Admin UAC prompt) or the [**Portable `.zip`**](https://github.com/nasadunadu/TypeZero/releases/download/v0.5.0-windows/TypeZero-v0.5.0-Windows-x64-portable.zip).
+2. If Windows SmartScreen appears on first launch (unsigned open-source build), click **More info → Run anyway**. Default trigger key is **`Right Alt`** (with Alt menu-bar focus suppression), credentials are encrypted in Windows Credential Manager, and it works across WeChat, Feishu, Word, Chrome, VS Code, and Windows Terminal. See [windows/README.md](./windows/README.md).
 
 ---
 
