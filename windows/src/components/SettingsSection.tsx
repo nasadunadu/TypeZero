@@ -291,7 +291,7 @@ export const SettingsSection: React.FC<Props> = ({ snapshot, onUpdateConfig, onR
         ) : (
           <>
             <div style={{ fontSize: 12, color: "var(--ink-secondary)", lineHeight: 1.55 }}>
-              登录即可免费领取 ¥1.00 官方体验额度（约 60 分钟豆包 2.0 语音 + 300 次 DeepSeek 润色），零配置开箱体验。支持 Gmail、QQ、163、Outlook 等任意常用邮箱 6 位验证码登录。
+              还没申请 API Key？邮箱登录即可免费领 ¥1.00 体验（约 60 分钟豆包 2.0 语音 + 300 次 DeepSeek 润色）。体验满意后强烈推荐在下方填入个人 Key——<strong>重度用一整天仅需约 5 分钱（¥0.05/天）</strong>，永久免月费、0 抽成！
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
               <input

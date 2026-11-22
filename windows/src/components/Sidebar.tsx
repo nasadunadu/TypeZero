@@ -26,6 +26,7 @@ export const Sidebar: React.FC<Props> = ({
   const { config } = snapshot;
 
   const asrReady = (() => {
+    if (snapshot.isOfficialCloudTrialActive) return true;
     if (config.asrProvider === "volcSeedASR") {
       return snapshot.hasVolcSpeechKey || snapshot.senseVoiceLoaded;
     }
@@ -36,6 +37,9 @@ export const Sidebar: React.FC<Props> = ({
   })();
 
   const asrTag = (() => {
+    if (snapshot.isOfficialCloudTrialActive) {
+      return "CLOUD TRIAL · SEED-ASR 2.0";
+    }
     if (config.asrProvider === "volcSeedASR" && snapshot.hasVolcSpeechKey) {
       return snapshot.senseVoiceFullFp32 ? "SEED-ASR 2.0 + FP32" : "SEED-ASR 2.0 · CLOUD";
     }
@@ -138,6 +142,32 @@ export const Sidebar: React.FC<Props> = ({
               {snapshot.stats.averageLatencyMs} ms
             </span>
           </div>
+        )}
+
+        {snapshot.cloudUser ? (
+          <div className="telemetry-row" style={{ borderTop: "1px solid var(--hairline)", paddingTop: 6, marginTop: 4 }}>
+            <span style={{ color: "var(--ink-muted)" }}>
+              {snapshot.isOfficialCloudTrialActive ? "☁️ 官方体验余额" : "云端体验余额"}
+            </span>
+            <span
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontWeight: 600,
+                color: snapshot.cloudUser.balanceCny > 0 ? "var(--emerald)" : "var(--amber)",
+              }}
+            >
+              ¥{snapshot.cloudUser.balanceCny.toFixed(4)}
+            </span>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-secondary btn-compact"
+            style={{ width: "100%", marginTop: 4 }}
+            onClick={() => onSelectTab("settings")}
+          >
+            🎁 登录领 ¥1.00 免费体验
+          </button>
         )}
 
         <div className="telemetry-row">

@@ -282,6 +282,28 @@ public struct MainDashboardView: View {
                     .font(.system(size: 11))
                 }
 
+                if let cloudUser = appState.cloudUser {
+                    Divider().overlay(TZTheme.hairline)
+                    HStack {
+                        Text(appState.isOfficialCloudTrialActive ? "☁️ 官方体验余额" : "云端体验余额")
+                            .foregroundStyle(TZTheme.inkMuted)
+                        Spacer()
+                        Text(String(format: "¥%.4f", cloudUser.balanceCny))
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(cloudUser.balanceCny > 0 ? TZTheme.emerald : TZTheme.amber)
+                    }
+                    .font(.system(size: 11))
+                } else {
+                    Button {
+                        appState.selectedTab = .settings
+                    } label: {
+                        Text("🎁 登录领 ¥1.00 免费体验")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(TZSecondaryButtonStyle(compact: true))
+                    .padding(.top, 2)
+                }
+
                 if !appState.accessibilityGranted {
                     Button {
                         appState.requestAllPermissions()
@@ -305,6 +327,7 @@ public struct MainDashboardView: View {
     }
 
     private var sidebarASRStatusReady: Bool {
+        if appState.isOfficialCloudTrialActive { return true }
         switch appState.llmConfig.asrProvider {
         case .volcSeedASR:
             return !appState.volcSpeechKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || appState.senseVoiceLoaded
@@ -316,6 +339,9 @@ public struct MainDashboardView: View {
     }
 
     private var sidebarASRStatusText: String {
+        if appState.isOfficialCloudTrialActive {
+            return "CLOUD TRIAL · SEED-ASR 2.0"
+        }
         switch appState.llmConfig.asrProvider {
         case .volcSeedASR:
             if !appState.volcSpeechKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -2312,7 +2338,7 @@ struct OnboardingWizardSheet: View {
                         .foregroundStyle(TZTheme.inkSecondary)
                 }
                 Spacer()
-                Text("v0.4")
+                Text("v0.5.2")
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(TZTheme.violet)
                     .padding(.horizontal, 9)
@@ -2346,20 +2372,75 @@ struct OnboardingWizardSheet: View {
             }
             .tzCardSurface(cornerRadius: 12, padding: 14)
 
-            // Step 2: Paste Dual API Keys (supports Volcengine / OpenAI / Local ASR + 6 LLM Providers)
+            // Step 2: Free ¥1.00 Email Trial OR Personal BYOK API Keys
             VStack(alignment: .leading, spacing: 9) {
-                let onboardingASRReady = (appState.llmConfig.asrProvider == .volcSeedASR && !appState.volcSpeechKeyInput.isEmpty)
+                let onboardingASRReady = appState.isOfficialCloudTrialActive
+                    || (appState.llmConfig.asrProvider == .volcSeedASR && !appState.volcSpeechKeyInput.isEmpty)
                     || (appState.llmConfig.asrProvider == .openAIWhisper && appState.hasEffectiveOpenAIASRKey)
                     || (appState.llmConfig.asrProvider == .localSenseVoice && appState.senseVoiceLoaded)
                 HStack {
-                    Text("第 2 步 · 填入语音与排版密钥（加密存入本机钥匙串）")
+                    Text("第 2 步 · 领 ¥1.00 免费体验 或 填入个人 API Key")
                         .font(.system(size: 13.5, weight: .semibold))
                         .foregroundStyle(TZTheme.inkPrimary)
                     Spacer()
-                    if onboardingASRReady && !appState.apiKeyInput.isEmpty {
+                    if appState.isOfficialCloudTrialActive {
+                        PermissionBadge(title: "官方体验已激活", ok: true)
+                    } else if onboardingASRReady && !appState.apiKeyInput.isEmpty {
                         PermissionBadge(title: "双引擎已就绪", ok: true)
                     }
                 }
+
+                // Inline ¥1.00 Free Trial Email Login Box
+                VStack(alignment: .leading, spacing: 7) {
+                    if let user = appState.cloudUser {
+                        HStack(spacing: 8) {
+                            Text(String(format: "🎁 已登录 %@ · 剩余体验额度 ¥%.2f（免填 Key 可直接开说）", user.email, user.balanceCny))
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundStyle(TZTheme.emerald)
+                            Spacer()
+                        }
+                    } else {
+                        Text("🎁 还没申请 API Key？输入邮箱免费领 ¥1.00 体验额度（约 60 分钟豆包 2.0 语音 + 300 次 DeepSeek 润色），零配置马上体验：")
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(TZTheme.inkPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 7) {
+                            TextField("输入邮箱（Gmail / QQ / 163 / Outlook）", text: $appState.cloudEmailInput)
+                                .tzCompactInputStyle()
+                            Button(appState.cloudCodeSent ? "重发" : "发验证码") {
+                                Task { await appState.sendCloudEmailCode() }
+                            }
+                            .buttonStyle(TZSecondaryButtonStyle(compact: true))
+                            .disabled(appState.isCloudAuthBusy)
+                        }
+                        if appState.cloudCodeSent {
+                            HStack(spacing: 7) {
+                                TextField("输入 6 位验证码", text: $appState.cloudCodeInput)
+                                    .tzCompactInputStyle()
+                                    .frame(maxWidth: 160)
+                                Button("验证并领 ¥1.00") {
+                                    Task { await appState.verifyCloudEmailCode() }
+                                }
+                                .buttonStyle(TZPrimaryButtonStyle(compact: true))
+                                .disabled(appState.isCloudAuthBusy)
+                            }
+                        }
+                    }
+                    if !appState.cloudAuthMessage.isEmpty {
+                        Text(appState.cloudAuthMessage)
+                            .font(.system(size: 11))
+                            .foregroundStyle(appState.cloudAuthMessage.hasPrefix("❌") ? Color.red : TZTheme.violet)
+                    }
+                }
+                .padding(10)
+                .background(TZTheme.lilacTint.opacity(0.65))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                // Clear BYOK Cost Advantage Callout (Why TypeZero beats ¥30-98/mo subscription apps)
+                Text("💡 长期使用强烈推荐填入自己的 API Key：豆包语音约 ¥0.008/分钟 + DeepSeek 约 ¥0.0004/次，重度用一整天只要约 5 分钱（每月不到 ¥2），0 会员月费、0 抽成，比同类订阅软件省 95%+！")
+                    .font(.system(size: 11))
+                    .foregroundStyle(TZTheme.inkSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 HStack(spacing: 7) {
                     Picker("", selection: Binding(
@@ -2545,12 +2626,12 @@ struct CloudTrialAccountCard: View {
                 }
 
                 if user.balanceCny <= 0 {
-                    Text("💡 免费体验额度已用完，您可在下方填入自己的火山豆包 / DeepSeek API Key 继续 0 抽成无限使用。")
+                    Text("💡 免费体验额度已用完！在下方填入自己的火山豆包 + DeepSeek API Key，重度用一整天只要约 5 分钱（每月不到 ¥2），永久免月费、0 抽成无限使用。")
                         .font(.system(size: 11.5))
                         .foregroundStyle(TZTheme.violet)
                 }
             } else {
-                Text("登录即可免费领取 ¥1.00 官方体验额度（约 60 分钟豆包 2.0 语音 + 300 次 DeepSeek 润色），无需先申请 API Key。支持 Gmail、QQ、163、Outlook 等任意常用邮箱验证码登录。")
+                Text("还没申请 API Key？邮箱登录即可免费领 ¥1.00 体验（约 60 分钟豆包 2.0 语音 + 300 次 DeepSeek 润色）。体验满意后强烈推荐在下方填入个人 Key——重度用一整天仅需约 5 分钱（¥0.05/天），永久免月费！")
                     .font(.system(size: 12))
                     .foregroundStyle(TZTheme.inkSecondary)
                     .fixedSize(horizontal: false, vertical: true)

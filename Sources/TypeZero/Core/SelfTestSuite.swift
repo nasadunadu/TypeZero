@@ -373,6 +373,73 @@ public enum SelfTestSuite {
             "Deduplicates and bounds OpenAI/Groq vocabulary prompt hints and maps locale to ISO-639-1"
         )
 
+        // 13. Zero-Rewind Atomic Polish Routing (WeChat/QQ & Long Drafts >= 25 Chars) + Prefix-Preserving Replacement Diff
+        let wechatCtx = ActiveScreenContext(appName: "微信", bundleID: "com.tencent.xinwechat", windowTitle: "", selectedText: "", precedingText: "", hasFocusedTextInput: true)
+        let notesCtx = ActiveScreenContext(appName: "Notes", bundleID: "com.apple.Notes", windowTitle: "", selectedText: "", precedingText: "", hasFocusedTextInput: true)
+        let longDraft = "似乎我在微信里面发不是特别容易回行比如现在我说很长的字我在看一个巴黎视频第一他有真人出镜感第二讲解很轻快"
+        expect(
+            wechatCtx.prefersAtomicPolishReplacement
+                && !notesCtx.prefersAtomicPolishReplacement
+                && !LiveInputSession.shouldUseLiveSSEStream(draft: "你好世界", context: wechatCtx)
+                && LiveInputSession.shouldUseLiveSSEStream(draft: "帮我查一下今天的日程", context: notesCtx)
+                && !LiveInputSession.shouldUseLiveSSEStream(draft: longDraft, context: notesCtx),
+            "Routes WeChat/QQ and long (>24 char) drafts to steady atomic post-polish replacement instead of SSE backspace rewind"
+        )
+        let atomicDiff = LiveInputSession.computeAtomicReplacementDiff(
+            emitted: "似乎我在微信里面发不是特别容易回行，第2天视频很好看",
+            finalText: "似乎我在微信里面发不是特别容易回行，第 2 天视频很好看。\n1. 画面稳"
+        )
+        expect(
+            atomicDiff.commonPrefixCount == 19
+                && atomicDiff.replaceCount == 7
+                && atomicDiff.replacementSuffix == " 2 天视频很好看。\n1. 画面稳",
+            "Preserves unchanged leading prefix in atomic replacement diff so only the divergent tail is selected and pasted"
+        )
+        let mergedExact = LiveInputSession.buildMergedBoxReplacement(
+            boxText: "明天我要开三个会第一个上午开会第二个中午吃饭",
+            alreadyEmitted: "明天我要开三个会第一个上午开会第二个中午吃饭",
+            finalText: "明天我要开 3 个会：\n1. 上午开会；\n2. 中午吃饭。"
+        )
+        let mergedWithPrefix = LiveInputSession.buildMergedBoxReplacement(
+            boxText: "张总你好，明天我要开三个会第一个上午开会",
+            alreadyEmitted: "明天我要开三个会第一个上午开会",
+            finalText: "明天我要开 3 个会：\n1. 上午开会。"
+        )
+        expect(
+            mergedExact == "明天我要开 3 个会：\n1. 上午开会；\n2. 中午吃饭。"
+                && mergedWithPrefix == "张总你好，明天我要开 3 个会：\n1. 上午开会。"
+                && LiveInputSession.buildMergedBoxReplacement(boxText: "完全不相关的内容", alreadyEmitted: "明天开会", finalText: "明天开会。") == nil
+                && !ContextInjector.pasteboardContainsNonTextRichObject(typeNames: ["public.utf8-plain-text", "NSStringPboardType"])
+                && ContextInjector.pasteboardContainsNonTextRichObject(typeNames: ["public.utf8-plain-text", "public.tiff"]),
+            "Cmd+A/Cmd+C zero-rewind merge preserves user-typed prefixes and guards against flattening rich media/images"
+        )
+
+        // 14. Steady Window-Bottom Pill Anchor (Never chases mouse cursor, never flips to window top)
+        let vf = CGRect(x: 0, y: 60, width: 1920, height: 990)
+        let pillSz = CGSize(width: 140, height: 34)
+        let midWin = CGRect(x: 200, y: 120, width: 1000, height: 680) // cocoaBottomY = 1080 - 800 = 280
+        let midAnchor = ContextInjector.anchorWindowBottomCocoaOrigin(
+            forWindowQuartzRect: midWin,
+            pillSize: pillSz,
+            primaryScreenHeight: 1080,
+            visibleFrame: vf,
+            horizontalRatio: 0.64
+        )
+        let flushBottomWin = CGRect(x: 200, y: 80, width: 1000, height: 940) // cocoaBottomY = 1080 - 1020 = 60 (flush with Dock)
+        let flushAnchor = ContextInjector.anchorWindowBottomCocoaOrigin(
+            forWindowQuartzRect: flushBottomWin,
+            pillSize: pillSz,
+            primaryScreenHeight: 1080,
+            visibleFrame: vf,
+            horizontalRatio: 0.64
+        )
+        expect(
+            abs(midAnchor.x - (200 + 640 - 70)) < 1.0
+                && abs(midAnchor.y - (280 - 34 - 10)) < 1.0
+                && flushAnchor.y >= vf.minY + 12 && flushAnchor.y < 120,
+            "Tier-3 window anchor locks pill beneath WeChat compose pane and stays tucked at bottom when window is flush with Dock"
+        )
+
         print("==> Summary: \(passed) passed, \(failed) failed.")
         return failed == 0 ? 0 : 1
     }

@@ -22,6 +22,45 @@ export const OnboardingModal: React.FC<Props> = ({ snapshot, onRefresh, onFinish
   const [asrKey, setAsrKey] = useState("");
   const [llmChoice, setLlmChoice] = useState<LLMProviderOption>(config.selectedProvider);
   const [llmKey, setLlmKey] = useState("");
+  const [cloudEmail, setCloudEmail] = useState("");
+  const [cloudCode, setCloudCode] = useState("");
+  const [cloudCodeSent, setCloudCodeSent] = useState(false);
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const [cloudMsg, setCloudMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const handleSendCloudCode = async () => {
+    if (!cloudEmail.trim()) {
+      setCloudMsg({ ok: false, text: "请输入邮箱地址（推荐 Gmail）" });
+      return;
+    }
+    setCloudBusy(true);
+    setCloudMsg(null);
+    try {
+      const msg = await api.cloudSendEmailCode(cloudEmail.trim());
+      setCloudCodeSent(true);
+      setCloudMsg({ ok: true, text: msg });
+    } catch (e) {
+      setCloudMsg({ ok: false, text: String(e) });
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
+  const handleVerifyCloudCode = async () => {
+    setCloudBusy(true);
+    setCloudMsg(null);
+    try {
+      await api.cloudVerifyEmailCode(cloudEmail.trim(), cloudCode.trim());
+      setCloudCode("");
+      setCloudCodeSent(false);
+      setCloudMsg({ ok: true, text: "🎁 已领取 ¥1.00 免费体验额度，现在即可开说！" });
+      await onRefresh();
+    } catch (e) {
+      setCloudMsg({ ok: false, text: String(e) });
+    } finally {
+      setCloudBusy(false);
+    }
+  };
 
   const handleSaveASR = async () => {
     if (asrChoice === "volcSeedASR") {
@@ -72,7 +111,7 @@ export const OnboardingModal: React.FC<Props> = ({ snapshot, onRefresh, onFinish
             </p>
           </div>
           <span className="pill-badge pill-lilac" style={{ marginLeft: "auto", fontFamily: "var(--font-mono)" }}>
-            v0.5
+            v0.5.2
           </span>
         </div>
 
@@ -103,9 +142,83 @@ export const OnboardingModal: React.FC<Props> = ({ snapshot, onRefresh, onFinish
           </div>
         </div>
 
-        {/* Step 2: Dual Keys */}
+        {/* Step 2: Free ¥1.00 Email Trial OR Personal BYOK Keys */}
         <div className="card" style={{ padding: 14, display: "flex", flexDirection: "column", gap: 9 }}>
-          <strong style={{ fontSize: 13.5 }}>第 2 步 · 填入语音与排版密钥（加密存于 Windows 凭据管理器）</strong>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <strong style={{ fontSize: 13.5 }}>第 2 步 · 领 ¥1.00 免费体验 或 填入个人 API Key</strong>
+            {snapshot.isOfficialCloudTrialActive && (
+              <span className="pill-badge pill-ok">官方体验已激活</span>
+            )}
+          </div>
+
+          <div
+            style={{
+              background: "rgba(90, 70, 232, 0.07)",
+              borderRadius: 9,
+              padding: "10px 11px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 7,
+            }}
+          >
+            {snapshot.cloudUser ? (
+              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--emerald)" }}>
+                🎁 已登录 {snapshot.cloudUser.email} · 剩余体验额度 ¥
+                {snapshot.cloudUser.balanceCny.toFixed(2)}（免填 Key 可直接开说）
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize: 12, fontWeight: 500, color: "var(--ink-primary)" }}>
+                  🎁 还没申请 API Key？输入邮箱免费领 ¥1.00 体验额度（约 60 分钟豆包 2.0 语音 + 300 次 DeepSeek 润色），零配置马上体验：
+                </div>
+                <div style={{ display: "flex", gap: 7 }}>
+                  <input
+                    className="input input-compact"
+                    style={{ flex: 1 }}
+                    placeholder="输入邮箱（Gmail / QQ / 163 / Outlook）"
+                    value={cloudEmail}
+                    onChange={(e) => setCloudEmail(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-compact"
+                    disabled={cloudBusy}
+                    onClick={() => void handleSendCloudCode()}
+                  >
+                    {cloudCodeSent ? "重发" : "发验证码"}
+                  </button>
+                </div>
+                {cloudCodeSent && (
+                  <div style={{ display: "flex", gap: 7 }}>
+                    <input
+                      className="input input-compact"
+                      style={{ width: 150 }}
+                      placeholder="输入 6 位验证码"
+                      value={cloudCode}
+                      onChange={(e) => setCloudCode(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-compact"
+                      disabled={cloudBusy}
+                      onClick={() => void handleVerifyCloudCode()}
+                    >
+                      验证并领 ¥1.00
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+            {cloudMsg && (
+              <div style={{ fontSize: 11.5, color: cloudMsg.ok ? "var(--violet)" : "#c9342d" }}>
+                {cloudMsg.text}
+              </div>
+            )}
+          </div>
+
+          <div style={{ fontSize: 11.5, color: "var(--ink-secondary)", lineHeight: 1.5 }}>
+            💡 长期使用强烈推荐填入自己的 API Key：豆包语音约 ¥0.008/分钟 + DeepSeek 约 ¥0.0004/次，<strong>重度用一整天只要约 5 分钱（每月不到 ¥2）</strong>，0 会员月费、0 抽成，比同类订阅软件省 95%+！
+          </div>
 
           <div style={{ display: "flex", gap: 7, alignItems: "center" }}>
             <select
