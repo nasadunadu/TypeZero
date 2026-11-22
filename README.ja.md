@@ -1,6 +1,6 @@
-# TypeZero — 話して書く、打たない新体験
+# TypeZero — 最高峰の無料オープンソース AI 音声入力アプリ（macOS & Windows）
 
-**純粋な Swift + C++ で構築された、超低遅延ネイティブ macOS AI 音声入力＆構造化ライティングアプリ**
+> **話せば、即完成稿。** —— ネイティブ **macOS (Swift + C++) & Windows 10/11 (Rust + Win32 + Tauri v2)** 対応の超低遅延 AI 音声入力＆構造化ライティングアプリ。MIT オープンソース・BYOK 月額無料・`121ms` 超低遅延・100% ローカルプライバシー。
 
 [![Release](https://img.shields.io/badge/release-v0.4.10-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![Platform](https://img.shields.io/badge/macOS-14--27%20%7C%20Apple%20Silicon%20arm64-17161B?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)

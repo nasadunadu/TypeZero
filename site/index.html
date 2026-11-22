@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
-<title>TypeZero — 开口，即终稿 | 免费开源自配 API 的 macOS AI 语音输入法</title>
+<title>TypeZero — 免费开源 AI 语音输入法 | 开口，即终稿 (macOS &amp; Windows)</title>
 <meta name="description" content="TypeZero 是一款纯原生 Swift + C++ 打造的免费开源 macOS AI 语音输入法（MIT）。121ms 极速响应，自配 OpenAI / Groq / DeepSeek / Gemini / Claude / 豆包 API，内嵌 886MB SenseVoice FP32 离线满血热备与个人专属词库，速度与效果全面对标 Typeless 与闪电说，100% 本地隐私。">
 <meta name="keywords" content="TypeZero, macOS AI 语音输入法, Typeless 免费替代, 闪电说开源替代, BYOK 语音输入法, OpenAI Whisper macOS, Groq Whisper, SenseVoice macOS, 豆包 Seed-ASR, 开发者语音输入">
 <meta name="robots" content="index, follow, max-image-preview:large">
@@ -297,7 +297,7 @@ button { font-family: inherit; }
 .hero {
   position: relative;
   z-index: 1;
-  padding: 58px 0 48px;
+  padding: 46px 0 48px;
   overflow: hidden;
 }
 
@@ -328,13 +328,15 @@ button { font-family: inherit; }
   align-items: center;
   gap: 8px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
   color: var(--cyan);
   background: rgba(0, 229, 195, 0.08);
   border: 1px solid rgba(0, 229, 195, 0.28);
-  padding: 5px 14px;
+  padding: 6px 15px;
   border-radius: 999px;
-  margin-bottom: 22px;
+  margin-bottom: 20px;
 }
 
 .pulse-dot {
@@ -346,11 +348,11 @@ button { font-family: inherit; }
 }
 
 .hero h1 {
-  font-size: clamp(44px, 7vw, 82px);
+  font-size: clamp(34px, 5.2vw, 62px);
   font-weight: 800;
-  line-height: 1.06;
-  letter-spacing: -0.04em;
-  margin-bottom: 18px;
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+  margin-bottom: 16px;
 }
 
 .grad-text {
@@ -360,11 +362,35 @@ button { font-family: inherit; }
   color: transparent;
 }
 
+.hero-slogan {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  font-size: clamp(20px, 2.5vw, 28px);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #E2F8F3;
+  margin: 0 auto 16px;
+}
+
+.hero-slogan::before,
+.hero-slogan::after {
+  content: "";
+  width: 28px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0, 229, 195, 0.65));
+}
+
+.hero-slogan::after {
+  background: linear-gradient(90deg, rgba(0, 229, 195, 0.65), transparent);
+}
+
 .hero-sub {
-  font-size: clamp(16px, 2vw, 20px);
+  font-size: clamp(15px, 1.7vw, 18px);
   color: var(--text-dim);
-  max-width: 640px;
-  margin: 0 auto 28px;
+  max-width: 680px;
+  margin: 0 auto 26px;
   font-weight: 400;
 }
 
@@ -386,7 +412,7 @@ button { font-family: inherit; }
   justify-content: center;
   flex-wrap: wrap;
   gap: 6px 18px;
-  margin-bottom: 44px;
+  margin-bottom: 36px;
 }
 
 /* Interactive 3D Tilting macOS Stage */
@@ -1806,14 +1832,15 @@ footer.knight-footer .foot-links a:hover {
       <div class="hero-center">
         <div class="hero-badge">
           <span class="pulse-dot" aria-hidden="true"></span>
-          <span>MIT OPEN SOURCE · BYOK · MACOS &amp; WINDOWS 10/11</span>
+          <span>适用于 macOS &amp; Windows 10/11 桌面端 · MIT 开源 · 自配 API</span>
         </div>
 
-        <h1><span class="grad-text">开口，即终稿。</span></h1>
+        <h1><span class="grad-text">市面上最好用的<br>免费开源 AI 语音输入法</span></h1>
+
+        <p class="hero-slogan">开口，即终稿。</p>
 
         <p class="hero-sub">
-          <strong>免费开源、自配 API</strong> 的原生 macOS &amp; Windows AI 语音输入法。<br>
-          121ms 极速直出，个人专属词库，100% 本地隐私。
+          <strong>原生极速、零订阅费</strong> —— 121ms 实时直出，个人专属词库，100% 本地隐私。
         </p>
 
         <div class="hero-cta">

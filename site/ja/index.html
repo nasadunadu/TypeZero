@@ -298,7 +298,7 @@ button { font-family: inherit; }
 .hero {
   position: relative;
   z-index: 1;
-  padding: 58px 0 48px;
+  padding: 46px 0 48px;
   overflow: hidden;
 }
 
@@ -329,13 +329,15 @@ button { font-family: inherit; }
   align-items: center;
   gap: 8px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
   color: var(--cyan);
   background: rgba(0, 229, 195, 0.08);
   border: 1px solid rgba(0, 229, 195, 0.28);
-  padding: 5px 14px;
+  padding: 6px 15px;
   border-radius: 999px;
-  margin-bottom: 22px;
+  margin-bottom: 20px;
 }
 
 .pulse-dot {
@@ -347,11 +349,11 @@ button { font-family: inherit; }
 }
 
 .hero h1 {
-  font-size: clamp(44px, 7vw, 82px);
+  font-size: clamp(34px, 5.2vw, 62px);
   font-weight: 800;
-  line-height: 1.06;
-  letter-spacing: -0.04em;
-  margin-bottom: 18px;
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+  margin-bottom: 16px;
 }
 
 .grad-text {
@@ -361,11 +363,35 @@ button { font-family: inherit; }
   color: transparent;
 }
 
+.hero-slogan {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  font-size: clamp(20px, 2.5vw, 28px);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #E2F8F3;
+  margin: 0 auto 16px;
+}
+
+.hero-slogan::before,
+.hero-slogan::after {
+  content: "";
+  width: 28px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0, 229, 195, 0.65));
+}
+
+.hero-slogan::after {
+  background: linear-gradient(90deg, rgba(0, 229, 195, 0.65), transparent);
+}
+
 .hero-sub {
-  font-size: clamp(16px, 2vw, 20px);
+  font-size: clamp(15px, 1.7vw, 18px);
   color: var(--text-dim);
-  max-width: 640px;
-  margin: 0 auto 28px;
+  max-width: 680px;
+  margin: 0 auto 26px;
   font-weight: 400;
 }
 
@@ -387,7 +413,7 @@ button { font-family: inherit; }
   justify-content: center;
   flex-wrap: wrap;
   gap: 6px 18px;
-  margin-bottom: 44px;
+  margin-bottom: 36px;
 }
 
 /* Interactive 3D Tilting macOS Stage */
@@ -1743,14 +1769,15 @@ footer.knight-footer .foot-links a:hover {
       <div class="hero-center">
         <div class="hero-badge">
           <span class="pulse-dot" aria-hidden="true"></span>
-          <span>MIT OPEN SOURCE · BYOK · MACOS &amp; WINDOWS 10/11</span>
+          <span>macOS &amp; Windows 10/11 デスクトップ対応 · MIT オープンソース · BYOK</span>
         </div>
 
-        <h1><span class="grad-text">話せば、即完成稿。</span></h1>
+        <h1><span class="grad-text">最高峰の無料オープンソース<br>AI 音声入力アプリ</span></h1>
+
+        <p class="hero-slogan">話せば、即完成稿。</p>
 
         <p class="hero-sub">
-          <strong>無料・オープンソース・BYOK 対応</strong>のネイティブ macOS &amp; Windows AI 音声入力。<br>
-          121ms の超低遅延、自己学習する個人辞書、100% ローカルプライバシー。
+          <strong>ネイティブ爆速・月額無料</strong> —— 121ms の超低遅延、自己学習する個人辞書、100% ローカルプライバシー。
         </p>
 
         <div class="hero-cta">
@@ -1758,7 +1785,7 @@ footer.knight-footer .foot-links a:hover {
             ⬇ macOS 版をダウンロード (v0.5.1)
           </a>
           <a class="btn btn-glow btn-lg" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.5.1/TypeZero-v0.5.1-Windows-x64-setup.exe">
-            ⬇ Windows 版をダウンロード (v0.5.0)
+            ⬇ Windows 版をダウンロード (v0.5.1 · x64)
           </a>
           <a class="btn btn-ghost btn-lg" href="https://github.com/nasadunadu/TypeZero" target="_blank" rel="noopener">
             ★ GitHub

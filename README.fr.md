@@ -1,6 +1,6 @@
-# TypeZero — Parlez, ne tapez plus
+# TypeZero — La meilleure saisie vocale IA gratuite et open-source (macOS & Windows)
 
-**Dictée vocale IA native macOS à latence ultra-faible et structuration de texte de niveau Typeless — conçu en pur Swift + C++.**
+> **Parlez. C'est prêt.** — Application native **macOS (Swift + C++) & Windows 10/11 (Rust + Win32 + Tauri v2)** de dictée vocale IA à latence ultra-faible et structuration de texte. Open-source MIT, BYOK sans abonnement, `121ms`, 100% confidentialité locale.
 
 [![Release](https://img.shields.io/badge/release-v0.4.10-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![Platform](https://img.shields.io/badge/macOS-14--27%20%7C%20Apple%20Silicon%20arm64-17161B?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)

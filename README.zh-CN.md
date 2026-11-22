@@ -1,6 +1,6 @@
-# TypeZero — 说话，不要打字
+# TypeZero — 市面上最好用的免费开源 AI 语音输入法（macOS & Windows）
 
-**纯原生 macOS (Swift + C++) & Windows 10/11 (Rust + Win32 + Tauri v2) 超低延迟 AI 语音成稿与结构化排版工具**
+> **开口，即终稿。** —— 适用于 **macOS (Swift + C++) & Windows 10/11 (Rust + Win32 + Tauri v2)** 的纯原生超低延迟 AI 语音输入与结构化排版工具。MIT 免费开源、自配 API 零订阅费、`121ms` 极速直出、100% 本地隐私。
 
 [![macOS](https://img.shields.io/badge/macOS-v0.4.10%20%7C%20Apple%20Silicon-17161B?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/tag/v0.4.10)
 [![Windows](https://img.shields.io/badge/Windows-v0.5.0%20%7C%20Win10%2F11%20x64-0078D4?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/tag/v0.5.0-windows)

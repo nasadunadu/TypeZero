@@ -1,6 +1,6 @@
-# TypeZero — Speak, Don't Type
+# TypeZero — The Best Free & Open-Source AI Voice Input App (macOS & Windows)
 
-**Ultra-low-latency native macOS (Swift + C++) & Windows 10/11 (Rust + Win32 + Tauri v2) AI voice dictation & Typeless-grade text structuring.**
+> **Speak. Ship.** — Ultra-low-latency native **macOS (Swift + C++) & Windows 10/11 (Rust + Win32 + Tauri v2)** AI voice dictation & Typeless-grade text structuring. MIT open source, BYOK zero-subscription, `121ms` latency, 100% local privacy.
 
 [![macOS Release](https://img.shields.io/badge/macOS-v0.4.10%20%7C%20Apple%20Silicon-17161B?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/tag/v0.4.10)
 [![Windows Release](https://img.shields.io/badge/Windows-v0.5.0%20%7C%20Win10%2F11%20x64-0078D4?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/tag/v0.5.0-windows)

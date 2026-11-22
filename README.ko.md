@@ -1,6 +1,6 @@
-# TypeZero — 타이핑 대신 말로 바로 완성
+# TypeZero — 최고의 무료 오픈소스 AI 음성 입력기 (macOS & Windows)
 
-**순수 Swift + C++로 제작된 초저지연 네이티브 macOS AI 음성 입력 및 구조화 텍스트 정리 앱**
+> **말하면, 그대로 완성본.** — 네이티브 **macOS (Swift + C++) & Windows 10/11 (Rust + Win32 + Tauri v2)** 초저지연 AI 음성 입력 및 구조화 텍스트 정리 앱. MIT 오픈소스, BYOK 구독료 0원, `121ms` 초저지연, 100% 로컬 프라이버시.
 
 [![Release](https://img.shields.io/badge/release-v0.4.10-5A46E8?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
 [![Platform](https://img.shields.io/badge/macOS-14--27%20%7C%20Apple%20Silicon%20arm64-17161B?style=flat-square)](https://github.com/nasadunadu/TypeZero/releases/latest)
