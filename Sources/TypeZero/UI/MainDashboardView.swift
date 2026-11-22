@@ -295,6 +295,7 @@ public struct MainDashboardView: View {
                     .font(.system(size: 11))
                 } else {
                     Button {
+                        UserDefaults.standard.set(false, forKey: "tz_dismissed_cloud_promo")
                         appState.selectedTab = .settings
                     } label: {
                         Text("🎁 登录领 ¥1.00 免费体验")
@@ -2338,7 +2339,7 @@ struct OnboardingWizardSheet: View {
                         .foregroundStyle(TZTheme.inkSecondary)
                 }
                 Spacer()
-                Text("v0.5.2")
+                Text("v0.5.3")
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(TZTheme.violet)
                     .padding(.horizontal, 9)
@@ -2566,129 +2567,406 @@ struct OnboardingWizardSheet: View {
 
 struct CloudTrialAccountCard: View {
     @ObservedObject var appState: AppState
+    @AppStorage("tz_dismissed_cloud_promo") private var dismissedPromo: Bool = false
+    @State private var showAccountDetails: Bool = false
+    @State private var justCompletedClaim: Bool = false
+    @State private var resendCooldown: Int = 0
+    @State private var cooldownTimer: Timer? = nil
+    @FocusState private var emailFocused: Bool
+    @FocusState private var codeFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            HStack(spacing: 8) {
-                Text("0. 官方免费体验账号（免填 Key · 新用户即送 ¥1.00）")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(TZTheme.inkPrimary)
-                Spacer()
-                if appState.isOfficialCloudTrialActive {
-                    HStack(spacing: 5) {
-                        Circle().fill(Color(red: 0.08, green: 0.50, blue: 0.29)).frame(width: 6, height: 6)
-                        Text("官方体验通道生效中")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Color(red: 0.08, green: 0.50, blue: 0.29))
+        Group {
+            if justCompletedClaim, let user = appState.cloudUser {
+                // Step 3: Celebratory completion transition -> auto-collapses smoothly
+                HStack(spacing: 14) {
+                    ZStack {
+                        Circle()
+                            .fill(TZTheme.emerald.opacity(0.14))
+                            .frame(width: 42, height: 42)
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 24))
+                            .foregroundStyle(TZTheme.emerald)
                     }
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 3)
-                    .background(Color(red: 0.90, green: 0.97, blue: 0.93))
-                    .clipShape(Capsule())
-                }
-            }
-
-            Divider().overlay(TZTheme.hairline)
-
-            if let user = appState.cloudUser {
-                HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(user.email)
-                            .font(.system(size: 13, weight: .semibold))
+                        Text("🎉 体验额度已到账 · 官方通道已自动开启")
+                            .font(.system(size: 14.5, weight: .bold))
                             .foregroundStyle(TZTheme.inkPrimary)
-                        Text(String(format: "剩余免费体验额度：¥%.4f ｜ 已用语音 %ds · 润色 %d 次", user.balanceCny, user.asrSecondsUsed, user.llmRequestsUsed))
-                            .font(.system(size: 11.5))
+                        Text(String(format: "%@ · 当前余额 ¥%.2f，现在即可直接按快捷键说话！", user.email, user.balanceCny))
+                            .font(.system(size: 12))
                             .foregroundStyle(TZTheme.inkSecondary)
                     }
                     Spacer()
-                    Button("刷新余额") {
-                        Task { await appState.refreshCloudAccount() }
-                    }
-                    .buttonStyle(TZSecondaryButtonStyle())
-
-                    Button("退出") {
-                        appState.logoutCloudAccount()
-                    }
-                    .buttonStyle(TZSecondaryButtonStyle())
                 }
-
-                HStack(spacing: 10) {
-                    Toggle(isOn: Binding(
-                        get: { appState.llmConfig.useOfficialCloudTrial },
-                        set: { appState.setUseOfficialCloudTrial($0) }
-                    )) {
-                        Text("使用官方免费通道（豆包 2.0 语音 + DeepSeek 4 Flash 润色，免配置 Key）")
-                            .font(.system(size: 12.5, weight: .medium))
-                            .foregroundStyle(TZTheme.inkPrimary)
-                    }
-                    .toggleStyle(.switch)
-                    .disabled(user.balanceCny <= 0)
-                }
-
-                if user.balanceCny <= 0 {
-                    Text("💡 免费体验额度已用完！在下方填入自己的火山豆包 + DeepSeek API Key，重度用一整天只要约 5 分钱（每月不到 ¥2），永久免月费、0 抽成无限使用。")
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(TZTheme.violet)
-                }
-            } else {
-                Text("还没申请 API Key？邮箱登录即可免费领 ¥1.00 体验（约 60 分钟豆包 2.0 语音 + 300 次 DeepSeek 润色）。体验满意后强烈推荐在下方填入个人 Key——重度用一整天仅需约 5 分钱（¥0.05/天），永久免月费！")
-                    .font(.system(size: 12))
-                    .foregroundStyle(TZTheme.inkSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if appState.cloudCapabilities?.googleOAuthEnabled == true {
+                .padding(18)
+                .background(
+                    LinearGradient(
+                        colors: [Color(red: 0.91, green: 0.98, blue: 0.94), TZTheme.cardBg],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(TZTheme.emerald.opacity(0.38), lineWidth: 1.2)
+                )
+                .transition(.scale(scale: 0.96).combined(with: .opacity))
+            } else if let user = appState.cloudUser {
+                // Logged-in: ultra-clean single-line pill bar, completely separate from Settings below; expands only when clicked
+                VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 10) {
+                        Circle()
+                            .fill(appState.isOfficialCloudTrialActive ? TZTheme.emerald : TZTheme.inkMuted)
+                            .frame(width: 7, height: 7)
+                        Text(appState.isOfficialCloudTrialActive ? "官方体验通道生效中" : "已登录云端账号（当前使用个人 Key）")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(appState.isOfficialCloudTrialActive ? TZTheme.emerald : TZTheme.inkSecondary)
+                        Text("·")
+                            .foregroundStyle(TZTheme.inkMuted)
+                        Text(user.email)
+                            .font(.system(size: 12))
+                            .foregroundStyle(TZTheme.inkSecondary)
+                            .lineLimit(1)
+                        Text(String(format: "余额 ¥%.4f", user.balanceCny))
+                            .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(user.balanceCny > 0 ? TZTheme.violet : TZTheme.amber)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2.5)
+                            .background(TZTheme.lilacTint)
+                            .clipShape(Capsule())
+                        Spacer()
                         Button {
-                            Task { await appState.startCloudGoogleLogin() }
+                            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                                showAccountDetails.toggle()
+                            }
                         } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "globe")
-                                Text(appState.isWaitingGoogleOAuth ? "等待浏览器完成 Google 授权…" : "使用 Google 账号一键登录 (Gmail)")
+                            HStack(spacing: 4) {
+                                Text(showAccountDetails ? "收起" : "管理")
+                                Image(systemName: showAccountDetails ? "chevron.up" : "chevron.down")
+                                    .font(.system(size: 9.5, weight: .semibold))
+                            }
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(TZTheme.inkSecondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+
+                    if showAccountDetails {
+                        Divider().overlay(TZTheme.hairline).padding(.horizontal, 14)
+                        VStack(alignment: .leading, spacing: 11) {
+                            HStack {
+                                Toggle(isOn: Binding(
+                                    get: { appState.llmConfig.useOfficialCloudTrial },
+                                    set: { appState.setUseOfficialCloudTrial($0) }
+                                )) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("使用官方免费体验通道（豆包 2.0 + DeepSeek 4 Flash）")
+                                            .font(.system(size: 12.5, weight: .medium))
+                                            .foregroundStyle(TZTheme.inkPrimary)
+                                        Text(String(format: "累计已用语音 %ds · 润色 %d 次 · 随时可关掉切回个人 Key（日均约 5 分钱）", user.asrSecondsUsed, user.llmRequestsUsed))
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(TZTheme.inkMuted)
+                                    }
+                                }
+                                .toggleStyle(.switch)
+                                .disabled(user.balanceCny <= 0)
+                            }
+
+                            HStack(spacing: 8) {
+                                if user.balanceCny <= 0 {
+                                    Text("💡 体验额已用完，填入下方个人 Key 重度使用每天仅约 5 分钱")
+                                        .font(.system(size: 11.5))
+                                        .foregroundStyle(TZTheme.violet)
+                                }
+                                Spacer()
+                                Button("刷新余额") {
+                                    Task { await appState.refreshCloudAccount() }
+                                }
+                                .buttonStyle(TZSecondaryButtonStyle(compact: true))
+                                Button("退出登录") {
+                                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                        showAccountDetails = false
+                                        appState.logoutCloudAccount()
+                                    }
+                                }
+                                .buttonStyle(TZSecondaryButtonStyle(compact: true))
                             }
                         }
-                        .buttonStyle(TZPrimaryButtonStyle())
-                        .disabled(appState.isCloudAuthBusy)
+                        .padding(14)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+                }
+                .background(TZTheme.cardBg)
+                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .strokeBorder(TZTheme.hairline, lineWidth: 1)
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            } else if !dismissedPromo {
+                // Standalone Hero Spotlight Module (completely distinct from numbered settings below, disappears once completed or dismissed)
+                VStack(alignment: .leading, spacing: 15) {
+                    // Top Row: Badge + Dismiss
+                    HStack(alignment: .center) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("FREE TRIAL · 新手免填 KEY 通道")
+                                .font(.system(size: 10.5, weight: .bold, design: .monospaced))
+                        }
+                        .foregroundStyle(TZTheme.violet)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(TZTheme.lilacTint)
+                        .clipShape(Capsule())
 
-                        if appState.isWaitingGoogleOAuth {
-                            ProgressView().scaleEffect(0.65)
+                        Spacer()
+
+                        Button {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                dismissedPromo = true
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text("已有个人 Key，隐藏")
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 9.5, weight: .semibold))
+                            }
+                            .font(.system(size: 11))
+                            .foregroundStyle(TZTheme.inkMuted)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    // Clean Serif Headline + 3 Scannable Benefit Chips (no dense wall of text!)
+                    VStack(alignment: .leading, spacing: 9) {
+                        Text("免费领取 ¥1.00 官方体验额度")
+                            .font(.system(size: 19, weight: .bold, design: .serif))
+                            .foregroundStyle(TZTheme.inkPrimary)
+
+                        HStack(spacing: 8) {
+                            trialBenefitChip(icon: "waveform", text: "约 60 分钟豆包 2.0 语音")
+                            trialBenefitChip(icon: "wand.and.stars", text: "300 次 DeepSeek 润色")
+                            trialBenefitChip(icon: "yensign.circle", text: "后续自备 Key 仅 5 分钱/天")
                         }
                     }
-                }
 
-                HStack(spacing: 8) {
-                    TextField("输入常用邮箱（Gmail / QQ / 163 / Outlook）", text: $appState.cloudEmailInput)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12.5))
+                    // Animated 2-Step Input Area
+                    if !appState.cloudCodeSent {
+                        HStack(spacing: 10) {
+                            HStack(spacing: 9) {
+                                Image(systemName: "envelope.fill")
+                                    .font(.system(size: 13.5))
+                                    .foregroundStyle(emailFocused ? TZTheme.violet : TZTheme.inkMuted)
+                                TextField("输入常用邮箱（Gmail / QQ / 163 / Outlook）", text: $appState.cloudEmailInput)
+                                    .textFieldStyle(.plain)
+                                    .font(.system(size: 13.5))
+                                    .foregroundStyle(TZTheme.inkPrimary)
+                                    .focused($emailFocused)
+                                    .onSubmit {
+                                        triggerSendCode()
+                                    }
+                            }
+                            .padding(.horizontal, 14)
+                            .frame(height: 42)
+                            .background(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .strokeBorder(emailFocused ? TZTheme.violet : TZTheme.violet.opacity(0.32), lineWidth: emailFocused ? 1.8 : 1.2)
+                            )
+                            .shadow(color: emailFocused ? TZTheme.violet.opacity(0.14) : .clear, radius: 8, y: 2)
 
-                    Button(appState.cloudCodeSent ? "重发验证码" : "发送验证码") {
-                        Task { await appState.sendCloudEmailCode() }
-                    }
-                    .buttonStyle(TZSecondaryButtonStyle())
-                    .disabled(appState.isCloudAuthBusy)
-                }
-
-                if appState.cloudCodeSent {
-                    HStack(spacing: 8) {
-                        TextField("输入 6 位邮箱验证码", text: $appState.cloudCodeInput)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(size: 12.5))
-                            .frame(maxWidth: 200)
-
-                        Button("验证并领取体验额度") {
-                            Task { await appState.verifyCloudEmailCode() }
+                            Button {
+                                triggerSendCode()
+                            } label: {
+                                HStack(spacing: 6) {
+                                    if appState.isCloudAuthBusy {
+                                        ProgressView().scaleEffect(0.6).tint(.white)
+                                    }
+                                    Text(appState.isCloudAuthBusy ? "发送中…" : "发送验证码")
+                                        .font(.system(size: 13, weight: .semibold))
+                                    if !appState.isCloudAuthBusy {
+                                        Image(systemName: "arrow.right")
+                                            .font(.system(size: 11.5, weight: .bold))
+                                    }
+                                }
+                                .padding(.horizontal, 18)
+                                .frame(height: 42)
+                                .background(TZTheme.violet)
+                                .foregroundStyle(Color.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(appState.isCloudAuthBusy)
                         }
-                        .buttonStyle(TZPrimaryButtonStyle())
-                        .disabled(appState.isCloudAuthBusy)
+                        .transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity), removal: .move(edge: .leading).combined(with: .opacity)))
+                    } else {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "paperplane.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(TZTheme.violet)
+                                Text("6 位验证码已发送至 \(appState.cloudEmailInput)")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(TZTheme.inkPrimary)
+                                Spacer()
+                                Button("换个邮箱") {
+                                    withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                                        appState.cloudCodeSent = false
+                                        appState.cloudCodeInput = ""
+                                    }
+                                }
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(TZTheme.inkMuted)
+                                .buttonStyle(.plain)
+
+                                Button(resendCooldown > 0 ? "\(resendCooldown)s 后重发" : "重新发送") {
+                                    triggerSendCode()
+                                }
+                                .font(.system(size: 11.5, weight: .medium))
+                                .foregroundStyle(resendCooldown > 0 ? TZTheme.inkMuted : TZTheme.violet)
+                                .buttonStyle(.plain)
+                                .disabled(resendCooldown > 0 || appState.isCloudAuthBusy)
+                            }
+
+                            HStack(spacing: 10) {
+                                HStack(spacing: 9) {
+                                    Image(systemName: "key.fill")
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(codeFocused ? TZTheme.violet : TZTheme.inkMuted)
+                                    TextField("输入 6 位数字验证码", text: $appState.cloudCodeInput)
+                                        .textFieldStyle(.plain)
+                                        .font(.system(size: 16, weight: .bold, design: .monospaced))
+                                        .foregroundStyle(TZTheme.inkPrimary)
+                                        .focused($codeFocused)
+                                        .onSubmit {
+                                            triggerVerifyCode()
+                                        }
+                                }
+                                .padding(.horizontal, 14)
+                                .frame(height: 42)
+                                .frame(maxWidth: 250)
+                                .background(Color.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .strokeBorder(codeFocused ? TZTheme.violet : TZTheme.violet.opacity(0.35), lineWidth: codeFocused ? 1.8 : 1.2)
+                                )
+
+                                Button {
+                                    triggerVerifyCode()
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        if appState.isCloudAuthBusy {
+                                            ProgressView().scaleEffect(0.6).tint(.white)
+                                        }
+                                        Text(appState.isCloudAuthBusy ? "验证中…" : "验证并领取 ¥1.00 ✨")
+                                            .font(.system(size: 13, weight: .semibold))
+                                    }
+                                    .padding(.horizontal, 18)
+                                    .frame(height: 42)
+                                    .background(TZTheme.violet)
+                                    .foregroundStyle(Color.white)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(appState.isCloudAuthBusy)
+                            }
+                        }
+                        .onAppear { codeFocused = true }
+                        .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .opacity))
+                    }
+
+                    if !appState.cloudAuthMessage.isEmpty {
+                        Text(appState.cloudAuthMessage)
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(appState.cloudAuthMessage.hasPrefix("❌") ? Color.red : TZTheme.violet)
+                            .transition(.opacity)
                     }
                 }
-            }
-
-            if !appState.cloudAuthMessage.isEmpty {
-                Text(appState.cloudAuthMessage)
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(appState.cloudAuthMessage.hasPrefix("❌") ? Color.red : TZTheme.violet)
+                .padding(20)
+                .background(
+                    LinearGradient(
+                        colors: [TZTheme.lilacTint.opacity(0.55), TZTheme.cardBg],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(TZTheme.violet.opacity(0.26), lineWidth: 1.2)
+                )
+                .shadow(color: TZTheme.violet.opacity(0.06), radius: 14, y: 4)
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
             }
         }
-        .tzCardSurface(cornerRadius: 12, padding: 14)
+        .animation(.spring(response: 0.4, dampingFraction: 0.84), value: appState.cloudCodeSent)
+        .animation(.spring(response: 0.42, dampingFraction: 0.84), value: justCompletedClaim)
+        .animation(.spring(response: 0.35, dampingFraction: 0.84), value: dismissedPromo)
+        .onDisappear {
+            cooldownTimer?.invalidate()
+            cooldownTimer = nil
+        }
+    }
+
+    private func trialBenefitChip(icon: String, text: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(TZTheme.violet)
+            Text(text)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(TZTheme.inkSecondary)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4.5)
+        .background(Color.white.opacity(0.82))
+        .clipShape(Capsule())
+        .overlay(Capsule().strokeBorder(TZTheme.hairline, lineWidth: 0.8))
+    }
+
+    private func triggerSendCode() {
+        Task {
+            await appState.sendCloudEmailCode()
+            if appState.cloudCodeSent {
+                startCooldown()
+            }
+        }
+    }
+
+    private func triggerVerifyCode() {
+        Task {
+            await appState.verifyCloudEmailCode()
+            if appState.cloudUser != nil {
+                withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
+                    justCompletedClaim = true
+                }
+                try? await Task.sleep(nanoseconds: 2_400_000_000)
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.86)) {
+                    justCompletedClaim = false
+                    showAccountDetails = false
+                }
+            }
+        }
+    }
+
+    private func startCooldown() {
+        cooldownTimer?.invalidate()
+        resendCooldown = 60
+        cooldownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
+            Task { @MainActor in
+                if resendCooldown > 1 {
+                    resendCooldown -= 1
+                } else {
+                    resendCooldown = 0
+                    timer.invalidate()
+                }
+            }
+        }
     }
 }

@@ -83,6 +83,24 @@ export const SettingsSection: React.FC<Props> = ({ snapshot, onUpdateConfig, onR
   const [cloudCodeSent, setCloudCodeSent] = useState(false);
   const [cloudBusy, setCloudBusy] = useState(false);
   const [cloudMsg, setCloudMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [cloudDismissed, setCloudDismissed] = useState(() => {
+    try {
+      return localStorage.getItem("tz_dismissed_cloud_promo") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [cloudDetailsOpen, setCloudDetailsOpen] = useState(false);
+  const [cloudJustClaimed, setCloudJustClaimed] = useState(false);
+
+  const dismissCloudPromo = () => {
+    setCloudDismissed(true);
+    try {
+      localStorage.setItem("tz_dismissed_cloud_promo", "1");
+    } catch {
+      // ignore storage errors
+    }
+  };
 
   const handleSendCloudCode = async () => {
     const email = cloudEmail.trim();
@@ -110,8 +128,12 @@ export const SettingsSection: React.FC<Props> = ({ snapshot, onUpdateConfig, onR
       await api.cloudVerifyEmailCode(cloudEmail.trim(), cloudCode.trim());
       setCloudCode("");
       setCloudCodeSent(false);
-      setCloudMsg({ ok: true, text: "登录成功！已自动启用官方免费体验通道" });
+      setCloudJustClaimed(true);
       await onRefresh();
+      window.setTimeout(() => {
+        setCloudJustClaimed(false);
+        setCloudDetailsOpen(false);
+      }, 2400);
     } catch (e) {
       setCloudMsg({ ok: false, text: String(e) });
     } finally {
@@ -235,31 +257,91 @@ export const SettingsSection: React.FC<Props> = ({ snapshot, onUpdateConfig, onR
         <div className="editorial-rule" />
       </header>
 
-      {/* Card 0: TypeZero Cloud Account & Official Free Trial */}
-      <section className="card" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 14, fontWeight: 600 }}>
-            0. 官方免费体验账号（免填 Key · 新用户即送 ¥1.00）
-          </span>
-          {snapshot.isOfficialCloudTrialActive && (
-            <span className="pill-badge pill-ok" style={{ marginLeft: "auto" }}>
-              ● 官方体验通道生效中
+      {/* Standalone Collapsible Free Trial Module (distinct from numbered settings below) */}
+      {cloudJustClaimed && snapshot.cloudUser ? (
+        <section
+          className="card"
+          style={{
+            background: "linear-gradient(90deg, rgba(20,128,74,0.09), var(--card-bg))",
+            borderColor: "rgba(20,128,74,0.35)",
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            padding: "16px 18px",
+          }}
+        >
+          <CheckCircle2 size={24} style={{ color: "var(--emerald)", flexShrink: 0 }} />
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>🎉 体验额度已到账 · 官方通道已自动开启</div>
+            <div style={{ fontSize: 12, color: "var(--ink-secondary)", marginTop: 2 }}>
+              {snapshot.cloudUser.email} · 当前余额 ¥{snapshot.cloudUser.balanceCny.toFixed(2)}，现在即可按快捷键开说！
+            </div>
+          </div>
+        </section>
+      ) : snapshot.cloudUser ? (
+        <section className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 9,
+              padding: "10px 14px",
+              flexWrap: "wrap",
+            }}
+          >
+            <span
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                background: snapshot.isOfficialCloudTrialActive ? "var(--emerald)" : "var(--ink-muted)",
+              }}
+            />
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: snapshot.isOfficialCloudTrialActive ? "var(--emerald)" : "var(--ink-secondary)",
+              }}
+            >
+              {snapshot.isOfficialCloudTrialActive ? "官方体验通道生效中" : "已登录云端账号（当前使用个人 Key）"}
             </span>
-          )}
-        </div>
-        <div style={{ height: 1, background: "var(--hairline)" }} />
-
-        {snapshot.cloudUser ? (
-          <>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600 }}>{snapshot.cloudUser.email}</div>
-                <div style={{ fontSize: 11.5, color: "var(--ink-secondary)", marginTop: 2 }}>
-                  剩余体验额度：¥{snapshot.cloudUser.balanceCny.toFixed(4)} ｜ 已用语音{" "}
-                  {snapshot.cloudUser.asrSecondsUsed}s · 润色 {snapshot.cloudUser.llmRequestsUsed} 次
-                </div>
-              </div>
-              <div style={{ marginLeft: "auto", display: "flex", gap: 7 }}>
+            <span style={{ color: "var(--ink-muted)" }}>·</span>
+            <span style={{ fontSize: 12, color: "var(--ink-secondary)" }}>{snapshot.cloudUser.email}</span>
+            <span className="pill-badge pill-lilac" style={{ fontFamily: "var(--font-mono)" }}>
+              余额 ¥{snapshot.cloudUser.balanceCny.toFixed(4)}
+            </span>
+            <button
+              type="button"
+              className="btn btn-secondary btn-compact"
+              style={{ marginLeft: "auto" }}
+              onClick={() => setCloudDetailsOpen((v) => !v)}
+            >
+              {cloudDetailsOpen ? "收起 ▴" : "管理 ▾"}
+            </button>
+          </div>
+          {cloudDetailsOpen && (
+            <div
+              style={{
+                borderTop: "1px solid var(--hairline)",
+                padding: "12px 14px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+              }}
+            >
+              <ToggleSwitch
+                title="使用官方免费体验通道（豆包 2.0 语音 + DeepSeek 4 Flash 润色）"
+                desc={`已用语音 ${snapshot.cloudUser.asrSecondsUsed}s · 润色 ${snapshot.cloudUser.llmRequestsUsed} 次 · 随时可关闭切回下方个人 Key（日均仅约 5 分钱）`}
+                checked={Boolean(config.useOfficialCloudTrial)}
+                onChange={(next) => {
+                  void api
+                    .cloudSetUseTrial(next)
+                    .then(onRefresh)
+                    .catch((e) => setCloudMsg({ ok: false, text: String(e) }));
+                }}
+              />
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button
                   type="button"
                   className="btn btn-secondary btn-compact"
@@ -270,80 +352,153 @@ export const SettingsSection: React.FC<Props> = ({ snapshot, onUpdateConfig, onR
                 <button
                   type="button"
                   className="btn btn-secondary btn-compact"
-                  onClick={() => void api.cloudLogout().then(onRefresh)}
+                  onClick={() => {
+                    setCloudDetailsOpen(false);
+                    void api.cloudLogout().then(onRefresh);
+                  }}
                 >
                   退出登录
                 </button>
               </div>
             </div>
-            <ToggleSwitch
-              title="使用官方免费体验通道（豆包 2.0 语音 + DeepSeek 4 Flash 润色）"
-              desc="开启后无需填写个人 API Key；随时可关闭并切换为下方的个人 BYOK 引擎"
-              checked={Boolean(config.useOfficialCloudTrial)}
-              onChange={(next) => {
-                void api
-                  .cloudSetUseTrial(next)
-                  .then(onRefresh)
-                  .catch((e) => setCloudMsg({ ok: false, text: String(e) }));
+          )}
+        </section>
+      ) : !cloudDismissed ? (
+        <section
+          className="card"
+          style={{
+            background: "linear-gradient(135deg, rgba(90,70,232,0.08), var(--card-bg) 62%)",
+            borderColor: "rgba(90,70,232,0.28)",
+            padding: "18px 20px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 14,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span className="pill-badge pill-lilac" style={{ fontFamily: "var(--font-mono)", fontWeight: 700 }}>
+              ✨ FREE TRIAL · 新手免填 KEY 通道
+            </span>
+            <button
+              type="button"
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "var(--ink-muted)",
+                fontSize: 11.5,
+                cursor: "pointer",
               }}
-            />
-          </>
-        ) : (
-          <>
-            <div style={{ fontSize: 12, color: "var(--ink-secondary)", lineHeight: 1.55 }}>
-              还没申请 API Key？邮箱登录即可免费领 ¥1.00 体验（约 60 分钟豆包 2.0 语音 + 300 次 DeepSeek 润色）。体验满意后强烈推荐在下方填入个人 Key——<strong>重度用一整天仅需约 5 分钱（¥0.05/天）</strong>，永久免月费、0 抽成！
+              onClick={dismissCloudPromo}
+            >
+              已有个人 Key，隐藏 ×
+            </button>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+            <div style={{ fontFamily: "var(--font-serif)", fontSize: 19, fontWeight: 700 }}>
+              免费领取 ¥1.00 官方体验额度
             </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <span className="pill-badge" style={{ background: "rgba(255,255,255,0.85)", border: "1px solid var(--hairline)" }}>
+                🎙️ 约 60 分钟豆包 2.0 语音
+              </span>
+              <span className="pill-badge" style={{ background: "rgba(255,255,255,0.85)", border: "1px solid var(--hairline)" }}>
+                ✨ 300 次 DeepSeek 润色
+              </span>
+              <span className="pill-badge" style={{ background: "rgba(255,255,255,0.85)", border: "1px solid var(--hairline)" }}>
+                💡 后续自备 Key 仅 5 分钱/天
+              </span>
+            </div>
+          </div>
+
+          {!cloudCodeSent ? (
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
               <input
                 className="input"
-                style={{ flex: 1, minWidth: 220 }}
+                style={{
+                  flex: 1,
+                  height: 42,
+                  fontSize: 13.5,
+                  background: "#fff",
+                  border: "1.5px solid rgba(90,70,232,0.38)",
+                  borderRadius: 10,
+                  padding: "0 14px",
+                }}
                 placeholder="输入常用邮箱（Gmail / QQ / 163 / Outlook）"
                 value={cloudEmail}
                 onChange={(e) => setCloudEmail(e.target.value)}
               />
               <button
                 type="button"
-                className="btn btn-secondary"
+                className="btn btn-primary"
+                style={{ height: 42, padding: "0 18px", borderRadius: 10, fontWeight: 600 }}
                 disabled={cloudBusy}
                 onClick={() => void handleSendCloudCode()}
               >
-                {cloudCodeSent ? "重发验证码" : "发送验证码"}
+                {cloudBusy ? "发送中…" : "发送验证码 →"}
               </button>
             </div>
-            {cloudCodeSent && (
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
+                <span>6 位验证码已发送至 <strong>{cloudEmail}</strong></span>
+                <button
+                  type="button"
+                  style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--ink-muted)", cursor: "pointer", fontSize: 11.5 }}
+                  onClick={() => {
+                    setCloudCodeSent(false);
+                    setCloudCode("");
+                  }}
+                >
+                  换个邮箱
+                </button>
+                <button
+                  type="button"
+                  style={{ background: "none", border: "none", color: "var(--violet)", cursor: "pointer", fontSize: 11.5, fontWeight: 600 }}
+                  disabled={cloudBusy}
+                  onClick={() => void handleSendCloudCode()}
+                >
+                  重新发送
+                </button>
+              </div>
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <input
                   className="input"
-                  style={{ width: 180 }}
-                  placeholder="输入 6 位邮箱验证码"
+                  style={{
+                    width: 220,
+                    height: 42,
+                    fontSize: 16,
+                    fontWeight: 700,
+                    fontFamily: "var(--font-mono)",
+                    background: "#fff",
+                    border: "1.5px solid rgba(90,70,232,0.45)",
+                    borderRadius: 10,
+                    padding: "0 14px",
+                  }}
+                  placeholder="输入 6 位数字验证码"
                   value={cloudCode}
                   onChange={(e) => setCloudCode(e.target.value)}
                 />
                 <button
                   type="button"
                   className="btn btn-primary"
+                  style={{ height: 42, padding: "0 18px", borderRadius: 10, fontWeight: 600 }}
                   disabled={cloudBusy}
                   onClick={() => void handleVerifyCloudCode()}
                 >
-                  验证并领取体验额度
+                  {cloudBusy ? "验证中…" : "验证并领取 ¥1.00 ✨"}
                 </button>
               </div>
-            )}
-          </>
-        )}
+            </div>
+          )}
 
-        {cloudMsg && (
-          <div
-            style={{
-              fontSize: 11.5,
-              fontWeight: 500,
-              color: cloudMsg.ok ? "var(--violet)" : "#c9342d",
-            }}
-          >
-            {cloudMsg.text}
-          </div>
-        )}
-      </section>
+          {cloudMsg && (
+            <div style={{ fontSize: 11.5, fontWeight: 500, color: cloudMsg.ok ? "var(--violet)" : "#c9342d" }}>
+              {cloudMsg.text}
+            </div>
+          )}
+        </section>
+      ) : null}
 
       {/* Card 1: Hotkeys & Input Behavior */}
       <section className="card" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
