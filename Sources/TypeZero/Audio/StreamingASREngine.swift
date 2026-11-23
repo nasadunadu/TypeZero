@@ -142,7 +142,7 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
 
     public static var isSpeechAuthorized: Bool {
         if senseVoiceModelPaths() != nil
-            || !KeychainHelper.loadVolcSpeechAPIKey().isEmpty
+            || KeychainHelper.hasAnyDoubaoCredential
             || !KeychainHelper.loadEffectiveOpenAIASRAPIKey().isEmpty {
             return true
         }
@@ -215,7 +215,7 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
     public static func requestPermissions(completion: @escaping (Bool, Bool) -> Void) {
         AVCaptureDevice.requestAccess(for: .audio) { micGranted in
             if senseVoiceModelPaths() != nil
-                || !KeychainHelper.loadVolcSpeechAPIKey().isEmpty
+                || KeychainHelper.hasAnyDoubaoCredential
                 || !KeychainHelper.loadEffectiveOpenAIASRAPIKey().isEmpty {
                 DispatchQueue.main.async {
                     completion(micGranted, true)

@@ -58,6 +58,8 @@ export const SettingsSection: React.FC<Props> = ({ snapshot, onUpdateConfig, onR
 
   // ASR drafts
   const [volcKey, setVolcKey] = useState("");
+  const [voucherInput, setVoucherInput] = useState("");
+  const [showVoucherDrawer, setShowVoucherDrawer] = useState(false);
   const [openaiAsrUrl, setOpenaiAsrUrl] = useState(config.openAIASRBaseURL);
   const [openaiAsrModel, setOpenaiAsrModel] = useState(config.openAIASRModel);
   const [openaiAsrKey, setOpenaiAsrKey] = useState("");
@@ -733,15 +735,15 @@ export const SettingsSection: React.FC<Props> = ({ snapshot, onUpdateConfig, onR
                 <div className="engine-drawer">
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ width: 58, fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--ink-secondary)" }}>
-                      {snapshot.isUsingDoubaoVoucher ? "兑换码" : "API Key"}
+                      API Key
                     </span>
                     <input
                       type="password"
                       className="input input-compact"
                       placeholder={
-                        snapshot.hasVolcSpeechKey
-                          ? "已保存（如需更换请粘贴新密钥或兑换码 TZ-XXXX-XXXX）"
-                          : "粘贴火山豆包语音 API Key 或朋友兑换码（如 TZ-XXXX-XXXX）"
+                        snapshot.hasOwnVolcSpeechKey
+                          ? "已保存自有 API Key（如需更换请粘贴新密钥）"
+                          : "粘贴您自己的火山豆包语音 API Key（推荐）"
                       }
                       value={volcKey}
                       onChange={(e) => setVolcKey(e.target.value)}
@@ -778,45 +780,144 @@ export const SettingsSection: React.FC<Props> = ({ snapshot, onUpdateConfig, onR
                       </button>
                     )}
                   </div>
-                  {snapshot.voucherProfile && snapshot.isUsingDoubaoVoucher && (() => {
+
+                  {/* Dedicated, understated friend voucher drawer (separate from own API Key; auto-switches to own key when exhausted) */}
+                  {(() => {
+                    const savedVoucher = (snapshot.doubaoVoucherCode || "").trim();
+                    const hasVoucher = savedVoucher.length > 0;
+                    const visible = showVoucherDrawer || hasVoucher;
+                    if (!visible) {
+                      return (
+                        <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--ink-muted)" }}>
+                          <span>🎟️ 持有朋友赠送的豆包语音兑换码？</span>
+                          <button
+                            type="button"
+                            style={{
+                              background: "none",
+                              border: "none",
+                              padding: 0,
+                              cursor: "pointer",
+                              color: "var(--violet)",
+                              fontWeight: 600,
+                              fontSize: 11.5,
+                            }}
+                            onClick={() => setShowVoucherDrawer(true)}
+                          >
+                            去兑换 ▸
+                          </button>
+                        </div>
+                      );
+                    }
                     const vp = snapshot.voucherProfile;
-                    const pct = vp.quotaMinutes > 0 ? Math.min(100, (vp.usedMinutes / vp.quotaMinutes) * 100) : 100;
+                    const pct = vp && vp.quotaMinutes > 0 ? Math.min(100, (vp.usedMinutes / vp.quotaMinutes) * 100) : 100;
                     return (
                       <div
                         style={{
-                          marginTop: 8,
-                          padding: "8px 10px",
+                          marginTop: 10,
+                          padding: "9px 10px",
                           borderRadius: 8,
-                          background: vp.exhausted || vp.revoked ? "rgba(209,50,60,0.08)" : "rgba(90,70,232,0.07)",
+                          background: "rgba(90,70,232,0.06)",
+                          border: "1px solid rgba(90,70,232,0.16)",
                           fontSize: 11.5,
                         }}
                       >
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                          <span>
-                            🎟️ 兑换码 <strong className="mono">{vp.code}</strong>
-                            {vp.note ? `（${vp.note}）` : ""} · 已用 {vp.usedMinutes.toFixed(1)} / {vp.quotaMinutes.toFixed(0)} 分钟 · 剩余{" "}
-                            <strong>{vp.remainingMinutes.toFixed(1)} 分钟</strong>（{vp.sessionCount} 次）
-                          </span>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 7 }}>
+                          <div>
+                            <strong style={{ color: "var(--ink-primary)" }}>🎟️ 朋友兑换码</strong>
+                            <span style={{ marginLeft: 6, fontSize: 10.5, color: "var(--ink-muted)" }}>
+                              选填 · 若已填自有 Key，优先用完赠送时长后自动无缝切回自有 Key
+                            </span>
+                          </div>
+                          {!hasVoucher && (
+                            <button
+                              type="button"
+                              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--ink-muted)", fontSize: 11 }}
+                              onClick={() => setShowVoucherDrawer(false)}
+                            >
+                              收起
+                            </button>
+                          )}
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <input
+                            type="text"
+                            className="input input-compact mono"
+                            placeholder={hasVoucher ? savedVoucher : "粘贴兑换码，如 TZ-XXXX-XXXX"}
+                            value={voucherInput}
+                            onChange={(e) => setVoucherInput(e.target.value)}
+                          />
                           <button
                             type="button"
-                            className="btn btn-secondary btn-compact"
+                            className="btn btn-primary btn-compact"
+                            disabled={asrBusy !== null}
                             onClick={async () => {
-                              await api.refreshVoucherStatus().catch(() => {});
-                              await onRefresh();
+                              setAsrBusy("voucher-save");
+                              try {
+                                await api.saveDoubaoVoucherCode(voucherInput || savedVoucher);
+                                setVoucherInput("");
+                                await onRefresh();
+                              } catch (err) {
+                                setAsrNotice((prev) => ({
+                                  ...prev,
+                                  volcSeedASR: { ok: false, msg: String(err) },
+                                }));
+                              } finally {
+                                setAsrBusy(null);
+                              }
                             }}
                           >
-                            刷新时长
+                            {asrBusy === "voucher-save" ? "校验中…" : "兑换并激活"}
                           </button>
+                          {hasVoucher && (
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-compact"
+                              onClick={async () => {
+                                await api.clearDoubaoVoucherCode();
+                                setVoucherInput("");
+                                setShowVoucherDrawer(false);
+                                await onRefresh();
+                              }}
+                            >
+                              移除
+                            </button>
+                          )}
                         </div>
-                        <div className="progress-track" style={{ marginTop: 6, height: 5 }}>
-                          <div
-                            className="progress-fill"
-                            style={{
-                              width: `${pct.toFixed(1)}%`,
-                              background: vp.exhausted || vp.revoked ? "var(--danger-red, #D1323C)" : "var(--violet)",
-                            }}
-                          />
-                        </div>
+                        {vp && hasVoucher && (
+                          <div style={{ marginTop: 8 }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                              <span>
+                                {snapshot.isUsingDoubaoVoucher
+                                  ? "● 优先消耗兑换码："
+                                  : snapshot.hasOwnVolcSpeechKey
+                                    ? "✓ 已自动切回自有 Key："
+                                    : "⛔ 兑换码已用完："}
+                                <strong className="mono">{vp.code}</strong>
+                                {vp.note ? `（${vp.note}）` : ""} · 已用 {vp.usedMinutes.toFixed(1)} / {vp.quotaMinutes.toFixed(0)} 分钟 · 剩余{" "}
+                                <strong>{vp.remainingMinutes.toFixed(1)} 分钟</strong>（{vp.sessionCount} 次）
+                              </span>
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-compact"
+                                onClick={async () => {
+                                  await api.refreshVoucherStatus().catch(() => {});
+                                  await onRefresh();
+                                }}
+                              >
+                                刷新时长
+                              </button>
+                            </div>
+                            <div className="progress-track" style={{ marginTop: 6, height: 5 }}>
+                              <div
+                                className="progress-fill"
+                                style={{
+                                  width: `${pct.toFixed(1)}%`,
+                                  background: vp.exhausted || vp.revoked ? "var(--danger-red, #D1323C)" : "var(--violet)",
+                                }}
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })()}

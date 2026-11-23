@@ -264,9 +264,28 @@ impl AppState {
         true
     }
 
+    pub fn is_voucher_exhausted_or_revoked(&self) -> bool {
+        self.inner
+            .lock()
+            .voucher_profile
+            .as_ref()
+            .map(|vp| vp.exhausted || vp.revoked)
+            .unwrap_or(false)
+    }
+
+    pub fn effective_doubao_credential(&self) -> String {
+        let raw_own = credentials::load_volc_speech_api_key();
+        if crate::core::cloud::is_voucher_code(&raw_own) {
+            let migrated = crate::core::cloud::normalized_voucher_code(&raw_own);
+            credentials::save_doubao_voucher_code(&migrated);
+            credentials::save_volc_speech_api_key("");
+        }
+        credentials::load_effective_doubao_speech_credential(self.is_voucher_exhausted_or_revoked())
+    }
+
     pub fn sync_asr_engine_config(&self) {
         let cfg = self.inner.lock().config.clone();
-        let volc_key = credentials::load_volc_speech_api_key();
+        let volc_key = self.effective_doubao_credential();
         let cloud_jwt = credentials::load_cloud_jwt();
         let use_cloud = self.is_official_cloud_trial_active();
         let openai_asr_key =
@@ -651,7 +670,7 @@ impl AppState {
         let st_refresh = Arc::clone(self);
         let used_voucher_asr = cfg.asr_provider == ASRProviderOption::VolcSeedASR
             && !self.is_official_cloud_trial_active()
-            && crate::core::cloud::is_voucher_code(&credentials::load_volc_speech_api_key());
+            && crate::core::cloud::is_voucher_code(&self.effective_doubao_credential());
         if used_voucher_asr {
             tokio::spawn(async move {
                 let _ = st_refresh.refresh_voucher_status(true).await;
@@ -914,27 +933,111 @@ impl AppState {
 
     pub fn save_volc_speech_key(&self, key: &str) {
         let trimmed = key.trim();
-        let to_save = if crate::core::cloud::is_voucher_code(trimmed) {
-            crate::core::cloud::normalized_voucher_code(trimmed)
-        } else {
-            trimmed.to_string()
-        };
-        credentials::save_volc_speech_api_key(&to_save);
+        if crate::core::cloud::is_voucher_code(trimmed) {
+            // Gracefully route voucher codes pasted into the API Key box into the dedicated voucher slot
+            let code = crate::core::cloud::normalized_voucher_code(trimmed);
+            credentials::save_doubao_voucher_code(&code);
+            self.inner.lock().voucher_profile = None;
+            self.sync_asr_engine_config();
+            self.set_status_banner("🎟️ 已存入豆包兑换码专区（原有自有 Key 未被覆盖）");
+            return;
+        }
+        credentials::save_volc_speech_api_key(trimmed);
         self.sync_asr_engine_config();
         let saved = credentials::load_volc_speech_api_key();
         let is_active = self.inner.lock().config.asr_provider == ASRProviderOption::VolcSeedASR;
+        let using_voucher = crate::core::cloud::is_voucher_code(&self.effective_doubao_credential());
         if saved.is_empty() {
-            self.inner.lock().voucher_profile = None;
-            self.set_status_banner("已清空豆包语音密钥");
-        } else if crate::core::cloud::is_voucher_code(&saved) {
-            self.set_status_banner("🎟️ 已保存豆包语音兑换码，点击「测速」或「校验并切换」查看剩余时长");
+            let has_voucher = !credentials::load_doubao_voucher_code().trim().is_empty();
+            self.set_status_banner(if has_voucher {
+                "已清空自有豆包 API Key（当前继续使用已存兑换码）"
+            } else {
+                "已清空豆包语音密钥"
+            });
+        } else if using_voucher {
+            self.set_status_banner("✅ 自有豆包 API Key 已保存（将优先用完兑换码额度，用完后自动无缝切回自有 Key）");
         } else if is_active {
-            self.inner.lock().voucher_profile = None;
-            self.set_status_banner("✅ 豆包 Seed-ASR 2.0 语音密钥已保存至 Windows 凭据管理器");
+            self.set_status_banner("✅ 您自己的豆包 Seed-ASR 2.0 密钥已保存并生效");
         } else {
-            self.inner.lock().voucher_profile = None;
-            self.set_status_banner("💾 豆包语音密钥已保存（点击「校验并切换」启用）");
+            self.set_status_banner("💾 豆包自有密钥已保存（点击「校验并切换」启用）");
         }
+    }
+
+    pub async fn save_doubao_voucher_code(
+        &self,
+        code_input: &str,
+    ) -> Result<Option<crate::core::cloud::CloudVoucherProfile>, String> {
+        let trimmed = code_input.trim();
+        if trimmed.is_empty() {
+            self.clear_doubao_voucher_code();
+            return Ok(None);
+        }
+        if !crate::core::cloud::is_voucher_code(trimmed) {
+            let err = "兑换码格式应为 TZ-XXXX-XXXX（自有密钥请填上方 API Key 输入框）".to_string();
+            self.set_status_banner(format!("❌ {err}"));
+            return Err(err);
+        }
+        let code = crate::core::cloud::normalized_voucher_code(trimmed);
+        credentials::save_doubao_voucher_code(&code);
+        self.inner.lock().voucher_profile = None;
+        self.sync_asr_engine_config();
+
+        let (asr_ready, profile) = crate::core::cloud::fetch_voucher_status(&code).await?;
+        self.inner.lock().voucher_profile = Some(profile.clone());
+        self.sync_asr_engine_config();
+        let has_own = !credentials::load_volc_speech_api_key().trim().is_empty();
+
+        if profile.revoked {
+            let msg = if has_own {
+                format!("⚠️ 该兑换码（{}）已停用，当前已自动使用您自己的豆包 API Key", profile.code)
+            } else {
+                format!("⛔ 豆包语音兑换码（{}）已停用，请联系发放人或填入自有 API Key", profile.code)
+            };
+            self.set_status_banner(msg);
+            self.emit_state_changed();
+            return Ok(Some(profile));
+        }
+        if profile.exhausted {
+            let msg = if has_own {
+                format!(
+                    "✅ 该兑换码时长已用完（已用 {:.1} / {:.0} 分钟），当前已自动使用您自己的豆包 API Key",
+                    profile.used_minutes, profile.quota_minutes
+                )
+            } else {
+                format!(
+                    "⛔ 豆包语音兑换码时长已用完（已用 {:.1} / {:.0} 分钟），请联系发放人续期或填入自有 API Key",
+                    profile.used_minutes, profile.quota_minutes
+                )
+            };
+            self.set_status_banner(msg);
+            self.emit_state_changed();
+            return Ok(Some(profile));
+        }
+        if !asr_ready {
+            return Err("云端豆包语音服务暂未就绪，请稍后再试".to_string());
+        }
+        self.update_config(|c| c.select_asr_provider(ASRProviderOption::VolcSeedASR));
+        self.sync_asr_engine_config();
+        let auto_hint = if has_own { " · 用完自动切回自有 Key" } else { "" };
+        self.set_status_banner(format!(
+            "✅ 豆包兑换码已生效（剩余 {:.1} 分钟{auto_hint}）",
+            profile.remaining_minutes
+        ));
+        self.emit_state_changed();
+        Ok(Some(profile))
+    }
+
+    pub fn clear_doubao_voucher_code(&self) {
+        credentials::save_doubao_voucher_code("");
+        self.inner.lock().voucher_profile = None;
+        self.sync_asr_engine_config();
+        let has_own = !credentials::load_volc_speech_api_key().trim().is_empty();
+        self.set_status_banner(if has_own {
+            "已移除兑换码，已自动切回您自己的豆包 API Key"
+        } else {
+            "已移除豆包语音兑换码"
+        });
+        self.emit_state_changed();
     }
 
     pub fn save_openai_asr_config(&self, base_url: &str, model: &str, override_key: &str) {
@@ -965,29 +1068,40 @@ impl AppState {
     pub async fn probe_seed_asr(&self, key_input: &str) -> Result<String, String> {
         let trimmed = key_input.trim();
         if !trimmed.is_empty() {
-            let to_save = if crate::core::cloud::is_voucher_code(trimmed) {
-                crate::core::cloud::normalized_voucher_code(trimmed)
+            if crate::core::cloud::is_voucher_code(trimmed) {
+                let code = crate::core::cloud::normalized_voucher_code(trimmed);
+                credentials::save_doubao_voucher_code(&code);
+                self.inner.lock().voucher_profile = None;
             } else {
-                trimmed.to_string()
-            };
-            credentials::save_volc_speech_api_key(&to_save);
+                credentials::save_volc_speech_api_key(trimmed);
+            }
             self.sync_asr_engine_config();
         }
-        let key = credentials::load_volc_speech_api_key();
+        let key = self.effective_doubao_credential();
         if crate::core::cloud::is_voucher_code(&key) {
             let code = crate::core::cloud::normalized_voucher_code(&key);
             let (asr_ready, profile) = crate::core::cloud::fetch_voucher_status(&code).await?;
             self.inner.lock().voucher_profile = Some(profile.clone());
+            self.sync_asr_engine_config();
             self.emit_state_changed();
             if !asr_ready {
                 return Err("云端豆包语音服务暂未就绪，请稍后再试".to_string());
             }
-            if profile.revoked {
-                return Err("该兑换码已被停用，请联系发放人".to_string());
-            }
-            if profile.exhausted {
+            if profile.revoked || profile.exhausted {
+                let own_key = credentials::load_volc_speech_api_key();
+                if !own_key.trim().is_empty() {
+                    let rtt = VolcSeedASRClient::probe_handshake_latency(own_key.trim()).await?;
+                    let summary = format!(
+                        "✅ 兑换码已用完，已自动切回自有豆包 API Key：握手+首帧 {rtt}ms"
+                    );
+                    self.set_status_banner(summary.clone());
+                    return Ok(summary);
+                }
+                if profile.revoked {
+                    return Err("该兑换码已被停用，请联系发放人或填入自有 API Key".to_string());
+                }
                 return Err(format!(
-                    "该兑换码时长已用完（已用 {:.1} / {:.0} 分钟），请联系发放人续期",
+                    "该兑换码时长已用完（已用 {:.1} / {:.0} 分钟），请联系发放人续期或填入自有 API Key",
                     profile.used_minutes, profile.quota_minutes
                 ));
             }
@@ -1012,7 +1126,6 @@ impl AppState {
             ));
             Ok(summary)
         } else {
-            self.inner.lock().voucher_profile = None;
             let rtt = VolcSeedASRClient::probe_handshake_latency(&key).await?;
             let hot_count = self.lexicon.entries().len().min(65);
             let summary = format!(
@@ -1288,7 +1401,24 @@ impl AppState {
         for p in LLMProviderOption::ALL {
             saved_keys.insert(p.key_name().to_string(), credentials::has_saved_api_key(p));
         }
-        let has_volc = !credentials::load_volc_speech_api_key().is_empty();
+        let raw_own = credentials::load_volc_speech_api_key();
+        if crate::core::cloud::is_voucher_code(&raw_own) {
+            let migrated = crate::core::cloud::normalized_voucher_code(&raw_own);
+            credentials::save_doubao_voucher_code(&migrated);
+            credentials::save_volc_speech_api_key("");
+        }
+        let own_volc = credentials::load_volc_speech_api_key();
+        let has_own_volc = !own_volc.trim().is_empty();
+        let voucher_code = credentials::load_doubao_voucher_code();
+        let has_voucher = crate::core::cloud::is_voucher_code(&voucher_code);
+        let has_volc = has_own_volc || has_voucher;
+        let voucher_exhausted = g
+            .voucher_profile
+            .as_ref()
+            .map(|vp| vp.exhausted || vp.revoked)
+            .unwrap_or(false);
+        let effective_volc = credentials::load_effective_doubao_speech_credential(voucher_exhausted);
+        let is_using_voucher = crate::core::cloud::is_voucher_code(&effective_volc);
         let override_oai = credentials::load_openai_asr_override_key();
         let has_oai_override = !override_oai.is_empty();
         let is_groq = OpenAITranscriptionClient::is_groq_endpoint(&g.config.openai_asr_base_url);
@@ -1324,6 +1454,8 @@ impl AppState {
             lexicon: self.lexicon.entries(),
             saved_provider_keys: saved_keys,
             has_volc_speech_key: has_volc,
+            has_own_volc_speech_key: has_own_volc,
+            doubao_voucher_code: voucher_code,
             has_openai_asr_override_key: has_oai_override,
             has_effective_openai_asr_key: has_eff_oai,
             is_openai_asr_reusing_llm_key: is_reusing,
@@ -1349,9 +1481,7 @@ impl AppState {
                     .map(|u| u.balance_cny > 0.0 && !u.is_banned)
                     .unwrap_or(true),
             voucher_profile: g.voucher_profile.clone(),
-            is_using_doubao_voucher: crate::core::cloud::is_voucher_code(
-                &credentials::load_volc_speech_api_key(),
-            ),
+            is_using_doubao_voucher: is_using_voucher,
             current_version: crate::core::updater::CURRENT_APP_VERSION.to_string(),
             available_update: g.available_update.clone(),
             is_checking_update: g.is_checking_update,
@@ -1493,31 +1623,61 @@ impl AppState {
         &self,
         notify_low_or_exhausted: bool,
     ) -> Result<Option<crate::core::cloud::CloudVoucherProfile>, String> {
-        let key = credentials::load_volc_speech_api_key();
-        if !crate::core::cloud::is_voucher_code(&key) {
+        let raw_own = credentials::load_volc_speech_api_key();
+        if crate::core::cloud::is_voucher_code(&raw_own) {
+            let migrated = crate::core::cloud::normalized_voucher_code(&raw_own);
+            credentials::save_doubao_voucher_code(&migrated);
+            credentials::save_volc_speech_api_key("");
+        }
+        let raw_voucher = credentials::load_doubao_voucher_code();
+        if !crate::core::cloud::is_voucher_code(&raw_voucher) {
             self.inner.lock().voucher_profile = None;
+            self.sync_asr_engine_config();
             self.emit_state_changed();
             return Ok(None);
         }
-        let code = crate::core::cloud::normalized_voucher_code(&key);
+        let code = crate::core::cloud::normalized_voucher_code(&raw_voucher);
         let (_, profile) = crate::core::cloud::fetch_voucher_status(&code).await?;
         self.inner.lock().voucher_profile = Some(profile.clone());
+        self.sync_asr_engine_config();
+        let has_own = !credentials::load_volc_speech_api_key().trim().is_empty();
         if notify_low_or_exhausted {
             if profile.revoked {
-                self.set_status_banner(format!(
-                    "⛔ 豆包语音兑换码（{}）已停用，请联系发放人或填入您自己的豆包 API Key",
-                    profile.code
-                ));
+                if has_own {
+                    self.set_status_banner(format!(
+                        "✅ 豆包兑换码（{}）已停用，已自动无缝切换为您自己的豆包 API Key",
+                        profile.code
+                    ));
+                } else {
+                    self.set_status_banner(format!(
+                        "⛔ 豆包语音兑换码（{}）已停用，请联系发放人或填入您自己的豆包 API Key",
+                        profile.code
+                    ));
+                }
             } else if profile.exhausted {
-                self.set_status_banner(format!(
-                    "⛔ 豆包语音兑换码时长已用完（已用 {:.1} / {:.0} 分钟），请联系发放人续期或填入您自己的豆包 API Key",
-                    profile.used_minutes, profile.quota_minutes
-                ));
+                if has_own {
+                    self.set_status_banner(format!(
+                        "✅ 豆包兑换码额度已用完（已用 {:.1} / {:.0} 分钟），已自动无缝切换为您自己的豆包 API Key",
+                        profile.used_minutes, profile.quota_minutes
+                    ));
+                } else {
+                    self.set_status_banner(format!(
+                        "⛔ 豆包语音兑换码时长已用完（已用 {:.1} / {:.0} 分钟），请联系发放人续期或填入您自己的豆包 API Key",
+                        profile.used_minutes, profile.quota_minutes
+                    ));
+                }
             } else if profile.remaining_minutes <= 10.0 {
-                self.set_status_banner(format!(
-                    "⚠️ 豆包语音兑换码仅剩 {:.1} 分钟（共 {:.0} 分钟），请提前联系续期",
-                    profile.remaining_minutes, profile.quota_minutes
-                ));
+                if has_own {
+                    self.set_status_banner(format!(
+                        "⚠️ 豆包语音兑换码仅剩 {:.1} 分钟，用完后将自动无缝切换为您自己的豆包 API Key",
+                        profile.remaining_minutes
+                    ));
+                } else {
+                    self.set_status_banner(format!(
+                        "⚠️ 豆包语音兑换码仅剩 {:.1} 分钟（共 {:.0} 分钟），请提前填入您自己的豆包 API Key 或联系续期",
+                        profile.remaining_minutes, profile.quota_minutes
+                    ));
+                }
             }
         }
         self.emit_state_changed();

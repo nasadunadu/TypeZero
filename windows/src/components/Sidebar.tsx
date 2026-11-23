@@ -190,7 +190,7 @@ export const Sidebar: React.FC<Props> = ({
 
         <div className="telemetry-row" style={{ borderTop: "1px solid var(--hairline)", paddingTop: 6, marginTop: 4 }}>
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--ink-muted)" }}>
-            v{snapshot.currentVersion || "0.5.6"}
+            v{snapshot.currentVersion || "0.5.7"}
           </span>
           {snapshot.availableUpdate ? (
             <button

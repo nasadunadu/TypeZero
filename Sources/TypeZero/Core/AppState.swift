@@ -57,6 +57,7 @@ public final class AppState: ObservableObject {
     }
     @Published public var apiKeyInput: String = ""
     @Published public var volcSpeechKeyInput: String = ""
+    @Published public var doubaoVoucherInput: String = ""
     @Published public var openAIASRKeyInput: String = ""
     @Published public var savedProviderKeyFlags: [LLMProviderOption: Bool] = [:]
     @Published public var micAuthorized: Bool = false
@@ -94,8 +95,42 @@ public final class AppState: ObservableObject {
     @Published public var cloudAuthMessage: String = ""
     private var googlePollTask: Task<Void, Never>? = nil
 
+    public var hasOwnVolcSpeechKey: Bool {
+        !volcSpeechKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    public var hasDoubaoVoucher: Bool {
+        CloudAuthClient.isVoucherCode(doubaoVoucherInput)
+    }
+
+    public var isDoubaoVoucherExhaustedOrRevoked: Bool {
+        guard let vp = voucherProfile else { return false }
+        return vp.exhausted || vp.revoked
+    }
+
+    public var hasAnyVolcSpeechCredential: Bool {
+        hasOwnVolcSpeechKey || hasDoubaoVoucher
+    }
+
+    /// Priority rule:
+    /// - If an active (non-exhausted, non-revoked) voucher exists, consume the gifted voucher quota first.
+    /// - Once the voucher is exhausted/revoked (or removed), seamlessly auto-switch to the user's own Doubao API Key.
+    public var effectiveDoubaoSpeechCredential: String {
+        let own = volcSpeechKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let voucher = CloudAuthClient.isVoucherCode(doubaoVoucherInput)
+            ? CloudAuthClient.normalizedVoucherCode(doubaoVoucherInput)
+            : ""
+        if !voucher.isEmpty && !isDoubaoVoucherExhaustedOrRevoked {
+            return voucher
+        }
+        if !own.isEmpty {
+            return own
+        }
+        return voucher
+    }
+
     public var isUsingDoubaoVoucher: Bool {
-        CloudAuthClient.isVoucherCode(volcSpeechKeyInput)
+        CloudAuthClient.isVoucherCode(effectiveDoubaoSpeechCredential)
     }
 
     // In-App Auto-Update
@@ -157,7 +192,15 @@ public final class AppState: ObservableObject {
         loadConfig()
         loadHistory()
         self.apiKeyInput = KeychainHelper.loadAPIKey(for: llmConfig.selectedProvider)
+        let rawVolcSlot = KeychainHelper.loadVolcSpeechAPIKey()
+        if CloudAuthClient.isVoucherCode(rawVolcSlot) {
+            // Auto-migrate legacy voucher stored inside API Key slot into dedicated voucher slot
+            let migratedCode = CloudAuthClient.normalizedVoucherCode(rawVolcSlot)
+            KeychainHelper.saveDoubaoVoucherCode(migratedCode)
+            KeychainHelper.saveVolcSpeechAPIKey("")
+        }
         self.volcSpeechKeyInput = KeychainHelper.loadVolcSpeechAPIKey()
+        self.doubaoVoucherInput = KeychainHelper.loadDoubaoVoucherCode()
         self.openAIASRKeyInput = KeychainHelper.loadOpenAIASROverrideKey()
         refreshSavedKeyFlags()
         syncASREngineConfig()
@@ -229,7 +272,7 @@ public final class AppState: ObservableObject {
             // First-run colleague onboarding check:
             // Auto-complete silently on already-configured machines; open 3-step setup guide on a brand-new colleague's Mac!
             if !UserDefaults.standard.bool(forKey: "tz_onboarding_done_v1") {
-                let hasAnyASRReady = !self.volcSpeechKeyInput.isEmpty
+                let hasAnyASRReady = self.hasAnyVolcSpeechCredential
                     || self.hasEffectiveOpenAIASRKey
                     || StreamingASREngine.senseVoiceModelPaths() != nil
                 if self.micAuthorized && self.accessibilityGranted && hasAnyASRReady {
@@ -573,7 +616,9 @@ public final class AppState: ObservableObject {
         asrEngine.enableWhisperAGC = llmConfig.enableWhisperAGC
         asrEngine.speechLocale = llmConfig.speechLocale
         asrEngine.asrProvider = llmConfig.asrProvider
-        asrEngine.volcSpeechAPIKey = KeychainHelper.loadVolcSpeechAPIKey()
+        asrEngine.volcSpeechAPIKey = KeychainHelper.loadEffectiveDoubaoSpeechCredential(
+            voucherExhaustedOrRevoked: isDoubaoVoucherExhaustedOrRevoked
+        )
         asrEngine.useCloudTrialRelay = isOfficialCloudTrialActive
         asrEngine.cloudTrialJWT = KeychainHelper.loadCloudJWT()
         asrEngine.openAIASRBaseURL = llmConfig.openAIASRBaseURL
@@ -593,34 +638,54 @@ public final class AppState: ObservableObject {
     // MARK: - TypeZero Cloud Auth & Official Free Trial
 
     public func refreshVoucherStatusIfApplicable(notifyUserOnLowOrExhausted: Bool = false) async {
-        let key = KeychainHelper.loadVolcSpeechAPIKey().trimmingCharacters(in: .whitespacesAndNewlines)
-        guard CloudAuthClient.isVoucherCode(key) else {
+        let raw = KeychainHelper.loadDoubaoVoucherCode().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard CloudAuthClient.isVoucherCode(raw) else {
             voucherProfile = nil
             return
         }
-        let code = CloudAuthClient.normalizedVoucherCode(key)
+        let code = CloudAuthClient.normalizedVoucherCode(raw)
         do {
             let (_, profile) = try await CloudAuthClient.fetchVoucherStatus(code: code)
             voucherProfile = profile
+            syncASREngineConfig()
             if notifyUserOnLowOrExhausted {
                 if profile.revoked {
-                    let msg = "⛔ 豆包语音兑换码（\(profile.code)）已停用，请联系发放人或填入您自己的豆包 API Key"
-                    asrActivationErrors[.volcSeedASR] = msg
-                    statusBanner = msg
+                    if hasOwnVolcSpeechKey {
+                        asrActivationErrors[.volcSeedASR] = nil
+                        statusBanner = "✅ 豆包兑换码（\(profile.code)）已停用，已自动无缝切换为您自己的豆包 API Key"
+                    } else {
+                        let msg = "⛔ 豆包语音兑换码（\(profile.code)）已停用，请联系发放人或填入您自己的豆包 API Key"
+                        asrActivationErrors[.volcSeedASR] = msg
+                        statusBanner = msg
+                    }
                 } else if profile.exhausted {
-                    let msg = String(
-                        format: "⛔ 豆包语音兑换码时长已用完（已用 %.1f / %.0f 分钟），请联系发放人续期或填入您自己的豆包 API Key",
-                        profile.usedMinutes,
-                        profile.quotaMinutes
-                    )
-                    asrActivationErrors[.volcSeedASR] = msg
-                    statusBanner = msg
+                    if hasOwnVolcSpeechKey {
+                        asrActivationErrors[.volcSeedASR] = nil
+                        statusBanner = String(
+                            format: "✅ 豆包兑换码额度已用完（已用 %.1f / %.0f 分钟），已自动无缝切换为您自己的豆包 API Key",
+                            profile.usedMinutes,
+                            profile.quotaMinutes
+                        )
+                    } else {
+                        let msg = String(
+                            format: "⛔ 豆包语音兑换码时长已用完（已用 %.1f / %.0f 分钟），请联系发放人续期或填入您自己的豆包 API Key",
+                            profile.usedMinutes,
+                            profile.quotaMinutes
+                        )
+                        asrActivationErrors[.volcSeedASR] = msg
+                        statusBanner = msg
+                    }
                 } else if profile.remainingMinutes <= 10.0 {
-                    statusBanner = String(
-                        format: "⚠️ 豆包语音兑换码仅剩 %.1f 分钟（共 %.0f 分钟），请提前联系续期",
-                        profile.remainingMinutes,
-                        profile.quotaMinutes
-                    )
+                    statusBanner = hasOwnVolcSpeechKey
+                        ? String(
+                            format: "⚠️ 豆包语音兑换码仅剩 %.1f 分钟，用完后将自动无缝切换为您自己的豆包 API Key",
+                            profile.remainingMinutes
+                        )
+                        : String(
+                            format: "⚠️ 豆包语音兑换码仅剩 %.1f 分钟（共 %.0f 分钟），请提前填入您自己的豆包 API Key 或联系续期",
+                            profile.remainingMinutes,
+                            profile.quotaMinutes
+                        )
                 }
             }
         } catch {
@@ -793,18 +858,24 @@ public final class AppState: ObservableObject {
 
         switch provider {
         case .volcSeedASR:
-            let trimmed = volcSpeechKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                let toSave = CloudAuthClient.isVoucherCode(trimmed)
-                    ? CloudAuthClient.normalizedVoucherCode(trimmed)
-                    : trimmed
-                KeychainHelper.saveVolcSpeechAPIKey(toSave)
-                volcSpeechKeyInput = KeychainHelper.loadVolcSpeechAPIKey()
+            let typedOwn = volcSpeechKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !typedOwn.isEmpty {
+                if CloudAuthClient.isVoucherCode(typedOwn) {
+                    let code = CloudAuthClient.normalizedVoucherCode(typedOwn)
+                    KeychainHelper.saveDoubaoVoucherCode(code)
+                    doubaoVoucherInput = code
+                    volcSpeechKeyInput = KeychainHelper.loadVolcSpeechAPIKey()
+                } else {
+                    KeychainHelper.saveVolcSpeechAPIKey(typedOwn)
+                    volcSpeechKeyInput = KeychainHelper.loadVolcSpeechAPIKey()
+                }
                 syncASREngineConfig()
             }
-            let key = KeychainHelper.loadVolcSpeechAPIKey().trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = KeychainHelper.loadEffectiveDoubaoSpeechCredential(
+                voucherExhaustedOrRevoked: isDoubaoVoucherExhaustedOrRevoked
+            )
             guard !key.isEmpty else {
-                let err = "❌ 无法生效：请先填入火山豆包语音 API Key 或兑换码（当前配置未生效）"
+                let err = "❌ 无法生效：请先填入您自己的豆包语音 API Key（或在下方填入朋友兑换码）"
                 asrActivationErrors[provider] = err
                 statusBanner = err
                 return false
@@ -1111,30 +1182,112 @@ public final class AppState: ObservableObject {
 
     public func saveVolcSpeechAPIKey() {
         let trimmed = volcSpeechKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        let toSave = CloudAuthClient.isVoucherCode(trimmed)
-            ? CloudAuthClient.normalizedVoucherCode(trimmed)
-            : trimmed
-        KeychainHelper.saveVolcSpeechAPIKey(toSave)
+        if CloudAuthClient.isVoucherCode(trimmed) {
+            // Gracefully route pasted voucher codes into the dedicated voucher slot without clobbering own key
+            doubaoVoucherInput = CloudAuthClient.normalizedVoucherCode(trimmed)
+            volcSpeechKeyInput = KeychainHelper.loadVolcSpeechAPIKey()
+            Task { [weak self] in
+                await self?.saveDoubaoVoucherCode()
+            }
+            return
+        }
+        KeychainHelper.saveVolcSpeechAPIKey(trimmed)
         volcSpeechKeyInput = KeychainHelper.loadVolcSpeechAPIKey()
         syncASREngineConfig()
         speechAuthorized = StreamingASREngine.isSpeechAuthorized
         lastSeedASRProbeSummary = ""
         asrActivationErrors[.volcSeedASR] = nil
         if volcSpeechKeyInput.isEmpty {
-            voucherProfile = nil
-            statusBanner = "已清空豆包语音密钥"
-        } else if CloudAuthClient.isVoucherCode(volcSpeechKeyInput) {
-            statusBanner = "🎟️ 已识别豆包语音兑换码，正在校验剩余时长…"
-            Task { [weak self] in
-                await self?.refreshVoucherStatusIfApplicable(notifyUserOnLowOrExhausted: true)
-            }
+            statusBanner = hasDoubaoVoucher
+                ? "已清空自有豆包 API Key（当前继续使用已存兑换码）"
+                : "已清空豆包语音密钥"
+        } else if isUsingDoubaoVoucher {
+            let remText = voucherProfile.map { String(format: "剩余 %.1f 分钟", $0.remainingMinutes) } ?? "剩余额度"
+            statusBanner = "✅ 您自己的豆包 API Key 已保存（将优先用完兑换码\(remText)，用完后自动无缝切换为自有 Key）"
         } else if llmConfig.asrProvider == .volcSeedASR {
-            voucherProfile = nil
-            statusBanner = "✅ 豆包 Seed-ASR 2.0 语音密钥已保存"
+            statusBanner = "✅ 您自己的豆包 Seed-ASR 2.0 密钥已保存并生效"
         } else {
-            voucherProfile = nil
-            statusBanner = "💾 豆包语音密钥已保存（尚未设为当前生效，点击「校验并切换」启用）"
+            statusBanner = "💾 豆包自有密钥已保存（尚未设为当前生效，点击「校验并切换」启用）"
         }
+    }
+
+    public func saveDoubaoVoucherCode() async {
+        let trimmed = doubaoVoucherInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        asrActivationErrors[.volcSeedASR] = nil
+        if trimmed.isEmpty {
+            clearDoubaoVoucherCode()
+            return
+        }
+        guard CloudAuthClient.isVoucherCode(trimmed) else {
+            let err = "❌ 兑换码格式应为 TZ-XXXX-XXXX（自有密钥请填上方 API Key 输入框）"
+            asrActivationErrors[.volcSeedASR] = err
+            statusBanner = err
+            return
+        }
+        let code = CloudAuthClient.normalizedVoucherCode(trimmed)
+        KeychainHelper.saveDoubaoVoucherCode(code)
+        doubaoVoucherInput = code
+        voucherProfile = nil
+        syncASREngineConfig()
+        speechAuthorized = StreamingASREngine.isSpeechAuthorized
+        statusBanner = "🎟️ 正在校验豆包语音兑换码 \(code)…"
+
+        do {
+            let (asrReady, profile) = try await CloudAuthClient.fetchVoucherStatus(code: code)
+            voucherProfile = profile
+            syncASREngineConfig()
+            if profile.revoked {
+                let msg = hasOwnVolcSpeechKey
+                    ? "⚠️ 该兑换码（\(profile.code)）已停用，当前已自动使用您自己的豆包 API Key"
+                    : "⛔ 豆包语音兑换码（\(profile.code)）已停用，请联系发放人或填入自有 API Key"
+                if !hasOwnVolcSpeechKey { asrActivationErrors[.volcSeedASR] = msg }
+                statusBanner = msg
+                return
+            }
+            if profile.exhausted {
+                let msg = hasOwnVolcSpeechKey
+                    ? String(format: "✅ 该兑换码时长已用完（已用 %.1f / %.0f 分钟），当前已自动使用您自己的豆包 API Key", profile.usedMinutes, profile.quotaMinutes)
+                    : String(format: "⛔ 豆包语音兑换码时长已用完（已用 %.1f / %.0f 分钟），请联系发放人续期或填入自有 API Key", profile.usedMinutes, profile.quotaMinutes)
+                if !hasOwnVolcSpeechKey { asrActivationErrors[.volcSeedASR] = msg }
+                statusBanner = msg
+                return
+            }
+            guard asrReady else {
+                let msg = "⚠️ 云端豆包语音服务暂未就绪，请稍后再试"
+                asrActivationErrors[.volcSeedASR] = msg
+                statusBanner = msg
+                return
+            }
+            llmConfig.selectASRProvider(.volcSeedASR)
+            syncASREngineConfig()
+            let noteTag = profile.note.isEmpty ? "" : "（\(profile.note)）"
+            let autoSwitchHint = hasOwnVolcSpeechKey ? " · 用完自动切回自有 Key" : ""
+            lastSeedASRProbeSummary = String(
+                format: "🎟️ 兑换码已激活：%@%@ · 剩余 %.1f / %.0f 分钟%@",
+                profile.code, noteTag, profile.remainingMinutes, profile.quotaMinutes, autoSwitchHint
+            )
+            statusBanner = String(
+                format: "✅ 豆包兑换码已生效（剩余 %.1f 分钟%@）",
+                profile.remainingMinutes, autoSwitchHint
+            )
+        } catch {
+            let msg = "❌ 兑换码校验失败：\(error.localizedDescription)"
+            asrActivationErrors[.volcSeedASR] = msg
+            statusBanner = msg
+        }
+    }
+
+    public func clearDoubaoVoucherCode() {
+        KeychainHelper.saveDoubaoVoucherCode("")
+        doubaoVoucherInput = ""
+        voucherProfile = nil
+        syncASREngineConfig()
+        speechAuthorized = StreamingASREngine.isSpeechAuthorized
+        lastSeedASRProbeSummary = ""
+        asrActivationErrors[.volcSeedASR] = nil
+        statusBanner = hasOwnVolcSpeechKey
+            ? "已移除兑换码，已自动切回您自己的豆包 API Key"
+            : "已移除豆包语音兑换码"
     }
 
     public func saveOpenAIASRConfig() {
@@ -1221,20 +1374,20 @@ public final class AppState: ObservableObject {
     public func runSeedASRProbe() async {
         guard !isProbingSeedASR else { return }
         isProbingSeedASR = true
-        let typed = volcSpeechKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        let isVoucher = CloudAuthClient.isVoucherCode(typed)
+        let typedOwn = volcSpeechKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !typedOwn.isEmpty && !CloudAuthClient.isVoucherCode(typedOwn) {
+            KeychainHelper.saveVolcSpeechAPIKey(typedOwn)
+            volcSpeechKeyInput = KeychainHelper.loadVolcSpeechAPIKey()
+        }
+        let key = KeychainHelper.loadEffectiveDoubaoSpeechCredential(
+            voucherExhaustedOrRevoked: isDoubaoVoucherExhaustedOrRevoked
+        )
+        asrEngine.volcSpeechAPIKey = key
+        let isVoucher = CloudAuthClient.isVoucherCode(key)
         lastSeedASRProbeSummary = isVoucher
             ? "正在校验豆包语音兑换码剩余时长与云端通道…"
             : "正在通过国内直连通道实测豆包 Seed-ASR 2.0 双向流…"
         defer { isProbingSeedASR = false }
-
-        if !typed.isEmpty {
-            let toSave = isVoucher ? CloudAuthClient.normalizedVoucherCode(typed) : typed
-            KeychainHelper.saveVolcSpeechAPIKey(toSave)
-            volcSpeechKeyInput = KeychainHelper.loadVolcSpeechAPIKey()
-            asrEngine.volcSpeechAPIKey = volcSpeechKeyInput
-        }
-        let key = KeychainHelper.loadVolcSpeechAPIKey().trimmingCharacters(in: .whitespacesAndNewlines)
 
         do {
             if CloudAuthClient.isVoucherCode(key) {
@@ -1267,7 +1420,6 @@ public final class AppState: ObservableObject {
                     profile.remainingMinutes, rttMs
                 )
             } else {
-                voucherProfile = nil
                 let rttMs = try await VolcSeedASRClient.probeHandshakeLatency(apiKey: key)
                 let hotCount = min(65, lexiconStore.entries.count)
                 lastSeedASRProbeSummary = "⚡ 实测通过（volc.seedasr.sauc.duration）：国内直连握手+首帧 \(rttMs)ms · 已挂载 \(hotCount) 个专属热词"

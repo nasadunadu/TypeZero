@@ -383,6 +383,16 @@ export const api = {
     await invoke("refresh_voucher_status");
   },
 
+  async saveDoubaoVoucherCode(code: string): Promise<void> {
+    if (!isTauriRuntime()) return;
+    await invoke("save_doubao_voucher_code", { code });
+  },
+
+  async clearDoubaoVoucherCode(): Promise<void> {
+    if (!isTauriRuntime()) return;
+    await invoke("clear_doubao_voucher_code");
+  },
+
   async checkForUpdates(manual: boolean): Promise<void> {
     if (!isTauriRuntime()) return;
     await invoke("check_for_updates", { manual });

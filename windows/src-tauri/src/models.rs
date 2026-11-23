@@ -798,6 +798,8 @@ pub struct AppSnapshot {
     pub lexicon: Vec<LexiconEntry>,
     pub saved_provider_keys: HashMap<String, bool>,
     pub has_volc_speech_key: bool,
+    pub has_own_volc_speech_key: bool,
+    pub doubao_voucher_code: String,
     pub has_openai_asr_override_key: bool,
     pub has_effective_openai_asr_key: bool,
     pub is_openai_asr_reusing_llm_key: bool,

@@ -321,6 +321,19 @@ pub async fn refresh_voucher_status(
 }
 
 #[tauri::command]
+pub async fn save_doubao_voucher_code(
+    code: String,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Option<crate::core::cloud::CloudVoucherProfile>, String> {
+    state.save_doubao_voucher_code(&code).await
+}
+
+#[tauri::command]
+pub fn clear_doubao_voucher_code(state: State<'_, Arc<AppState>>) {
+    state.clear_doubao_voucher_code();
+}
+
+#[tauri::command]
 pub async fn check_for_updates(
     manual: bool,
     state: State<'_, Arc<AppState>>,

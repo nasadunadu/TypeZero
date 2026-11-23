@@ -453,7 +453,7 @@ public struct MainDashboardView: View {
         if appState.isOfficialCloudTrialActive { return true }
         switch appState.llmConfig.asrProvider {
         case .volcSeedASR:
-            return !appState.volcSpeechKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || appState.senseVoiceLoaded
+            return appState.hasAnyVolcSpeechCredential || appState.senseVoiceLoaded
         case .openAIWhisper:
             return appState.hasEffectiveOpenAIASRKey || appState.senseVoiceLoaded
         case .localSenseVoice:
@@ -467,7 +467,7 @@ public struct MainDashboardView: View {
         }
         switch appState.llmConfig.asrProvider {
         case .volcSeedASR:
-            if !appState.volcSpeechKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if appState.hasAnyVolcSpeechCredential {
                 return appState.senseVoiceFullFP32 ? "SEED-ASR 2.0 + FP32" : "SEED-ASR 2.0 · CLOUD"
             }
         case .openAIWhisper:
@@ -1369,6 +1369,7 @@ struct EngineSettingsSection: View {
     @ObservedObject var appState: AppState
     @State private var expandedASRProvider: ASRProviderOption? = nil
     @State private var expandedLLMProvider: LLMProviderOption? = nil
+    @State private var showVoucherDrawer: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -1497,10 +1498,10 @@ struct EngineSettingsSection: View {
                     )
                 }
 
-                // ASR Option A: Doubao Seed-ASR 2.0 + Inline Key
+                // ASR Option A: Doubao Seed-ASR 2.0 + Inline Own Key + Dedicated Optional Voucher Drawer
                 let volcASRActive = (appState.llmConfig.asrProvider == .volcSeedASR)
                 let volcASRExpanded = (expandedASRProvider == .volcSeedASR)
-                let hasVolcSpeechKey = !appState.volcSpeechKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                let hasVolcSpeechKey = appState.hasAnyVolcSpeechCredential
                 let isActivatingVolc = (appState.activatingASRProvider == .volcSeedASR)
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -1562,11 +1563,11 @@ struct EngineSettingsSection: View {
                         Divider().overlay(TZTheme.hairline)
 
                         HStack(spacing: 8) {
-                            Text(appState.isUsingDoubaoVoucher ? "兑换码" : "API Key")
+                            Text("API Key")
                                 .font(.system(size: 12, weight: .medium, design: .monospaced))
                                 .foregroundStyle(TZTheme.inkSecondary)
                                 .frame(width: 60, alignment: .leading)
-                            SecureField("粘贴火山豆包语音 API Key 或朋友兑换码（如 TZ-XXXX-XXXX）", text: $appState.volcSpeechKeyInput)
+                            SecureField("粘贴您自己的火山豆包语音 API Key（推荐）", text: $appState.volcSpeechKeyInput)
                                 .tzCompactInputStyle()
                                 .onSubmit { appState.saveVolcSpeechAPIKey() }
                             Button("保存") {
@@ -1587,35 +1588,106 @@ struct EngineSettingsSection: View {
                             }
                         }
 
-                        if let vp = appState.voucherProfile, appState.isUsingDoubaoVoucher {
-                            let pct = vp.quotaMinutes > 0 ? min(1.0, vp.usedMinutes / vp.quotaMinutes) : 1.0
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack(spacing: 8) {
-                                    Text(
-                                        String(
-                                            format: "🎟️ 兑换码 %@%@ · 已用 %.1f / %.0f 分钟 · 剩余 %.1f 分钟（%d 次）",
-                                            vp.code,
-                                            vp.note.isEmpty ? "" : "（\(vp.note)）",
-                                            vp.usedMinutes,
-                                            vp.quotaMinutes,
-                                            vp.remainingMinutes,
-                                            vp.sessionCount
-                                        )
-                                    )
-                                    .font(.system(size: 11.5, weight: .medium))
-                                    .foregroundStyle((vp.exhausted || vp.revoked) ? TZTheme.crimson : TZTheme.inkPrimary)
-                                    Spacer()
-                                    Button("刷新时长") {
-                                        Task { await appState.refreshVoucherStatusIfApplicable(notifyUserOnLowOrExhausted: true) }
+                        // Dedicated, understated friend voucher drawer (completely separate from own API Key)
+                        let voucherVisible = showVoucherDrawer || appState.hasDoubaoVoucher
+                        if !voucherVisible {
+                            HStack(spacing: 6) {
+                                Text("🎟️ 持有朋友赠送的豆包语音兑换码？")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(TZTheme.inkMuted)
+                                Button {
+                                    withAnimation(.easeOut(duration: 0.14)) {
+                                        showVoucherDrawer = true
                                     }
-                                    .buttonStyle(TZSecondaryButtonStyle(compact: true))
+                                } label: {
+                                    Text("去兑换 ▸")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(TZTheme.violet)
                                 }
-                                ProgressView(value: pct)
-                                    .tint((vp.exhausted || vp.revoked) ? TZTheme.crimson : (vp.remainingMinutes <= 10 ? TZTheme.amber : TZTheme.violet))
+                                .buttonStyle(.plain)
+                                Spacer()
+                            }
+                            .padding(.top, 2)
+                        } else {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 6) {
+                                    Text("🎟️ 朋友兑换码")
+                                        .font(.system(size: 11.5, weight: .semibold))
+                                        .foregroundStyle(TZTheme.inkPrimary)
+                                    Text("选填 · 若已填自有 Key，优先用完赠送时长后自动无缝切回自有 Key")
+                                        .font(.system(size: 10.5))
+                                        .foregroundStyle(TZTheme.inkMuted)
+                                    Spacer()
+                                    if !appState.hasDoubaoVoucher {
+                                        Button("收起") {
+                                            withAnimation(.easeOut(duration: 0.14)) {
+                                                showVoucherDrawer = false
+                                            }
+                                        }
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(TZTheme.inkMuted)
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+
+                                HStack(spacing: 8) {
+                                    TextField("粘贴兑换码，如 TZ-XXXX-XXXX", text: $appState.doubaoVoucherInput)
+                                        .tzCompactInputStyle()
+                                        .font(.system(size: 12, design: .monospaced))
+                                        .onSubmit {
+                                            Task { await appState.saveDoubaoVoucherCode() }
+                                        }
+                                    Button("兑换并激活") {
+                                        Task { await appState.saveDoubaoVoucherCode() }
+                                    }
+                                    .buttonStyle(TZPrimaryButtonStyle(compact: true))
+                                    if appState.hasDoubaoVoucher {
+                                        Button("移除") {
+                                            appState.clearDoubaoVoucherCode()
+                                            showVoucherDrawer = false
+                                        }
+                                        .buttonStyle(TZSecondaryButtonStyle(compact: true))
+                                    }
+                                }
+
+                                if let vp = appState.voucherProfile, appState.hasDoubaoVoucher {
+                                    let pct = vp.quotaMinutes > 0 ? min(1.0, vp.usedMinutes / vp.quotaMinutes) : 1.0
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        HStack(spacing: 8) {
+                                            Text(
+                                                String(
+                                                    format: "%@%@%@ · 已用 %.1f / %.0f 分钟 · 剩余 %.1f 分钟（%d 次）",
+                                                    appState.isUsingDoubaoVoucher
+                                                        ? "● 优先消耗兑换码："
+                                                        : (appState.hasOwnVolcSpeechKey ? "✓ 已自动切回自有 Key：" : "⛔ 兑换码已用完："),
+                                                    vp.code,
+                                                    vp.note.isEmpty ? "" : "（\(vp.note)）",
+                                                    vp.usedMinutes,
+                                                    vp.quotaMinutes,
+                                                    vp.remainingMinutes,
+                                                    vp.sessionCount
+                                                )
+                                            )
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundStyle((vp.exhausted || vp.revoked) ? TZTheme.crimson : TZTheme.inkPrimary)
+                                            Spacer()
+                                            Button("刷新时长") {
+                                                Task { await appState.refreshVoucherStatusIfApplicable(notifyUserOnLowOrExhausted: true) }
+                                            }
+                                            .buttonStyle(TZSecondaryButtonStyle(compact: true))
+                                        }
+                                        ProgressView(value: pct)
+                                            .tint((vp.exhausted || vp.revoked) ? TZTheme.crimson : (vp.remainingMinutes <= 10 ? TZTheme.amber : TZTheme.violet))
+                                    }
+                                }
                             }
                             .padding(.horizontal, 10)
-                            .padding(.vertical, 8)
-                            .background((vp.exhausted || vp.revoked) ? TZTheme.crimson.opacity(0.06) : TZTheme.lilacTint.opacity(0.65))
+                            .padding(.vertical, 9)
+                            .background(TZTheme.lilacTint.opacity(0.45))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(TZTheme.violet.opacity(0.18), lineWidth: 1)
+                            )
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                         }
 
@@ -1624,7 +1696,7 @@ struct EngineSettingsSection: View {
                         } else if !appState.lastSeedASRProbeSummary.isEmpty {
                             InlineProbeBanner(message: appState.lastSeedASRProbeSummary)
                         } else if !hasVolcSpeechKey {
-                            InlineWarnBanner(message: "⚠️ 尚未填入火山语音 API Key 或朋友兑换码（TZ-XXXX-XXXX）；填入后点击「校验并切换」通过验证才会点亮生效。")
+                            InlineWarnBanner(message: "⚠️ 尚未填入您自己的火山豆包语音 API Key（或下方的朋友兑换码）；填入后点击「校验并切换」即可生效。")
                         }
                     }
                 }
@@ -2546,7 +2618,7 @@ struct OnboardingWizardSheet: View {
                         .foregroundStyle(TZTheme.inkSecondary)
                 }
                 Spacer()
-                Text("v0.5.6")
+                Text("v0.5.7")
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(TZTheme.violet)
                     .padding(.horizontal, 9)
@@ -2583,7 +2655,7 @@ struct OnboardingWizardSheet: View {
             // Step 2: Free ¥1.00 Email Trial OR Personal BYOK API Keys
             VStack(alignment: .leading, spacing: 9) {
                 let onboardingASRReady = appState.isOfficialCloudTrialActive
-                    || (appState.llmConfig.asrProvider == .volcSeedASR && !appState.volcSpeechKeyInput.isEmpty)
+                    || (appState.llmConfig.asrProvider == .volcSeedASR && appState.hasAnyVolcSpeechCredential)
                     || (appState.llmConfig.asrProvider == .openAIWhisper && appState.hasEffectiveOpenAIASRKey)
                     || (appState.llmConfig.asrProvider == .localSenseVoice && appState.senseVoiceLoaded)
                 HStack {

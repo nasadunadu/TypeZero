@@ -1,6 +1,7 @@
 use crate::models::LLMProviderOption;
 
 pub const VOLC_SPEECH_SLOT: &str = "volc_speech_api_key";
+pub const DOUBAO_VOUCHER_SLOT: &str = "doubao_asr_voucher_code";
 pub const OPENAI_ASR_SLOT: &str = "openai_asr_api_key";
 pub const CLOUD_JWT_SLOT: &str = "typezero_cloud_jwt";
 
@@ -141,6 +142,29 @@ pub fn save_volc_speech_api_key(value: &str) {
 
 pub fn load_volc_speech_api_key() -> String {
     platform::load_secret(VOLC_SPEECH_SLOT)
+}
+
+pub fn save_doubao_voucher_code(value: &str) {
+    let cleaned = value.trim().trim_matches(|c| c == '"' || c == '\'').to_uppercase();
+    platform::save_secret(DOUBAO_VOUCHER_SLOT, &cleaned);
+}
+
+pub fn load_doubao_voucher_code() -> String {
+    platform::load_secret(DOUBAO_VOUCHER_SLOT)
+}
+
+pub fn load_effective_doubao_speech_credential(voucher_exhausted_or_revoked: bool) -> String {
+    let own = load_volc_speech_api_key();
+    let own = own.trim();
+    let voucher = load_doubao_voucher_code();
+    let voucher = voucher.trim();
+    if !voucher.is_empty() && !voucher_exhausted_or_revoked {
+        return voucher.to_string();
+    }
+    if !own.is_empty() {
+        return own.to_string();
+    }
+    voucher.to_string()
 }
 
 pub fn save_cloud_jwt(value: &str) {

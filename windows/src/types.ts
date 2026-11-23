@@ -161,6 +161,8 @@ export interface AppSnapshot {
   lexicon: LexiconEntry[];
   savedProviderKeys: Record<string, boolean>;
   hasVolcSpeechKey: boolean;
+  hasOwnVolcSpeechKey?: boolean;
+  doubaoVoucherCode?: string;
   hasOpenaiAsrOverrideKey: boolean;
   hasEffectiveOpenaiAsrKey: boolean;
   isOpenaiAsrReusingLlmKey: boolean;

@@ -155,6 +155,8 @@ pub fn run() {
             commands::cloud_set_use_trial,
             commands::cloud_logout,
             commands::refresh_voucher_status,
+            commands::save_doubao_voucher_code,
+            commands::clear_doubao_voucher_code,
             commands::check_for_updates,
             commands::install_available_update,
             commands::dismiss_update_banner,

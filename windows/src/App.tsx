@@ -78,7 +78,7 @@ export const App: React.FC = () => {
                   <Sparkles size={15} style={{ color: "var(--violet)", flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600 }}>
-                      发现新版本 TypeZero {snapshot.availableUpdate.tag}（当前 v{snapshot.currentVersion || "0.5.6"}）
+                      发现新版本 TypeZero {snapshot.availableUpdate.tag}（当前 v{snapshot.currentVersion || "0.5.7"}）
                     </div>
                     <div style={{ fontSize: 11.5, color: "var(--ink-secondary)", marginTop: 2 }}>
                       {snapshot.isInstallingUpdate
