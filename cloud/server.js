@@ -32,6 +32,14 @@ const SMTP_USER = (process.env.SMTP_USER || "").trim();
 const SMTP_PASS = (process.env.SMTP_PASS || "").trim();
 const SMTP_FROM = (process.env.SMTP_FROM || SMTP_USER || "TypeZero <noreply@mykkai.com>").trim();
 
+// Feishu Alert Channels (supports both Feishu App Bot Open API AND Custom Bot Webhook!)
+const FEISHU_APP_ID = (process.env.FEISHU_APP_ID || process.env.FEISHU_BOT_APP_ID || "").trim();
+const FEISHU_APP_SECRET = (process.env.FEISHU_APP_SECRET || process.env.FEISHU_BOT_APP_SECRET || "").trim();
+const FEISHU_RECEIVE_ID = (process.env.FEISHU_RECEIVE_ID || process.env.FEISHU_CLI_NOTIFICATION_RECEIVE_ID || "").trim();
+const FEISHU_API_BASE = (process.env.FEISHU_API_BASE || "https://open.feishu.cn").replace(/\/+$/, "");
+const FEISHU_WEBHOOK_URL = (process.env.FEISHU_WEBHOOK_URL || "").trim();
+const FEISHU_WEBHOOK_SECRET = (process.env.FEISHU_WEBHOOK_SECRET || "").trim();
+
 // Pricing constants (micro-CNY; 100,000 = ¥1.00)
 // Seed-ASR 2.0: ~¥0.008/min = 800 micro-CNY/min ≈ 13.4 micro-CNY/sec -> bill 16 micro-CNY/sec (~¥0.0096/min, 60 min ≈ ¥0.58)
 const ASR_MICRO_CNY_PER_SEC = 16;
@@ -98,6 +106,243 @@ function hashOtp(email, code) {
     .createHmac("sha256", JWT_SECRET)
     .update(`${email.trim().toLowerCase()}:${code.trim()}`)
     .digest("hex");
+}
+
+// GitHub Release Auto-Update Feed (cached in-memory for 10 min for instant CN & global checks)
+const GITHUB_REPO = (process.env.GITHUB_REPO || "nasadunadu/TypeZero").trim();
+const VERSION_CACHE_TTL_MS = 10 * 60 * 1000;
+let cachedVersionManifest = null;
+let cachedVersionFetchedAt = 0;
+
+function extractSha256FromText(text) {
+  const m = String(text || "").match(/\b([a-f0-9]{64})\b/i);
+  return m ? m[1].toLowerCase() : "";
+}
+
+async function fetchLatestReleaseManifest() {
+  const now = Date.now();
+  if (cachedVersionManifest && now - cachedVersionFetchedAt < VERSION_CACHE_TTL_MS) {
+    return cachedVersionManifest;
+  }
+  const resp = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+    headers: {
+      Accept: "application/vnd.github+json",
+      "User-Agent": "typezero-cloud-updater/1.0",
+    },
+  });
+  if (!resp.ok) {
+    if (cachedVersionManifest) return cachedVersionManifest;
+    throw new Error(`GitHub releases API HTTP ${resp.status}`);
+  }
+  const rel = await resp.json();
+  const tag = String(rel.tag_name || "").trim();
+  const version = tag.replace(/^v/i, "");
+  const assets = Array.isArray(rel.assets) ? rel.assets : [];
+
+  const findAsset = (re) => assets.find((a) => re.test(String(a.name || "")));
+  const macDmg = findAsset(/macOS-arm64\.dmg$/i);
+  const macShaAsset = findAsset(/macOS-arm64\.dmg\.sha256$/i);
+  const winSetup = findAsset(/Windows-x64-setup\.exe$/i);
+  const winSetupShaAsset = findAsset(/Windows-x64-setup\.exe\.sha256$/i);
+  const winPortable = findAsset(/Windows-x64-portable\.zip$/i);
+
+  const readShaAsset = async (asset) => {
+    if (!asset?.browser_download_url) return "";
+    try {
+      const r = await fetch(asset.browser_download_url, {
+        headers: { "User-Agent": "typezero-cloud-updater/1.0" },
+      });
+      if (!r.ok) return "";
+      return extractSha256FromText(await r.text());
+    } catch {
+      return "";
+    }
+  };
+
+  const checkEcsMirror = async (filename) => {
+    if (!filename) return "";
+    const url = `${PUBLIC_BASE_URL}/downloads/${filename}`;
+    try {
+      const r = await fetch(url, { method: "HEAD" });
+      return r.ok ? url : "";
+    } catch {
+      return "";
+    }
+  };
+
+  const [macSha, winSha, ecsMacUrl, ecsWinSetupUrl, ecsWinPortableUrl] = await Promise.all([
+    readShaAsset(macShaAsset),
+    readShaAsset(winSetupShaAsset),
+    checkEcsMirror(macDmg?.name),
+    checkEcsMirror(winSetup?.name),
+    checkEcsMirror(winPortable?.name),
+  ]);
+
+  const manifest = {
+    ok: true,
+    version,
+    tag,
+    name: String(rel.name || `TypeZero ${tag}`),
+    publishedAt: rel.published_at || "",
+    releaseNotes: String(rel.body || "").slice(0, 2400),
+    releaseUrl: String(rel.html_url || `https://github.com/${GITHUB_REPO}/releases/tag/${tag}`),
+    macos: {
+      dmgUrl: ecsMacUrl || macDmg?.browser_download_url || "",
+      fallbackDmgUrl: macDmg?.browser_download_url || ecsMacUrl || "",
+      fileName: macDmg?.name || `TypeZero-${tag}-macOS-arm64.dmg`,
+      sizeBytes: Number(macDmg?.size || 0),
+      sha256: macSha || extractSha256FromText(rel.body),
+    },
+    windows: {
+      setupUrl: ecsWinSetupUrl || winSetup?.browser_download_url || "",
+      fallbackSetupUrl: winSetup?.browser_download_url || ecsWinSetupUrl || "",
+      portableUrl: ecsWinPortableUrl || winPortable?.browser_download_url || "",
+      fileName: winSetup?.name || `TypeZero-${tag}-Windows-x64-setup.exe`,
+      sizeBytes: Number(winSetup?.size || 0),
+      sha256: winSha,
+    },
+  };
+  cachedVersionManifest = manifest;
+  cachedVersionFetchedAt = now;
+  return manifest;
+}
+
+function isVoucherCodeFormat(raw) {
+  if (typeof raw !== "string") return false;
+  const clean = raw.trim().toUpperCase();
+  return /^TZ-[A-Z0-9]{4,}(?:-[A-Z0-9]{4,})*$/.test(clean);
+}
+
+function formatVoucherPublic(row) {
+  if (!row) return null;
+  const quotaSec = Number(row.quota_seconds || 0);
+  const usedSec = Number(row.used_seconds || 0);
+  const remSec = Math.max(0, quotaSec - usedSec);
+  const status = row.status || "active";
+  return {
+    code: row.code,
+    note: row.note || "",
+    quotaSeconds: Number(quotaSec.toFixed(1)),
+    usedSeconds: Number(usedSec.toFixed(1)),
+    remainingSeconds: Number(remSec.toFixed(1)),
+    quotaMinutes: Number((quotaSec / 60).toFixed(1)),
+    usedMinutes: Number((usedSec / 60).toFixed(1)),
+    remainingMinutes: Number((remSec / 60).toFixed(1)),
+    sessionCount: Number(row.session_count || 0),
+    status,
+    exhausted: remSec <= 0,
+    revoked: status !== "active",
+    notifiedExhausted: Boolean(row.notified_exhausted),
+    createdAt: row.created_at,
+    lastUsedAt: row.last_used_at || null,
+  };
+}
+
+function maskWebhookUrl(url) {
+  const s = String(url || "").trim();
+  if (!s) return "";
+  if (s.length <= 28) return "***";
+  return `${s.slice(0, 36)}...${s.slice(-6)}`;
+}
+
+function feishuReceiveIdType(receiveId) {
+  const id = String(receiveId || "").trim();
+  if (/^ou_/.test(id)) return "open_id";
+  if (/^oc_/.test(id)) return "chat_id";
+  if (/^on_/.test(id)) return "union_id";
+  if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(id)) return "email";
+  return "chat_id";
+}
+
+function buildFeishuCardObject({ title, template = "orange", markdown }) {
+  return {
+    header: {
+      title: { tag: "plain_text", content: title },
+      template,
+    },
+    elements: [
+      {
+        tag: "markdown",
+        content: markdown,
+      },
+    ],
+  };
+}
+
+async function postFeishuAppBotCard({ appId, appSecret, receiveId, title, template = "orange", markdown }) {
+  const tokResp = await fetch(`${FEISHU_API_BASE}/open-apis/auth/v3/tenant_access_token/internal`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
+  });
+  const tokJson = await tokResp.json();
+  if (!tokResp.ok || Number(tokJson.code) !== 0 || !tokJson.tenant_access_token) {
+    throw new Error(`Feishu auth failed: ${tokJson.msg || tokResp.status}`);
+  }
+
+  const receiveIdType = feishuReceiveIdType(receiveId);
+  const card = buildFeishuCardObject({ title, template, markdown });
+  const msgResp = await fetch(
+    `${FEISHU_API_BASE}/open-apis/im/v1/messages?receive_id_type=${encodeURIComponent(receiveIdType)}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${tokJson.tenant_access_token}`,
+      },
+      body: JSON.stringify({
+        receive_id: receiveId,
+        msg_type: "interactive",
+        content: JSON.stringify(card),
+      }),
+    },
+  );
+  const msgJson = await msgResp.json();
+  if (!msgResp.ok || Number(msgJson.code) !== 0) {
+    throw new Error(`Feishu send failed: ${msgJson.msg || msgResp.status}`);
+  }
+  return { sent: true, channel: "app_bot", messageId: msgJson?.data?.message_id || "" };
+}
+
+async function postFeishuCard({ webhookUrl, secret = "", title, template = "orange", markdown }) {
+  const url = String(webhookUrl || "").trim();
+  if (!url) {
+    return { sent: false, reason: "FEISHU_WEBHOOK_URL 未配置" };
+  }
+  const payload = {
+    msg_type: "interactive",
+    card: buildFeishuCardObject({ title, template, markdown }),
+  };
+  const cleanSecret = String(secret || "").trim();
+  if (cleanSecret) {
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const sign = crypto
+      .createHmac("sha256", `${timestamp}\n${cleanSecret}`)
+      .update("")
+      .digest("base64");
+    payload.timestamp = timestamp;
+    payload.sign = sign;
+  }
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const text = await resp.text();
+  if (!resp.ok) {
+    throw new Error(`Feishu HTTP ${resp.status}: ${text.slice(0, 160)}`);
+  }
+  try {
+    const parsed = JSON.parse(text);
+    const code = parsed.code ?? parsed.StatusCode ?? 0;
+    if (Number(code) !== 0) {
+      throw new Error(parsed.msg || parsed.StatusMessage || `Feishu code ${code}`);
+    }
+  } catch (err) {
+    if (err instanceof SyntaxError) return { sent: true };
+    throw err;
+  }
+  return { sent: true };
 }
 
 function formatUserPublic(row) {
@@ -174,12 +419,81 @@ function buildMailer() {
   });
 }
 
-async function createApp(customDbPath) {
+async function createApp(customDbPath, options = {}) {
   const db = await new CloudDB(customDbPath || DB_PATH).init();
   const mailer = buildMailer();
   const app = express();
   app.set("trust proxy", 1);
   app.use(express.json({ limit: "256kb" }));
+
+  function resolveFeishuConfig() {
+    const settings = db.getSettings();
+    const webhookUrl = settings.feishuWebhookUrl || FEISHU_WEBHOOK_URL;
+    const secret = settings.feishuWebhookSecret || FEISHU_WEBHOOK_SECRET;
+    const appBotReady = Boolean(FEISHU_APP_ID && FEISHU_APP_SECRET && FEISHU_RECEIVE_ID);
+    return {
+      appBotReady,
+      appId: FEISHU_APP_ID,
+      appSecret: FEISHU_APP_SECRET,
+      receiveId: FEISHU_RECEIVE_ID,
+      webhookUrl,
+      secret,
+      anyReady: appBotReady || Boolean(webhookUrl),
+      channelLabel: appBotReady
+        ? `飞书应用直推 (${feishuReceiveIdType(FEISHU_RECEIVE_ID)}:${FEISHU_RECEIVE_ID.slice(0, 6)}...)`
+        : webhookUrl
+          ? `Webhook (${maskWebhookUrl(webhookUrl)})`
+          : "",
+    };
+  }
+
+  async function sendFeishuNotification({ title, template = "orange", markdown }) {
+    const cfg = resolveFeishuConfig();
+    if (cfg.appBotReady) {
+      return postFeishuAppBotCard({
+        appId: cfg.appId,
+        appSecret: cfg.appSecret,
+        receiveId: cfg.receiveId,
+        title,
+        template,
+        markdown,
+      });
+    }
+    if (cfg.webhookUrl) {
+      return postFeishuCard({
+        webhookUrl: cfg.webhookUrl,
+        secret: cfg.secret,
+        title,
+        template,
+        markdown,
+      });
+    }
+    throw new Error("飞书提醒通道尚未配置（请配置飞书应用或 Webhook）");
+  }
+
+  async function notifyFeishuVoucherExhausted(voucherRow) {
+    const v = formatVoucherPublic(voucherRow);
+    const cfg = resolveFeishuConfig();
+    const title = `⏰ TypeZero 豆包语音兑换码时长已用完`;
+    const markdown = [
+      `**兑换码**：\`${v.code}\``,
+      `**备注/朋友**：${v.note || "未填写"}`,
+      `**已用 / 总额度**：${v.usedMinutes} 分钟 / ${v.quotaMinutes} 分钟（共 ${v.sessionCount} 次听写）`,
+      `**状态**：已自动停止该兑换码的豆包语音中转，客户端已同步提醒用户。`,
+      `[打开 TypeZero 管理后台一键续期](${PUBLIC_BASE_URL}/admin)`,
+    ].join("\n");
+
+    if (typeof options.onFeishuNotify === "function") {
+      await options.onFeishuNotify({ webhookUrl: cfg.webhookUrl, title, markdown, voucher: v });
+      return;
+    }
+    if (!cfg.anyReady) return;
+    try {
+      await sendFeishuNotification({ title, template: "orange", markdown });
+    } catch (err) {
+      console.error("[TypeZero Cloud] Feishu notify failed:", err.message);
+    }
+  }
 
   // Serve Admin Console static page
   app.use("/admin", express.static(path.join(__dirname, "public")));
@@ -201,6 +515,21 @@ async function createApp(customDbPath) {
       trialSignupEnabled: budget.trialSignupEnabled && budget.withinBudget,
       trialBonusCny: Number((budget.trialBonusMicroCny / MICRO_PER_CNY).toFixed(2)),
     });
+  });
+
+  app.get("/api/version", async (req, res) => {
+    if (String(req.query.refresh || "") === "1") {
+      cachedVersionFetchedAt = 0;
+    }
+    try {
+      const manifest = typeof options.getVersionManifest === "function"
+        ? await options.getVersionManifest()
+        : await fetchLatestReleaseManifest();
+      res.setHeader("Cache-Control", "public, max-age=120");
+      res.json(manifest);
+    } catch (err) {
+      res.status(502).json({ ok: false, error: `版本信息拉取失败：${err.message}` });
+    }
   });
 
   // ---------- 2. Email OTP Login / Register (Gmail + Any Email) ----------
@@ -462,6 +791,33 @@ async function createApp(customDbPath) {
     });
   });
 
+  // ---------- 4b. Doubao ASR Voucher Status (Public, Token-Gated) ----------
+  app.get("/api/voucher/status", (req, res) => {
+    const ip = getClientIp(req);
+    if (!checkRateLimit(`voucher_status:${ip}`, 90, 60_000)) {
+      return res.status(429).json({ error: "查询过于频繁，请稍后再试" });
+    }
+    const auth = String(req.headers.authorization || "");
+    const headerCode = String(req.headers["x-voucher-code"] || "");
+    const rawCode =
+      (auth.startsWith("Bearer ") ? auth.slice(7).trim() : "") ||
+      headerCode.trim() ||
+      String(req.query.code || "").trim();
+    const cleanCode = CloudDB.normalizeVoucherCode(rawCode);
+    if (!isVoucherCodeFormat(cleanCode)) {
+      return res.status(400).json({ error: "兑换码格式无效（应类似 TZ-XXXX-XXXX）" });
+    }
+    const row = db.findVoucherByCode(cleanCode);
+    if (!row) {
+      return res.status(404).json({ error: "兑换码不存在，请核对是否粘贴完整" });
+    }
+    res.json({
+      ok: true,
+      asrReady: Boolean(VOLC_SPEECH_API_KEY),
+      voucher: formatVoucherPublic(row),
+    });
+  });
+
   // ---------- 5. LLM Polishing SSE Relay (Purpose-Locked to DeepSeek 4 Flash) ----------
   app.get("/api/llm/v1/models", requireUser, (_req, res) => {
     res.json({ object: "list", data: [{ id: "deepseek-flash", object: "model" }] });
@@ -602,12 +958,14 @@ async function createApp(customDbPath) {
   // ---------- 6. Admin API ----------
   app.get("/api/admin/overview", requireAdmin, (_req, res) => {
     const budget = db.getBudgetSnapshot();
+    const feishuCfg = resolveFeishuConfig();
     const userStats = db.queryOne(
       "SELECT COUNT(*) AS total_users, SUM(trial_granted) AS trial_users FROM users",
     );
     const users = db.queryAll(
       "SELECT * FROM users ORDER BY created_at DESC LIMIT 200",
     );
+    const vouchers = db.listVouchers(200).map(formatVoucherPublic);
     const recentLogs = db.queryAll(
       "SELECT * FROM usage_logs ORDER BY id DESC LIMIT 60",
     );
@@ -618,7 +976,9 @@ async function createApp(customDbPath) {
         deepseekKeyConfigured: Boolean(DEEPSEEK_API_KEY),
         smtpConfigured: Boolean(mailer),
         googleOAuthConfigured: Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET),
+        feishuWebhookConfigured: feishuCfg.anyReady,
       },
+      feishuWebhookMasked: feishuCfg.channelLabel,
       budget: {
         ...budget,
         trialBonusCny: Number((budget.trialBonusMicroCny / MICRO_PER_CNY).toFixed(2)),
@@ -630,11 +990,72 @@ async function createApp(customDbPath) {
       totalUsers: Number(userStats?.total_users || 0),
       trialUsers: Number(userStats?.trial_users || 0),
       users: users.map(formatUserPublic),
+      vouchers,
       recentLogs: recentLogs.map((l) => ({
         ...l,
         costCny: Number((l.cost_micro_cny / MICRO_PER_CNY).toFixed(5)),
       })),
     });
+  });
+
+  app.post("/api/admin/feishu/config", requireAdmin, (req, res) => {
+    const patch = {};
+    if (typeof req.body?.webhookUrl === "string") {
+      patch.feishuWebhookUrl = req.body.webhookUrl.trim();
+    }
+    if (typeof req.body?.secret === "string") {
+      patch.feishuWebhookSecret = req.body.secret.trim();
+    }
+    db.updateSettings(patch);
+    const cfg = resolveFeishuConfig();
+    res.json({
+      ok: true,
+      feishuWebhookConfigured: Boolean(cfg.webhookUrl),
+      feishuWebhookMasked: maskWebhookUrl(cfg.webhookUrl),
+    });
+  });
+
+  app.post("/api/admin/feishu/test", requireAdmin, async (_req, res) => {
+    const cfg = resolveFeishuConfig();
+    if (!cfg.anyReady) {
+      return res.status(400).json({ error: "请先配置飞书应用或自定义机器人 Webhook 地址" });
+    }
+    try {
+      const result = await sendFeishuNotification({
+        title: "✅ TypeZero 飞书提醒通道已连通",
+        template: "green",
+        markdown: [
+          "TypeZero 豆包语音兑换码到期提醒已成功接入飞书！",
+          "当朋友的兑换码时长归零时，系统会自动推送卡片通知到此账号。",
+          `[打开 TypeZero 管理后台](${PUBLIC_BASE_URL}/admin)`,
+        ].join("\n"),
+      });
+      res.json({ ok: true, channel: result.channel || "webhook", message: "测试消息已成功发送到飞书！" });
+    } catch (err) {
+      res.status(502).json({ error: `飞书发送失败：${err.message}` });
+    }
+  });
+
+  app.post("/api/admin/vouchers", requireAdmin, (req, res) => {
+    const count = Math.min(50, Math.max(1, Math.round(Number(req.body?.count || 1))));
+    const quotaMinutes = Number(req.body?.quotaMinutes ?? 500);
+    if (!Number.isFinite(quotaMinutes) || quotaMinutes < 1 || quotaMinutes > 100_000) {
+      return res.status(400).json({ error: "请输入有效的额度分钟数（1 ~ 100000 分钟）" });
+    }
+    const note = String(req.body?.note || "").trim();
+    const created = db.createVouchers({ count, quotaMinutes, note }).map(formatVoucherPublic);
+    res.json({ ok: true, vouchers: created });
+  });
+
+  app.post("/api/admin/vouchers/:code/update", requireAdmin, (req, res) => {
+    const updated = db.updateVoucher(req.params.code, {
+      note: req.body?.note,
+      quotaMinutes: req.body?.quotaMinutes,
+      addMinutes: req.body?.addMinutes,
+      status: req.body?.status,
+    });
+    if (!updated) return res.status(404).json({ error: "兑换码不存在" });
+    res.json({ ok: true, voucher: formatVoucherPublic(updated) });
   });
 
   app.post("/api/admin/settings", requireAdmin, (req, res) => {
@@ -696,35 +1117,75 @@ async function createApp(customDbPath) {
 
     const authHeader = String(req.headers.authorization || "");
     const headerApiKey = String(req.headers["x-api-key"] || "");
+    const headerVoucher = String(req.headers["x-voucher-code"] || "");
     const rawToken =
       url.searchParams.get("token") ||
       (authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "") ||
+      headerVoucher.trim() ||
       headerApiKey.trim();
 
-    const claims = verifyJwt(rawToken);
-    if (!claims || !claims.uid) {
-      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-      socket.destroy();
-      return;
-    }
-    const user = db.findUserById(claims.uid);
-    const budget = db.getBudgetSnapshot();
-    if (!user || user.is_banned || Number(user.balance_micro_cny) <= 0 || !budget.withinBudget || !VOLC_SPEECH_API_KEY) {
-      socket.write("HTTP/1.1 402 Payment Required\r\n\r\n");
-      socket.destroy();
-      return;
-    }
-    const curAsr = activeAsrConcurrency.get(user.id) || 0;
-    if (curAsr >= 2) {
-      socket.write("HTTP/1.1 429 Too Many Requests\r\n\r\n");
-      socket.destroy();
-      return;
+    let sessionPrincipal = null; // { kind: 'voucher', voucher } | { kind: 'user', user }
+    let concurrencyKey = "";
+    let maxSessionMs = 180_000;
+
+    if (isVoucherCodeFormat(rawToken)) {
+      const voucher = db.findVoucherByCode(rawToken);
+      if (!voucher) {
+        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      if ((voucher.status || "active") !== "active") {
+        socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      const settings = db.getSettings();
+      const remSec = Number(voucher.quota_seconds || 0) - Number(voucher.used_seconds || 0);
+      if (remSec <= 0 || !settings.relayEnabled || !VOLC_SPEECH_API_KEY) {
+        socket.write("HTTP/1.1 402 Payment Required\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      concurrencyKey = `voucher:${voucher.code}`;
+      const curAsr = activeAsrConcurrency.get(concurrencyKey) || 0;
+      if (curAsr >= 2) {
+        socket.write("HTTP/1.1 429 Too Many Requests\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      maxSessionMs = Math.min(180_000, Math.max(5_000, Math.ceil(remSec * 1000) + 3_000));
+      sessionPrincipal = { kind: "voucher", voucher };
+    } else {
+      const claims = verifyJwt(rawToken);
+      if (!claims || !claims.uid) {
+        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      const user = db.findUserById(claims.uid);
+      const budget = db.getBudgetSnapshot();
+      if (!user || user.is_banned || Number(user.balance_micro_cny) <= 0 || !budget.withinBudget || !VOLC_SPEECH_API_KEY) {
+        socket.write("HTTP/1.1 402 Payment Required\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      concurrencyKey = `user:${user.id}`;
+      const curAsr = activeAsrConcurrency.get(concurrencyKey) || 0;
+      if (curAsr >= 2) {
+        socket.write("HTTP/1.1 429 Too Many Requests\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      sessionPrincipal = { kind: "user", user };
     }
 
     wss.handleUpgrade(req, socket, head, (clientWs) => {
-      activeAsrConcurrency.set(user.id, curAsr + 1);
+      const curAsrNow = activeAsrConcurrency.get(concurrencyKey) || 0;
+      activeAsrConcurrency.set(concurrencyKey, curAsrNow + 1);
       const startedAt = Date.now();
       let billed = false;
+      let clientFrameCount = 0;
       const pendingFrames = [];
 
       const upstreamWs = new WebSocket("wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", {
@@ -736,32 +1197,52 @@ async function createApp(customDbPath) {
         },
       });
 
-      // Hard max session duration: 180s to prevent orphaned connections draining quota
+      // Hard max session duration (180s or remaining voucher duration)
       const maxTimer = setTimeout(() => {
         try {
           clientWs.close(1000, "Max session duration reached");
           upstreamWs.close();
         } catch {}
-      }, 180_000);
+      }, maxSessionMs);
 
       const finalizeBilling = () => {
         if (billed) return;
         billed = true;
         clearTimeout(maxTimer);
-        const cur = activeAsrConcurrency.get(user.id) || 1;
-        if (cur <= 1) activeAsrConcurrency.delete(user.id);
-        else activeAsrConcurrency.set(user.id, cur - 1);
+        const cur = activeAsrConcurrency.get(concurrencyKey) || 1;
+        if (cur <= 1) activeAsrConcurrency.delete(concurrencyKey);
+        else activeAsrConcurrency.set(concurrencyKey, cur - 1);
 
-        const durSec = Math.max(0.5, (Date.now() - startedAt) / 1000);
-        const costMicro = Math.max(10, Math.round(durSec * ASR_MICRO_CNY_PER_SEC));
-        db.deductUsage({
-          userId: user.id,
-          email: user.email,
-          service: "asr",
-          model: VOLC_RESOURCE_ID,
-          units: Number(durSec.toFixed(2)),
-          costMicroCny: costMicro,
-        });
+        const rawDurSec = Math.max(0.1, (Date.now() - startedAt) / 1000);
+        if (sessionPrincipal.kind === "voucher") {
+          // Ignore tiny handshake probe (2 frames: init + 100ms silent frame) from session count / heavy billing
+          const isQuickProbe = clientFrameCount <= 2 && rawDurSec < 0.8;
+          if (isQuickProbe) return;
+          const durSec = Math.max(0.5, rawDurSec);
+          const costMicro = Math.max(10, Math.round(durSec * ASR_MICRO_CNY_PER_SEC));
+          const { voucher: updatedVoucher, justExhausted } = db.recordVoucherUsage({
+            code: sessionPrincipal.voucher.code,
+            durationSeconds: durSec,
+            model: VOLC_RESOURCE_ID,
+            costMicroCny: costMicro,
+            countSession: true,
+          });
+          if (justExhausted && updatedVoucher) {
+            void notifyFeishuVoucherExhausted(updatedVoucher);
+          }
+        } else {
+          const user = sessionPrincipal.user;
+          const durSec = Math.max(0.5, rawDurSec);
+          const costMicro = Math.max(10, Math.round(durSec * ASR_MICRO_CNY_PER_SEC));
+          db.deductUsage({
+            userId: user.id,
+            email: user.email,
+            service: "asr",
+            model: VOLC_RESOURCE_ID,
+            units: Number(durSec.toFixed(2)),
+            costMicroCny: costMicro,
+          });
+        }
       };
 
       upstreamWs.on("open", () => {
@@ -788,6 +1269,7 @@ async function createApp(customDbPath) {
       });
 
       clientWs.on("message", (data) => {
+        clientFrameCount += 1;
         if (upstreamWs.readyState === WebSocket.OPEN) {
           upstreamWs.send(data, { binary: true });
         } else if (upstreamWs.readyState === WebSocket.CONNECTING && pendingFrames.length < 32) {
@@ -809,7 +1291,7 @@ async function createApp(customDbPath) {
     });
   });
 
-  return { app, server, db, signJwt, hashOtp };
+  return { app, server, db, signJwt, hashOtp, notifyFeishuVoucherExhausted };
 }
 
 if (require.main === module) {

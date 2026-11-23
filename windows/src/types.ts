@@ -110,6 +110,41 @@ export interface CloudUserProfile {
   isBanned: boolean;
 }
 
+export interface CloudVoucherProfile {
+  code: string;
+  note: string;
+  quotaSeconds: number;
+  usedSeconds: number;
+  remainingSeconds: number;
+  quotaMinutes: number;
+  usedMinutes: number;
+  remainingMinutes: number;
+  sessionCount: number;
+  status: string;
+  exhausted: boolean;
+  revoked: boolean;
+}
+
+export interface WindowsReleaseAsset {
+  setupUrl: string;
+  fallbackSetupUrl?: string;
+  portableUrl?: string;
+  fileName?: string;
+  sizeBytes?: number;
+  sha256?: string;
+}
+
+export interface AppVersionManifest {
+  ok: boolean;
+  version: string;
+  tag: string;
+  name?: string;
+  publishedAt?: string;
+  releaseNotes?: string;
+  releaseUrl?: string;
+  windows?: WindowsReleaseAsset | null;
+}
+
 export interface DashboardStats {
   totalCharacters: number;
   timeSavedMinutes: number;
@@ -144,6 +179,15 @@ export interface AppSnapshot {
   stats: DashboardStats;
   cloudUser?: CloudUserProfile | null;
   isOfficialCloudTrialActive?: boolean;
+  voucherProfile?: CloudVoucherProfile | null;
+  isUsingDoubaoVoucher?: boolean;
+  currentVersion?: string;
+  availableUpdate?: AppVersionManifest | null;
+  isCheckingUpdate?: boolean;
+  isInstallingUpdate?: boolean;
+  updateDownloadProgress?: number;
+  updateStatusText?: string;
+  skippedUpdateVersion?: string;
 }
 
 export interface PillTelemetry {

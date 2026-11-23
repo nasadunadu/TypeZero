@@ -53,10 +53,72 @@ export const App: React.FC = () => {
         selectedTab={selectedTab}
         onSelectTab={setSelectedTab}
         onOpenMicSettings={() => void api.openWindowsMicSettings()}
+        onCheckForUpdates={() => void api.checkForUpdates(true).catch(() => {})}
+        onInstallUpdate={() => void api.installAvailableUpdate().catch(() => {})}
       />
 
       <main className="main-scroll">
         <div className="main-container">
+          {snapshot.availableUpdate &&
+            (snapshot.isInstallingUpdate ||
+              snapshot.availableUpdate.version !== snapshot.skippedUpdateVersion) && (
+              <div
+                style={{
+                  background: "var(--lilac-tint, #ECE9FB)",
+                  border: "1px solid rgba(90, 70, 232, 0.28)",
+                  borderRadius: 11,
+                  padding: "12px 14px",
+                  marginBottom: 14,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <Sparkles size={15} style={{ color: "var(--violet)", flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>
+                      发现新版本 TypeZero {snapshot.availableUpdate.tag}（当前 v{snapshot.currentVersion || "0.5.6"}）
+                    </div>
+                    <div style={{ fontSize: 11.5, color: "var(--ink-secondary)", marginTop: 2 }}>
+                      {snapshot.isInstallingUpdate
+                        ? snapshot.updateStatusText
+                        : "无需重新打开官网 · 支持应用内校验 SHA-256 一键下载并无损覆盖升级"}
+                    </div>
+                  </div>
+                  {!snapshot.isInstallingUpdate && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-compact"
+                        onClick={async () => {
+                          await api.dismissUpdateBanner();
+                          await refresh();
+                        }}
+                      >
+                        暂不提示
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-compact"
+                        onClick={() => void api.installAvailableUpdate().catch(() => {})}
+                      >
+                        ⚡ 一键下载并升级
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {snapshot.isInstallingUpdate && (
+                  <div className="progress-track" style={{ height: 6 }}>
+                    <div
+                      className="progress-fill"
+                      style={{ width: `${Math.round((snapshot.updateDownloadProgress || 0) * 100)}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
           {snapshot.statusBanner && (
             <div className="status-banner" role="status">
               <Sparkles size={14} style={{ color: "var(--violet)", flexShrink: 0 }} />

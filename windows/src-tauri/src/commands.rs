@@ -312,3 +312,28 @@ pub fn cloud_set_use_trial(enabled: bool, state: State<'_, Arc<AppState>>) -> Re
 pub fn cloud_logout(state: State<'_, Arc<AppState>>) {
     state.cloud_logout();
 }
+
+#[tauri::command]
+pub async fn refresh_voucher_status(
+    state: State<'_, Arc<AppState>>,
+) -> Result<Option<crate::core::cloud::CloudVoucherProfile>, String> {
+    state.refresh_voucher_status(true).await
+}
+
+#[tauri::command]
+pub async fn check_for_updates(
+    manual: bool,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Option<crate::core::updater::AppVersionManifest>, String> {
+    state.check_for_updates(manual).await
+}
+
+#[tauri::command]
+pub async fn install_available_update(state: State<'_, Arc<AppState>>) -> Result<(), String> {
+    state.inner().install_available_update().await
+}
+
+#[tauri::command]
+pub fn dismiss_update_banner(state: State<'_, Arc<AppState>>) {
+    state.dismiss_update_banner();
+}

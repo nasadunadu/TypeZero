@@ -549,11 +549,19 @@ public final class VolcSeedASRClient: @unchecked Sendable {
         waiting?.resume(returning: finalOut.isEmpty ? nil : finalOut)
     }
 
-    /// Live diagnostic probe: verifies `volc.seedasr.sauc.duration` WebSocket auth + domestic direct RTT in milliseconds.
-    public static func probeHandshakeLatency(apiKey: String, resourceID: String = defaultResourceID) async throws -> Int {
+    /// Live diagnostic probe: verifies `volc.seedasr.sauc.duration` (or TypeZero Cloud voucher relay) WebSocket auth + RTT in milliseconds.
+    public static func probeHandshakeLatency(
+        apiKey: String,
+        resourceID: String = defaultResourceID,
+        customEndpointURL: String? = nil,
+        useBearerAuth: Bool = false
+    ) async throws -> Int {
         let cleanKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanKey.isEmpty, let wsURL = URL(string: endpointURLString) else {
-            throw NSError(domain: "TypeZero.SeedASR", code: -1, userInfo: [NSLocalizedDescriptionKey: "请先粘贴豆包语音 API Key"])
+        let targetURLString = (customEndpointURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+            ? customEndpointURL!.trimmingCharacters(in: .whitespacesAndNewlines)
+            : endpointURLString
+        guard !cleanKey.isEmpty, let wsURL = URL(string: targetURLString) else {
+            throw NSError(domain: "TypeZero.SeedASR", code: -1, userInfo: [NSLocalizedDescriptionKey: "请先粘贴豆包语音 API Key 或兑换码"])
         }
 
         let cfg = URLSessionConfiguration.ephemeral
@@ -564,8 +572,12 @@ public final class VolcSeedASRClient: @unchecked Sendable {
 
         var req = URLRequest(url: wsURL)
         req.timeoutInterval = 5.0
-        req.setValue(cleanKey, forHTTPHeaderField: "X-Api-Key")
-        req.setValue(resourceID, forHTTPHeaderField: "X-Api-Resource-Id")
+        if useBearerAuth {
+            req.setValue("Bearer \(cleanKey)", forHTTPHeaderField: "Authorization")
+        } else {
+            req.setValue(cleanKey, forHTTPHeaderField: "X-Api-Key")
+            req.setValue(resourceID, forHTTPHeaderField: "X-Api-Resource-Id")
+        }
         req.setValue(UUID().uuidString, forHTTPHeaderField: "X-Api-Connect-Id")
         req.setValue(UUID().uuidString, forHTTPHeaderField: "X-Api-Request-Id")
 

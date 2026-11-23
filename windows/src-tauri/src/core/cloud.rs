@@ -58,6 +58,41 @@ pub struct CloudGooglePollResponse {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudVoucherProfile {
+    pub code: String,
+    #[serde(default)]
+    pub note: String,
+    #[serde(default)]
+    pub quota_seconds: f64,
+    #[serde(default)]
+    pub used_seconds: f64,
+    #[serde(default)]
+    pub remaining_seconds: f64,
+    #[serde(default)]
+    pub quota_minutes: f64,
+    #[serde(default)]
+    pub used_minutes: f64,
+    #[serde(default)]
+    pub remaining_minutes: f64,
+    #[serde(default)]
+    pub session_count: i64,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub exhausted: bool,
+    #[serde(default)]
+    pub revoked: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CloudVoucherResp {
+    asr_ready: bool,
+    voucher: CloudVoucherProfile,
+}
+
 #[derive(Debug, Deserialize)]
 struct CloudMeResp {
     user: CloudUserProfile,
@@ -186,6 +221,40 @@ pub async fn poll_google_login(session_id: &str) -> Result<CloudGooglePollRespon
         return Ok(parsed);
     }
     Err(parse_err(status, &text))
+}
+
+pub fn normalized_voucher_code(raw: &str) -> String {
+    raw.trim().to_uppercase()
+}
+
+pub fn is_voucher_code(raw: &str) -> bool {
+    let clean = normalized_voucher_code(raw);
+    clean.starts_with("TZ-")
+        && clean.len() >= 10
+        && clean
+            .bytes()
+            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'-')
+}
+
+pub async fn fetch_voucher_status(code: &str) -> Result<(bool, CloudVoucherProfile), String> {
+    let clean = normalized_voucher_code(code);
+    if !is_voucher_code(&clean) {
+        return Err("兑换码格式无效（应类似 TZ-XXXX-XXXX）".to_string());
+    }
+    let resp = http_client()
+        .get(format!("{CLOUD_BASE_URL}/api/voucher/status"))
+        .bearer_auth(&clean)
+        .send()
+        .await
+        .map_err(|e| format!("无法连接 TypeZero 云端校验兑换码：{e}"))?;
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(parse_err(status, &text));
+    }
+    let parsed = serde_json::from_str::<CloudVoucherResp>(&text)
+        .map_err(|e| format!("兑换码状态解析失败：{e}"))?;
+    Ok((parsed.asr_ready, parsed.voucher))
 }
 
 pub async fn fetch_profile(token: &str) -> Result<CloudUserProfile, String> {

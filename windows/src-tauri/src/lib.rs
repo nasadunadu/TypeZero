@@ -88,6 +88,19 @@ pub fn run() {
             }
             let _ = builder.build(app)?;
 
+            // Silent background auto-update check 4s after launch + every 4 hours thereafter
+            let st_upd = Arc::clone(&state_for_setup);
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                let _ = st_upd.check_for_updates(false).await;
+                let mut ticker = tokio::time::interval(std::time::Duration::from_secs(4 * 3600));
+                ticker.tick().await; // consume immediate first tick
+                loop {
+                    ticker.tick().await;
+                    let _ = st_upd.check_for_updates(false).await;
+                }
+            });
+
             Ok(())
         })
         .on_window_event(move |window, event| {
@@ -141,6 +154,10 @@ pub fn run() {
             commands::cloud_poll_google_login,
             commands::cloud_set_use_trial,
             commands::cloud_logout,
+            commands::refresh_voucher_status,
+            commands::check_for_updates,
+            commands::install_available_update,
+            commands::dismiss_update_banner,
         ])
         .build(tauri::generate_context!())
         .expect("error while building TypeZero Windows application");

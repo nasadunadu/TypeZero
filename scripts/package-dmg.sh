@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 APP_NAME="TypeZero"
-VERSION="0.5.5"
+VERSION="0.5.6"
 DIST_DIR="$ROOT_DIR/dist"
 DMG_PATH="$DIST_DIR/${APP_NAME}-v${VERSION}-macOS-arm64.dmg"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"

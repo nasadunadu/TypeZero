@@ -13,7 +13,23 @@ const { createApp } = require("./server");
 async function run() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "tz-cloud-test-"));
   const dbPath = path.join(tmpDir, "test.sqlite");
-  const { server, db, hashOtp } = await createApp(dbPath);
+  const feishuEvents = [];
+  const { server, db, hashOtp, notifyFeishuVoucherExhausted } = await createApp(dbPath, {
+    onFeishuNotify: async (evt) => {
+      feishuEvents.push(evt);
+    },
+    getVersionManifest: async () => ({
+      ok: true,
+      version: "0.5.6",
+      tag: "v0.5.6",
+      name: "TypeZero v0.5.6",
+      publishedAt: "2026-11-23T06:00:00Z",
+      releaseNotes: "Auto-update + Doubao vouchers",
+      releaseUrl: "https://github.com/nasadunadu/TypeZero/releases/tag/v0.5.6",
+      macos: { dmgUrl: "https://typezero.mykkai.com/downloads/TypeZero-v0.5.6-macOS-arm64.dmg", sha256: "" },
+      windows: { setupUrl: "https://typezero.mykkai.com/downloads/TypeZero-v0.5.6-Windows-x64-setup.exe", sha256: "" },
+    }),
+  });
 
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address();
@@ -161,8 +177,72 @@ async function run() {
     assert.equal(adminHtml.status, 200);
     const htmlText = await adminHtml.text();
     assert.ok(htmlText.includes("TypeZero Cloud"));
+    assert.ok(htmlText.includes("豆包语音兑换码"));
 
-    console.log("✅ All 9 TypeZero Cloud backend test suites passed!");
+    // 10. Doubao ASR Voucher lifecycle: create (500 min) -> status check -> usage deduction -> exhaustion triggers Feishu once -> top-up resets
+    const createVRes = await fetch(`${base}/api/admin/vouchers`, {
+      method: "POST",
+      headers: {
+        "X-Admin-Token": process.env.ADMIN_TOKEN,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ note: "测试朋友老王", quotaMinutes: 500, count: 1 }),
+    });
+    assert.equal(createVRes.status, 200);
+    const createdV = await createVRes.json();
+    assert.equal(createdV.vouchers.length, 1);
+    const vCode = createdV.vouchers[0].code;
+    assert.ok(vCode.startsWith("TZ-"));
+    assert.equal(createdV.vouchers[0].quotaMinutes, 500);
+    assert.equal(createdV.vouchers[0].remainingMinutes, 500);
+
+    const statusRes = await fetch(`${base}/api/voucher/status`, {
+      headers: { Authorization: `Bearer ${vCode}` },
+    });
+    assert.equal(statusRes.status, 200);
+    const statusBody = await statusRes.json();
+    assert.equal(statusBody.voucher.code, vCode);
+    assert.equal(statusBody.voucher.note, "测试朋友老王");
+    assert.equal(statusBody.voucher.exhausted, false);
+
+    // Deduct 499 min -> not exhausted yet
+    const u1 = db.recordVoucherUsage({ code: vCode, durationSeconds: 499 * 60, model: "volc.seedasr.sauc.duration" });
+    assert.equal(u1.justExhausted, false);
+    // Deduct 2 min -> hits 501/500 min -> exhausted & triggers Feishu alert once
+    const u2 = db.recordVoucherUsage({ code: vCode, durationSeconds: 120, model: "volc.seedasr.sauc.duration" });
+    assert.equal(u2.justExhausted, true);
+    await notifyFeishuVoucherExhausted(u2.voucher);
+    assert.equal(feishuEvents.length, 1);
+    assert.ok(feishuEvents[0].markdown.includes(vCode));
+    // Further deduction does NOT re-trigger Feishu
+    const u3 = db.recordVoucherUsage({ code: vCode, durationSeconds: 10, model: "volc.seedasr.sauc.duration" });
+    assert.equal(u3.justExhausted, false);
+
+    // Admin top-up +500 minutes -> no longer exhausted & resets notified flag
+    const topupRes = await fetch(`${base}/api/admin/vouchers/${encodeURIComponent(vCode)}/update`, {
+      method: "POST",
+      headers: {
+        "X-Admin-Token": process.env.ADMIN_TOKEN,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ addMinutes: 500 }),
+    });
+    assert.equal(topupRes.status, 200);
+    const topupBody = await topupRes.json();
+    assert.equal(topupBody.voucher.quotaMinutes, 1000);
+    assert.equal(topupBody.voucher.exhausted, false);
+    assert.equal(topupBody.voucher.notifiedExhausted, false);
+
+    // 11. /api/version auto-update manifest endpoint
+    const verRes = await fetch(`${base}/api/version`);
+    assert.equal(verRes.status, 200);
+    const verBody = await verRes.json();
+    assert.equal(verBody.ok, true);
+    assert.equal(verBody.version, "0.5.6");
+    assert.ok(verBody.macos.dmgUrl.includes("TypeZero-v0.5.6"));
+    assert.ok(verBody.windows.setupUrl.includes("TypeZero-v0.5.6"));
+
+    console.log("✅ All 11 TypeZero Cloud backend test suites passed!");
   } finally {
     server.close();
     db.flushSync();

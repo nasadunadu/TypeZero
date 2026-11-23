@@ -553,9 +553,16 @@ impl StreamingASREngine {
             let seed_for_fail = Arc::clone(&self.seed_client);
             let vad_cancel_holder = Arc::clone(&self.vad_cancel);
 
+            let normalized_voucher = crate::core::cloud::normalized_voucher_code(&clean_volc);
             let (asr_cred, asr_endpoint, use_bearer) = if use_cloud_asr {
                 (
                     clean_cloud_jwt.as_str(),
+                    crate::core::cloud::CLOUD_ASR_WS_URL,
+                    true,
+                )
+            } else if crate::core::cloud::is_voucher_code(&clean_volc) {
+                (
+                    normalized_voucher.as_str(),
                     crate::core::cloud::CLOUD_ASR_WS_URL,
                     true,
                 )

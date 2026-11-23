@@ -59,6 +59,13 @@ struct StateInner {
     active_mode: DictationMode,
     live_session: Option<Arc<LiveInputSession>>,
     cloud_user: Option<crate::core::cloud::CloudUserProfile>,
+    voucher_profile: Option<crate::core::cloud::CloudVoucherProfile>,
+    available_update: Option<crate::core::updater::AppVersionManifest>,
+    is_checking_update: bool,
+    is_installing_update: bool,
+    update_download_progress: f64,
+    update_status_text: String,
+    skipped_update_version: String,
 }
 
 impl AppState {
@@ -95,6 +102,13 @@ impl AppState {
                 active_mode: DictationMode::Dictate,
                 live_session: None,
                 cloud_user: None,
+                voucher_profile: None,
+                available_update: None,
+                is_checking_update: false,
+                is_installing_update: false,
+                update_download_progress: 0.0,
+                update_status_text: String::new(),
+                skipped_update_version: String::new(),
             })),
             is_session_active: Arc::new(AtomicBool::new(false)),
             is_finalizing: Arc::new(AtomicBool::new(false)),
@@ -634,6 +648,16 @@ impl AppState {
             landed_in_input = false;
         }
 
+        let st_refresh = Arc::clone(self);
+        let used_voucher_asr = cfg.asr_provider == ASRProviderOption::VolcSeedASR
+            && !self.is_official_cloud_trial_active()
+            && crate::core::cloud::is_voucher_code(&credentials::load_volc_speech_api_key());
+        if used_voucher_asr {
+            tokio::spawn(async move {
+                let _ = st_refresh.refresh_voucher_status(true).await;
+            });
+        }
+
         let lower_final = final_text.to_lowercase();
         let truly_used: Vec<_> = recalled
             .iter()
@@ -889,15 +913,26 @@ impl AppState {
     }
 
     pub fn save_volc_speech_key(&self, key: &str) {
-        credentials::save_volc_speech_api_key(key);
+        let trimmed = key.trim();
+        let to_save = if crate::core::cloud::is_voucher_code(trimmed) {
+            crate::core::cloud::normalized_voucher_code(trimmed)
+        } else {
+            trimmed.to_string()
+        };
+        credentials::save_volc_speech_api_key(&to_save);
         self.sync_asr_engine_config();
         let saved = credentials::load_volc_speech_api_key();
         let is_active = self.inner.lock().config.asr_provider == ASRProviderOption::VolcSeedASR;
         if saved.is_empty() {
+            self.inner.lock().voucher_profile = None;
             self.set_status_banner("已清空豆包语音密钥");
+        } else if crate::core::cloud::is_voucher_code(&saved) {
+            self.set_status_banner("🎟️ 已保存豆包语音兑换码，点击「测速」或「校验并切换」查看剩余时长");
         } else if is_active {
+            self.inner.lock().voucher_profile = None;
             self.set_status_banner("✅ 豆包 Seed-ASR 2.0 语音密钥已保存至 Windows 凭据管理器");
         } else {
+            self.inner.lock().voucher_profile = None;
             self.set_status_banner("💾 豆包语音密钥已保存（点击「校验并切换」启用）");
         }
     }
@@ -928,18 +963,64 @@ impl AppState {
     }
 
     pub async fn probe_seed_asr(&self, key_input: &str) -> Result<String, String> {
-        if !key_input.trim().is_empty() {
-            credentials::save_volc_speech_api_key(key_input);
+        let trimmed = key_input.trim();
+        if !trimmed.is_empty() {
+            let to_save = if crate::core::cloud::is_voucher_code(trimmed) {
+                crate::core::cloud::normalized_voucher_code(trimmed)
+            } else {
+                trimmed.to_string()
+            };
+            credentials::save_volc_speech_api_key(&to_save);
             self.sync_asr_engine_config();
         }
         let key = credentials::load_volc_speech_api_key();
-        let rtt = VolcSeedASRClient::probe_handshake_latency(&key).await?;
-        let hot_count = self.lexicon.entries().len().min(65);
-        let summary = format!(
-            "⚡ 实测通过（volc.seedasr.sauc.duration）：国内直连握手+首帧 {rtt}ms · 已挂载 {hot_count} 个专属热词"
-        );
-        self.set_status_banner(format!("⚡ 豆包 Seed-ASR 2.0 连通成功：首帧 {rtt}ms"));
-        Ok(summary)
+        if crate::core::cloud::is_voucher_code(&key) {
+            let code = crate::core::cloud::normalized_voucher_code(&key);
+            let (asr_ready, profile) = crate::core::cloud::fetch_voucher_status(&code).await?;
+            self.inner.lock().voucher_profile = Some(profile.clone());
+            self.emit_state_changed();
+            if !asr_ready {
+                return Err("云端豆包语音服务暂未就绪，请稍后再试".to_string());
+            }
+            if profile.revoked {
+                return Err("该兑换码已被停用，请联系发放人".to_string());
+            }
+            if profile.exhausted {
+                return Err(format!(
+                    "该兑换码时长已用完（已用 {:.1} / {:.0} 分钟），请联系发放人续期",
+                    profile.used_minutes, profile.quota_minutes
+                ));
+            }
+            let rtt = VolcSeedASRClient::probe_handshake_latency_with_endpoint(
+                &code,
+                crate::core::cloud::CLOUD_ASR_WS_URL,
+                true,
+            )
+            .await?;
+            let note_tag = if profile.note.is_empty() {
+                String::new()
+            } else {
+                format!(" · {}", profile.note)
+            };
+            let summary = format!(
+                "🎟️ 兑换码实测通过（{}{note_tag}）：剩余 {:.1} / {:.0} 分钟 · 首帧 {rtt}ms",
+                profile.code, profile.remaining_minutes, profile.quota_minutes
+            );
+            self.set_status_banner(format!(
+                "⚡ 豆包兑换码连通成功（剩余 {:.1} 分钟 · {rtt}ms）",
+                profile.remaining_minutes
+            ));
+            Ok(summary)
+        } else {
+            self.inner.lock().voucher_profile = None;
+            let rtt = VolcSeedASRClient::probe_handshake_latency(&key).await?;
+            let hot_count = self.lexicon.entries().len().min(65);
+            let summary = format!(
+                "⚡ 实测通过（volc.seedasr.sauc.duration）：国内直连握手+首帧 {rtt}ms · 已挂载 {hot_count} 个专属热词"
+            );
+            self.set_status_banner(format!("⚡ 豆包 Seed-ASR 2.0 连通成功：首帧 {rtt}ms"));
+            Ok(summary)
+        }
     }
 
     pub async fn probe_openai_asr(
@@ -1267,6 +1348,17 @@ impl AppState {
                     .as_ref()
                     .map(|u| u.balance_cny > 0.0 && !u.is_banned)
                     .unwrap_or(true),
+            voucher_profile: g.voucher_profile.clone(),
+            is_using_doubao_voucher: crate::core::cloud::is_voucher_code(
+                &credentials::load_volc_speech_api_key(),
+            ),
+            current_version: crate::core::updater::CURRENT_APP_VERSION.to_string(),
+            available_update: g.available_update.clone(),
+            is_checking_update: g.is_checking_update,
+            is_installing_update: g.is_installing_update,
+            update_download_progress: g.update_download_progress,
+            update_status_text: g.update_status_text.clone(),
+            skipped_update_version: g.skipped_update_version.clone(),
         }
     }
 
@@ -1397,7 +1489,43 @@ impl AppState {
         crate::core::cloud::load_or_create_device_id(&self.data_dir)
     }
 
+    pub async fn refresh_voucher_status(
+        &self,
+        notify_low_or_exhausted: bool,
+    ) -> Result<Option<crate::core::cloud::CloudVoucherProfile>, String> {
+        let key = credentials::load_volc_speech_api_key();
+        if !crate::core::cloud::is_voucher_code(&key) {
+            self.inner.lock().voucher_profile = None;
+            self.emit_state_changed();
+            return Ok(None);
+        }
+        let code = crate::core::cloud::normalized_voucher_code(&key);
+        let (_, profile) = crate::core::cloud::fetch_voucher_status(&code).await?;
+        self.inner.lock().voucher_profile = Some(profile.clone());
+        if notify_low_or_exhausted {
+            if profile.revoked {
+                self.set_status_banner(format!(
+                    "⛔ 豆包语音兑换码（{}）已停用，请联系发放人或填入您自己的豆包 API Key",
+                    profile.code
+                ));
+            } else if profile.exhausted {
+                self.set_status_banner(format!(
+                    "⛔ 豆包语音兑换码时长已用完（已用 {:.1} / {:.0} 分钟），请联系发放人续期或填入您自己的豆包 API Key",
+                    profile.used_minutes, profile.quota_minutes
+                ));
+            } else if profile.remaining_minutes <= 10.0 {
+                self.set_status_banner(format!(
+                    "⚠️ 豆包语音兑换码仅剩 {:.1} 分钟（共 {:.0} 分钟），请提前联系续期",
+                    profile.remaining_minutes, profile.quota_minutes
+                ));
+            }
+        }
+        self.emit_state_changed();
+        Ok(Some(profile))
+    }
+
     pub async fn cloud_refresh_profile(&self) -> Result<Option<crate::core::cloud::CloudUserProfile>, String> {
+        let _ = self.refresh_voucher_status(true).await;
         let jwt = credentials::load_cloud_jwt();
         if jwt.trim().is_empty() {
             self.inner.lock().cloud_user = None;
@@ -1503,5 +1631,138 @@ impl AppState {
         self.save_config();
         self.sync_asr_engine_config();
         self.emit_state_changed();
+    }
+
+    // ---------- In-App Auto-Update ----------
+
+    pub async fn check_for_updates(
+        &self,
+        manual: bool,
+    ) -> Result<Option<crate::core::updater::AppVersionManifest>, String> {
+        {
+            let mut g = self.inner.lock();
+            if g.is_checking_update || g.is_installing_update {
+                return Ok(g.available_update.clone());
+            }
+            g.is_checking_update = true;
+            if manual {
+                g.update_status_text = "正在检查最新版本…".to_string();
+            }
+        }
+        self.emit_state_changed();
+
+        let res = crate::core::updater::fetch_latest_manifest(manual).await;
+        match res {
+            Ok(manifest) => {
+                let current = crate::core::updater::CURRENT_APP_VERSION;
+                let is_newer = crate::core::updater::is_newer_version(&manifest.version, current);
+                {
+                    let mut g = self.inner.lock();
+                    g.is_checking_update = false;
+                    g.update_status_text.clear();
+                    if is_newer {
+                        g.available_update = Some(manifest.clone());
+                        if manual {
+                            g.skipped_update_version.clear();
+                        }
+                    } else {
+                        g.available_update = None;
+                    }
+                }
+                if manual {
+                    if is_newer {
+                        self.set_status_banner(format!(
+                            "🎉 发现新版本 TypeZero {}（当前 v{current}），可一键下载并覆盖升级",
+                            manifest.tag
+                        ));
+                    } else {
+                        self.set_status_banner(format!("✅ 当前已是最新版本 TypeZero v{current}"));
+                    }
+                } else {
+                    self.emit_state_changed();
+                }
+                Ok(if is_newer { Some(manifest) } else { None })
+            }
+            Err(err) => {
+                {
+                    let mut g = self.inner.lock();
+                    g.is_checking_update = false;
+                    g.update_status_text.clear();
+                }
+                if manual {
+                    self.set_status_banner(format!("⚠️ 检查更新失败：{err}"));
+                } else {
+                    self.emit_state_changed();
+                }
+                Err(err)
+            }
+        }
+    }
+
+    pub fn dismiss_update_banner(&self) {
+        {
+            let mut g = self.inner.lock();
+            if let Some(upd) = g.available_update.as_ref() {
+                g.skipped_update_version = upd.version.clone();
+            }
+        }
+        self.emit_state_changed();
+    }
+
+    pub async fn install_available_update(self: &Arc<Self>) -> Result<(), String> {
+        let manifest = {
+            let mut g = self.inner.lock();
+            if g.is_installing_update {
+                return Ok(());
+            }
+            let Some(m) = g.available_update.clone() else {
+                return Err("当前暂无可安装的新版本".to_string());
+            };
+            g.is_installing_update = true;
+            g.update_download_progress = 0.02;
+            g.update_status_text = format!("正在准备下载 TypeZero {}…", m.tag);
+            m
+        };
+        self.emit_state_changed();
+
+        let st_prog = Arc::clone(self);
+        let dl_res = crate::core::updater::download_and_launch_windows_installer(
+            &manifest,
+            move |frac, status| {
+                {
+                    let mut g = st_prog.inner.lock();
+                    g.update_download_progress = frac;
+                    g.update_status_text = status;
+                }
+                st_prog.emit_state_changed();
+            },
+        )
+        .await;
+
+        match dl_res {
+            Ok(_) => {
+                {
+                    let mut g = self.inner.lock();
+                    g.is_installing_update = false;
+                    g.update_download_progress = 1.0;
+                    g.update_status_text = format!("TypeZero {} 安装程序已启动", manifest.tag);
+                }
+                self.set_status_banner(format!(
+                    "✨ TypeZero {} 安装程序已启动，按向导完成覆盖升级即可（配置与词库 100% 保留）",
+                    manifest.tag
+                ));
+                Ok(())
+            }
+            Err(err) => {
+                {
+                    let mut g = self.inner.lock();
+                    g.is_installing_update = false;
+                    g.update_download_progress = 0.0;
+                    g.update_status_text.clear();
+                }
+                self.set_status_banner(format!("❌ 自动更新失败：{err}"));
+                Err(err)
+            }
+        }
     }
 }

@@ -816,6 +816,15 @@ pub struct AppSnapshot {
     pub stats: DashboardStats,
     pub cloud_user: Option<crate::core::cloud::CloudUserProfile>,
     pub is_official_cloud_trial_active: bool,
+    pub voucher_profile: Option<crate::core::cloud::CloudVoucherProfile>,
+    pub is_using_doubao_voucher: bool,
+    pub current_version: String,
+    pub available_update: Option<crate::core::updater::AppVersionManifest>,
+    pub is_checking_update: bool,
+    pub is_installing_update: bool,
+    pub update_download_progress: f64,
+    pub update_status_text: String,
+    pub skipped_update_version: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

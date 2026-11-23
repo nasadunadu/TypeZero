@@ -480,6 +480,14 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
                         customEndpointURL: CloudAuthClient.cloudASRWSURL,
                         useBearerAuth: true
                     )
+                } else if CloudAuthClient.isVoucherCode(cleanSpeechKey) {
+                    seedASRClient.startSession(
+                        apiKey: CloudAuthClient.normalizedVoucherCode(cleanSpeechKey),
+                        hotwords: contextualStrings,
+                        dialogContext: dialogContext,
+                        customEndpointURL: CloudAuthClient.cloudASRWSURL,
+                        useBearerAuth: true
+                    )
                 } else {
                     seedASRClient.startSession(
                         apiKey: cleanSpeechKey,

@@ -409,6 +409,20 @@ public enum SelfTestSuite {
                 && PolishEngine.guardAgainstUnexpectedTranslation(rawInput: mixedRaw, llmOutput: mixedOut) == mixedOut,
             "Anti-translation circuit breaker rejects accidental En->Zh and Zh->En LLM translations while preserving normal EN, ZH, and mixed polishing"
         )
+        expect(
+            CloudAuthClient.isVoucherCode("tz-a3k9-7m2p")
+                && CloudAuthClient.normalizedVoucherCode(" tz-a3k9-7m2p ") == "TZ-A3K9-7M2P"
+                && !CloudAuthClient.isVoucherCode("volc-raw-api-key-12345")
+                && !CloudAuthClient.isVoucherCode("TZ-123"),
+            "Detects and normalizes Doubao ASR voucher codes (TZ-XXXX-XXXX) without matching standard API keys"
+        )
+        expect(
+            AppUpdater.isNewerVersion("0.5.6", than: "0.5.5")
+                && AppUpdater.isNewerVersion("v0.10.0", than: "0.5.9")
+                && !AppUpdater.isNewerVersion("0.5.5", than: "0.5.5")
+                && !AppUpdater.isNewerVersion("0.5.4", than: "0.5.5"),
+            "Semantic version comparator accurately detects newer releases for in-app auto-updater"
+        )
 
         // 13. Zero-Rewind Atomic Polish Routing (WeChat/QQ & Long Drafts >= 25 Chars) + Prefix-Preserving Replacement Diff
         let wechatCtx = ActiveScreenContext(appName: "微信", bundleID: "com.tencent.xinwechat", windowTitle: "", selectedText: "", precedingText: "", hasFocusedTextInput: true)

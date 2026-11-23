@@ -77,6 +77,14 @@ private struct TypeZeroMenuBarContent: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
+        if let upd = appState.availableUpdate {
+            Button("⬆️ 发现新版本 \(upd.tag) · 点击一键升级") {
+                presentMainWindow(tab: nil)
+                Task { await appState.installAvailableUpdate() }
+            }
+            Divider()
+        }
+
         Button("打开 TypeZero 主界面") {
             presentMainWindow(tab: nil)
         }
@@ -116,6 +124,12 @@ private struct TypeZeroMenuBarContent: View {
         Divider()
 
         Toggle("在程序坞 (Dock) 显示图标", isOn: $appState.llmConfig.showInDock)
+
+        Button(appState.isCheckingForUpdate ? "正在检查更新…" : "检查更新（当前 v\(appState.currentAppVersion)）") {
+            presentMainWindow(tab: nil)
+            Task { await appState.checkForUpdates(manual: true) }
+        }
+        .disabled(appState.isCheckingForUpdate || appState.isInstallingUpdate)
 
         Button("退出 TypeZero") {
             NSApplication.shared.terminate(nil)

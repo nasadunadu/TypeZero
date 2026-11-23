@@ -408,6 +408,35 @@ public struct MainDashboardView: View {
                     .buttonStyle(TZPrimaryButtonStyle(compact: true))
                     .padding(.top, 2)
                 }
+
+                Divider().overlay(TZTheme.hairline)
+                HStack(spacing: 6) {
+                    Text("v\(appState.currentAppVersion)")
+                        .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                        .foregroundStyle(TZTheme.inkMuted)
+                    Spacer()
+                    if let upd = appState.availableUpdate {
+                        Button {
+                            Task { await appState.installAvailableUpdate() }
+                        } label: {
+                            Text(appState.isInstallingUpdate ? "更新中…" : "✨ 升级 \(upd.tag)")
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .foregroundStyle(TZTheme.violet)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(appState.isInstallingUpdate)
+                    } else {
+                        Button {
+                            Task { await appState.checkForUpdates(manual: true) }
+                        } label: {
+                            Text(appState.isCheckingForUpdate ? "检查中…" : "检查更新")
+                                .font(.system(size: 10.5, weight: .medium))
+                                .foregroundStyle(TZTheme.inkSecondary)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(appState.isCheckingForUpdate)
+                    }
+                }
             }
             .padding(13)
             .background(TZTheme.cardBg)
@@ -478,6 +507,45 @@ public struct MainDashboardView: View {
     private var mainContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
+                if appState.shouldShowUpdateBanner, let upd = appState.availableUpdate {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "arrow.down.circle.fill")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(TZTheme.violet)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("发现新版本 TypeZero \(upd.tag)（当前 v\(appState.currentAppVersion)）")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(TZTheme.inkPrimary)
+                                Text(appState.isInstallingUpdate ? appState.updateStatusText : "无需前往官网重下 · 支持应用内校验 SHA-256 一键无损升级并保留全部配置与词库")
+                                    .font(.system(size: 11.5))
+                                    .foregroundStyle(TZTheme.inkSecondary)
+                                    .lineLimit(2)
+                            }
+                            Spacer()
+                            if !appState.isInstallingUpdate {
+                                Button("暂不提示") {
+                                    appState.dismissUpdateBanner()
+                                }
+                                .buttonStyle(TZSecondaryButtonStyle(compact: true))
+                                Button("⚡ 一键更新并重启") {
+                                    Task { await appState.installAvailableUpdate() }
+                                }
+                                .buttonStyle(TZPrimaryButtonStyle(compact: true))
+                            }
+                        }
+                        if appState.isInstallingUpdate {
+                            ProgressView(value: appState.updateDownloadProgress)
+                                .tint(TZTheme.violet)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(TZTheme.lilacTint)
+                    .clipShape(RoundedRectangle(cornerRadius: 11))
+                    .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(TZTheme.violet.opacity(0.28), lineWidth: 1))
+                }
+
                 if !appState.statusBanner.isEmpty {
                     HStack(spacing: 10) {
                         Image(systemName: "sparkles")
@@ -1465,6 +1533,21 @@ struct EngineSettingsSection: View {
 
                         Spacer()
 
+                        if let vp = appState.voucherProfile, appState.isUsingDoubaoVoucher {
+                            Text(
+                                vp.revoked
+                                    ? "兑换码已停用"
+                                    : (vp.exhausted
+                                        ? "时长已用完"
+                                        : String(format: "🎟️ 剩 %.0f 分钟", vp.remainingMinutes))
+                            )
+                            .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                            .foregroundStyle((vp.exhausted || vp.revoked) ? TZTheme.crimson : (vp.remainingMinutes <= 10 ? TZTheme.amber : TZTheme.violet))
+                            .padding(.horizontal, 7.5)
+                            .padding(.vertical, 2.5)
+                            .background((vp.exhausted || vp.revoked) ? TZTheme.crimson.opacity(0.10) : (vp.remainingMinutes <= 10 ? TZTheme.amberTint : TZTheme.lilacTint))
+                            .clipShape(Capsule())
+                        }
                         KeyStatusPill(isConfigured: hasVolcSpeechKey, muted: !volcASRActive)
                         EngineStatusBadge(isActive: volcASRActive)
                     }
@@ -1479,11 +1562,11 @@ struct EngineSettingsSection: View {
                         Divider().overlay(TZTheme.hairline)
 
                         HStack(spacing: 8) {
-                            Text("API Key")
+                            Text(appState.isUsingDoubaoVoucher ? "兑换码" : "API Key")
                                 .font(.system(size: 12, weight: .medium, design: .monospaced))
                                 .foregroundStyle(TZTheme.inkSecondary)
                                 .frame(width: 60, alignment: .leading)
-                            SecureField("粘贴火山豆包语音 API Key（绑定 volc.seedasr.sauc.duration）", text: $appState.volcSpeechKeyInput)
+                            SecureField("粘贴火山豆包语音 API Key 或朋友兑换码（如 TZ-XXXX-XXXX）", text: $appState.volcSpeechKeyInput)
                                 .tzCompactInputStyle()
                                 .onSubmit { appState.saveVolcSpeechAPIKey() }
                             Button("保存") {
@@ -1504,12 +1587,44 @@ struct EngineSettingsSection: View {
                             }
                         }
 
+                        if let vp = appState.voucherProfile, appState.isUsingDoubaoVoucher {
+                            let pct = vp.quotaMinutes > 0 ? min(1.0, vp.usedMinutes / vp.quotaMinutes) : 1.0
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(spacing: 8) {
+                                    Text(
+                                        String(
+                                            format: "🎟️ 兑换码 %@%@ · 已用 %.1f / %.0f 分钟 · 剩余 %.1f 分钟（%d 次）",
+                                            vp.code,
+                                            vp.note.isEmpty ? "" : "（\(vp.note)）",
+                                            vp.usedMinutes,
+                                            vp.quotaMinutes,
+                                            vp.remainingMinutes,
+                                            vp.sessionCount
+                                        )
+                                    )
+                                    .font(.system(size: 11.5, weight: .medium))
+                                    .foregroundStyle((vp.exhausted || vp.revoked) ? TZTheme.crimson : TZTheme.inkPrimary)
+                                    Spacer()
+                                    Button("刷新时长") {
+                                        Task { await appState.refreshVoucherStatusIfApplicable(notifyUserOnLowOrExhausted: true) }
+                                    }
+                                    .buttonStyle(TZSecondaryButtonStyle(compact: true))
+                                }
+                                ProgressView(value: pct)
+                                    .tint((vp.exhausted || vp.revoked) ? TZTheme.crimson : (vp.remainingMinutes <= 10 ? TZTheme.amber : TZTheme.violet))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background((vp.exhausted || vp.revoked) ? TZTheme.crimson.opacity(0.06) : TZTheme.lilacTint.opacity(0.65))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+
                         if let err = appState.asrActivationErrors[.volcSeedASR], !err.isEmpty {
                             InlineProbeBanner(message: err)
                         } else if !appState.lastSeedASRProbeSummary.isEmpty {
                             InlineProbeBanner(message: appState.lastSeedASRProbeSummary)
                         } else if !hasVolcSpeechKey {
-                            InlineWarnBanner(message: "⚠️ 尚未填入火山语音 API Key；填入后点击「校验并切换」通过验证才会点亮生效。")
+                            InlineWarnBanner(message: "⚠️ 尚未填入火山语音 API Key 或朋友兑换码（TZ-XXXX-XXXX）；填入后点击「校验并切换」通过验证才会点亮生效。")
                         }
                     }
                 }
@@ -2431,7 +2546,7 @@ struct OnboardingWizardSheet: View {
                         .foregroundStyle(TZTheme.inkSecondary)
                 }
                 Spacer()
-                Text("v0.5.5")
+                Text("v0.5.6")
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(TZTheme.violet)
                     .padding(.horizontal, 9)

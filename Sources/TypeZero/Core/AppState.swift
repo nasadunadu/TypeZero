@@ -82,9 +82,10 @@ public final class AppState: ObservableObject {
     @Published public var offlineDownloadProgress: Double = 0.0
     @Published public var offlineDownloadStatusText: String = ""
 
-    // TypeZero Cloud Auth & Official Free Trial
+    // TypeZero Cloud Auth & Official Free Trial + Doubao ASR Voucher
     @Published public var cloudUser: CloudUserProfile? = nil
     @Published public var cloudCapabilities: CloudCapabilities? = nil
+    @Published public var voucherProfile: CloudVoucherProfile? = nil
     @Published public var cloudEmailInput: String = ""
     @Published public var cloudCodeInput: String = ""
     @Published public var cloudCodeSent: Bool = false
@@ -92,6 +93,28 @@ public final class AppState: ObservableObject {
     @Published public var isWaitingGoogleOAuth: Bool = false
     @Published public var cloudAuthMessage: String = ""
     private var googlePollTask: Task<Void, Never>? = nil
+
+    public var isUsingDoubaoVoucher: Bool {
+        CloudAuthClient.isVoucherCode(volcSpeechKeyInput)
+    }
+
+    // In-App Auto-Update
+    @Published public var availableUpdate: AppVersionManifest? = nil
+    @Published public var isCheckingForUpdate: Bool = false
+    @Published public var isInstallingUpdate: Bool = false
+    @Published public var updateDownloadProgress: Double = 0.0
+    @Published public var updateStatusText: String = ""
+    @Published public var skippedUpdateVersion: String = UserDefaults.standard.string(forKey: "tz_skipped_update_version") ?? ""
+    private var updateCheckTimer: Timer? = nil
+
+    public var currentAppVersion: String {
+        AppUpdater.currentAppVersion
+    }
+
+    public var shouldShowUpdateBanner: Bool {
+        guard let upd = availableUpdate else { return false }
+        return isInstallingUpdate || upd.version != skippedUpdateVersion
+    }
 
     public var isOfficialCloudTrialActive: Bool {
         guard llmConfig.useOfficialCloudTrial else { return false }
@@ -170,7 +193,11 @@ public final class AppState: ObservableObject {
             self.startPermissionWatcher()
             Task { [weak self] in
                 await self?.refreshCloudAccount()
+                await self?.refreshVoucherStatusIfApplicable(notifyUserOnLowOrExhausted: true)
+                try? await Task.sleep(nanoseconds: 3_500_000_000)
+                await self?.checkForUpdates(manual: false)
             }
+            self.startPeriodicUpdateChecker()
             self.workspaceActivateObserver = NSWorkspace.shared.notificationCenter.addObserver(
                 forName: NSWorkspace.didActivateApplicationNotification,
                 object: nil,
@@ -214,6 +241,83 @@ public final class AppState: ObservableObject {
         }
     }
 
+    private func startPeriodicUpdateChecker() {
+        updateCheckTimer?.invalidate()
+        updateCheckTimer = Timer.scheduledTimer(withTimeInterval: 4 * 3600, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                await self?.checkForUpdates(manual: false)
+            }
+        }
+    }
+
+    public func checkForUpdates(manual: Bool) async {
+        guard !isCheckingForUpdate, !isInstallingUpdate else { return }
+        isCheckingForUpdate = true
+        if manual {
+            updateStatusText = "正在检查最新版本…"
+        }
+        defer { isCheckingForUpdate = false }
+
+        do {
+            let manifest = try await AppUpdater.fetchLatestManifest(forceRefresh: manual)
+            if AppUpdater.isNewerVersion(manifest.version, than: currentAppVersion) {
+                availableUpdate = manifest
+                if manual {
+                    skippedUpdateVersion = ""
+                    UserDefaults.standard.removeObject(forKey: "tz_skipped_update_version")
+                    statusBanner = "🎉 发现新版本 TypeZero \(manifest.tag)（当前 v\(currentAppVersion)），可一键自动更新并重启"
+                }
+            } else {
+                availableUpdate = nil
+                if manual {
+                    statusBanner = "✅ 当前已是最新版本 TypeZero v\(currentAppVersion)"
+                }
+            }
+            updateStatusText = ""
+        } catch {
+            updateStatusText = ""
+            if manual {
+                statusBanner = "⚠️ 检查更新失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    public func dismissUpdateBanner() {
+        guard let upd = availableUpdate else { return }
+        skippedUpdateVersion = upd.version
+        UserDefaults.standard.set(upd.version, forKey: "tz_skipped_update_version")
+    }
+
+    public func installAvailableUpdate() async {
+        guard !isInstallingUpdate, let manifest = availableUpdate else { return }
+        isInstallingUpdate = true
+        updateDownloadProgress = 0.02
+        updateStatusText = "正在准备下载 TypeZero \(manifest.tag)…"
+
+        do {
+            let willAutoRelaunch = try await AppUpdater.downloadAndInstallMacOSUpdate(manifest: manifest) { [weak self] frac, status in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.updateDownloadProgress = frac
+                    self.updateStatusText = status
+                }
+            }
+            if willAutoRelaunch {
+                statusBanner = "✨ 正在重启并切换至 TypeZero \(manifest.tag)…"
+                try? await Task.sleep(nanoseconds: 350_000_000)
+                NSApplication.shared.terminate(nil)
+            } else {
+                isInstallingUpdate = false
+                statusBanner = "📦 已打开 TypeZero \(manifest.tag) 安装镜像，拖入 Applications 覆盖即可完成更新"
+            }
+        } catch {
+            isInstallingUpdate = false
+            updateDownloadProgress = 0.0
+            updateStatusText = ""
+            statusBanner = "❌ 自动更新失败：\(error.localizedDescription)"
+        }
+    }
+
     private func startPermissionWatcher() {
         permissionPollTimer = Timer.scheduledTimer(withTimeInterval: 2.2, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -244,7 +348,13 @@ public final class AppState: ObservableObject {
             }
         }
         asrEngine.onCloudFailoverNotice = { [weak self] reason in
-            self?.statusBanner = "✈️ 离线满血热备已接管：\(reason)"
+            guard let self else { return }
+            self.statusBanner = "✈️ 离线满血热备已接管：\(reason)"
+            if self.isUsingDoubaoVoucher {
+                Task { [weak self] in
+                    await self?.refreshVoucherStatusIfApplicable(notifyUserOnLowOrExhausted: true)
+                }
+            }
         }
         asrEngine.onError = { [weak self] errMsg in
             guard let self else { return }
@@ -482,6 +592,42 @@ public final class AppState: ObservableObject {
 
     // MARK: - TypeZero Cloud Auth & Official Free Trial
 
+    public func refreshVoucherStatusIfApplicable(notifyUserOnLowOrExhausted: Bool = false) async {
+        let key = KeychainHelper.loadVolcSpeechAPIKey().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard CloudAuthClient.isVoucherCode(key) else {
+            voucherProfile = nil
+            return
+        }
+        let code = CloudAuthClient.normalizedVoucherCode(key)
+        do {
+            let (_, profile) = try await CloudAuthClient.fetchVoucherStatus(code: code)
+            voucherProfile = profile
+            if notifyUserOnLowOrExhausted {
+                if profile.revoked {
+                    let msg = "⛔ 豆包语音兑换码（\(profile.code)）已停用，请联系发放人或填入您自己的豆包 API Key"
+                    asrActivationErrors[.volcSeedASR] = msg
+                    statusBanner = msg
+                } else if profile.exhausted {
+                    let msg = String(
+                        format: "⛔ 豆包语音兑换码时长已用完（已用 %.1f / %.0f 分钟），请联系发放人续期或填入您自己的豆包 API Key",
+                        profile.usedMinutes,
+                        profile.quotaMinutes
+                    )
+                    asrActivationErrors[.volcSeedASR] = msg
+                    statusBanner = msg
+                } else if profile.remainingMinutes <= 10.0 {
+                    statusBanner = String(
+                        format: "⚠️ 豆包语音兑换码仅剩 %.1f 分钟（共 %.0f 分钟），请提前联系续期",
+                        profile.remainingMinutes,
+                        profile.quotaMinutes
+                    )
+                }
+            }
+        } catch {
+            // Keep existing profile on transient network hiccup
+        }
+    }
+
     public func refreshCloudAccount() async {
         if let caps = try? await CloudAuthClient.fetchCapabilities() {
             cloudCapabilities = caps
@@ -649,26 +795,65 @@ public final class AppState: ObservableObject {
         case .volcSeedASR:
             let trimmed = volcSpeechKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
-                KeychainHelper.saveVolcSpeechAPIKey(trimmed)
+                let toSave = CloudAuthClient.isVoucherCode(trimmed)
+                    ? CloudAuthClient.normalizedVoucherCode(trimmed)
+                    : trimmed
+                KeychainHelper.saveVolcSpeechAPIKey(toSave)
                 volcSpeechKeyInput = KeychainHelper.loadVolcSpeechAPIKey()
                 syncASREngineConfig()
             }
             let key = KeychainHelper.loadVolcSpeechAPIKey().trimmingCharacters(in: .whitespacesAndNewlines)
             guard !key.isEmpty else {
-                let err = "❌ 无法生效：请先填入火山豆包语音 API Key（当前配置未生效）"
+                let err = "❌ 无法生效：请先填入火山豆包语音 API Key 或兑换码（当前配置未生效）"
                 asrActivationErrors[provider] = err
                 statusBanner = err
                 return false
             }
             do {
-                let rttMs = try await VolcSeedASRClient.probeHandshakeLatency(apiKey: key)
-                llmConfig.selectASRProvider(.volcSeedASR)
-                syncASREngineConfig()
-                speechAuthorized = StreamingASREngine.isSpeechAuthorized
-                let hotCount = min(65, lexiconStore.entries.count)
-                lastSeedASRProbeSummary = "⚡ 校验通过并已生效（volc.seedasr.sauc.duration）：国内直连首帧 \(rttMs)ms · 已挂载 \(hotCount) 个专属热词"
-                statusBanner = "✅ 豆包流式语音大模型 2.0 校验通过，已切换为当前唯一生效引擎"
-                return true
+                if CloudAuthClient.isVoucherCode(key) {
+                    let code = CloudAuthClient.normalizedVoucherCode(key)
+                    let (asrReady, profile) = try await CloudAuthClient.fetchVoucherStatus(code: code)
+                    voucherProfile = profile
+                    guard asrReady else {
+                        throw CloudAuthError.serverError("云端豆包语音服务暂未就绪，请稍后再试")
+                    }
+                    guard !profile.revoked else {
+                        throw CloudAuthError.serverError("该兑换码已被停用，请联系发放人")
+                    }
+                    guard !profile.exhausted else {
+                        throw CloudAuthError.serverError(
+                            String(format: "该兑换码时长已用完（已用 %.1f / %.0f 分钟），请联系发放人续期", profile.usedMinutes, profile.quotaMinutes)
+                        )
+                    }
+                    let rttMs = try await VolcSeedASRClient.probeHandshakeLatency(
+                        apiKey: code,
+                        customEndpointURL: CloudAuthClient.cloudASRWSURL,
+                        useBearerAuth: true
+                    )
+                    llmConfig.selectASRProvider(.volcSeedASR)
+                    syncASREngineConfig()
+                    speechAuthorized = StreamingASREngine.isSpeechAuthorized
+                    let noteTag = profile.note.isEmpty ? "" : " · \(profile.note)"
+                    lastSeedASRProbeSummary = String(
+                        format: "🎟️ 兑换码校验通过（%@%@）：剩余 %.1f / %.0f 分钟 · 首帧 %dms",
+                        profile.code, noteTag, profile.remainingMinutes, profile.quotaMinutes, rttMs
+                    )
+                    statusBanner = String(
+                        format: "✅ 豆包语音兑换码已生效（剩余 %.1f 分钟），现在可直接按快捷键听写",
+                        profile.remainingMinutes
+                    )
+                    return true
+                } else {
+                    voucherProfile = nil
+                    let rttMs = try await VolcSeedASRClient.probeHandshakeLatency(apiKey: key)
+                    llmConfig.selectASRProvider(.volcSeedASR)
+                    syncASREngineConfig()
+                    speechAuthorized = StreamingASREngine.isSpeechAuthorized
+                    let hotCount = min(65, lexiconStore.entries.count)
+                    lastSeedASRProbeSummary = "⚡ 校验通过并已生效（volc.seedasr.sauc.duration）：国内直连首帧 \(rttMs)ms · 已挂载 \(hotCount) 个专属热词"
+                    statusBanner = "✅ 豆包流式语音大模型 2.0 校验通过，已切换为当前唯一生效引擎"
+                    return true
+                }
             } catch {
                 let err = "❌ 校验未通过，未生效：\(error.localizedDescription)"
                 asrActivationErrors[provider] = err
@@ -925,18 +1110,30 @@ public final class AppState: ObservableObject {
     }
 
     public func saveVolcSpeechAPIKey() {
-        KeychainHelper.saveVolcSpeechAPIKey(volcSpeechKeyInput)
+        let trimmed = volcSpeechKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let toSave = CloudAuthClient.isVoucherCode(trimmed)
+            ? CloudAuthClient.normalizedVoucherCode(trimmed)
+            : trimmed
+        KeychainHelper.saveVolcSpeechAPIKey(toSave)
         volcSpeechKeyInput = KeychainHelper.loadVolcSpeechAPIKey()
         syncASREngineConfig()
         speechAuthorized = StreamingASREngine.isSpeechAuthorized
         lastSeedASRProbeSummary = ""
         asrActivationErrors[.volcSeedASR] = nil
         if volcSpeechKeyInput.isEmpty {
+            voucherProfile = nil
             statusBanner = "已清空豆包语音密钥"
+        } else if CloudAuthClient.isVoucherCode(volcSpeechKeyInput) {
+            statusBanner = "🎟️ 已识别豆包语音兑换码，正在校验剩余时长…"
+            Task { [weak self] in
+                await self?.refreshVoucherStatusIfApplicable(notifyUserOnLowOrExhausted: true)
+            }
         } else if llmConfig.asrProvider == .volcSeedASR {
+            voucherProfile = nil
             statusBanner = "✅ 豆包 Seed-ASR 2.0 语音密钥已保存"
         } else {
-            statusBanner = "💾 豆包语音密钥已保存（尚未设为当前生效，点击「校验并生效」启用）"
+            voucherProfile = nil
+            statusBanner = "💾 豆包语音密钥已保存（尚未设为当前生效，点击「校验并切换」启用）"
         }
     }
 
@@ -1024,21 +1221,58 @@ public final class AppState: ObservableObject {
     public func runSeedASRProbe() async {
         guard !isProbingSeedASR else { return }
         isProbingSeedASR = true
-        lastSeedASRProbeSummary = "正在通过国内直连通道实测豆包 Seed-ASR 2.0 双向流…"
+        let typed = volcSpeechKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isVoucher = CloudAuthClient.isVoucherCode(typed)
+        lastSeedASRProbeSummary = isVoucher
+            ? "正在校验豆包语音兑换码剩余时长与云端通道…"
+            : "正在通过国内直连通道实测豆包 Seed-ASR 2.0 双向流…"
         defer { isProbingSeedASR = false }
 
-        if !volcSpeechKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            KeychainHelper.saveVolcSpeechAPIKey(volcSpeechKeyInput)
+        if !typed.isEmpty {
+            let toSave = isVoucher ? CloudAuthClient.normalizedVoucherCode(typed) : typed
+            KeychainHelper.saveVolcSpeechAPIKey(toSave)
             volcSpeechKeyInput = KeychainHelper.loadVolcSpeechAPIKey()
             asrEngine.volcSpeechAPIKey = volcSpeechKeyInput
         }
-        let key = KeychainHelper.loadVolcSpeechAPIKey()
+        let key = KeychainHelper.loadVolcSpeechAPIKey().trimmingCharacters(in: .whitespacesAndNewlines)
 
         do {
-            let rttMs = try await VolcSeedASRClient.probeHandshakeLatency(apiKey: key)
-            let hotCount = min(65, lexiconStore.entries.count)
-            lastSeedASRProbeSummary = "⚡ 实测通过（volc.seedasr.sauc.duration）：国内直连握手+首帧 \(rttMs)ms · 已挂载 \(hotCount) 个专属热词"
-            statusBanner = "⚡ 豆包 Seed-ASR 2.0 连通成功：首帧 \(rttMs)ms"
+            if CloudAuthClient.isVoucherCode(key) {
+                let code = CloudAuthClient.normalizedVoucherCode(key)
+                let (asrReady, profile) = try await CloudAuthClient.fetchVoucherStatus(code: code)
+                voucherProfile = profile
+                guard asrReady else {
+                    throw CloudAuthError.serverError("云端豆包语音服务暂未就绪")
+                }
+                guard !profile.revoked else {
+                    throw CloudAuthError.serverError("该兑换码已被停用，请联系发放人")
+                }
+                guard !profile.exhausted else {
+                    throw CloudAuthError.serverError(
+                        String(format: "该兑换码时长已用完（已用 %.1f / %.0f 分钟），请联系发放人续期", profile.usedMinutes, profile.quotaMinutes)
+                    )
+                }
+                let rttMs = try await VolcSeedASRClient.probeHandshakeLatency(
+                    apiKey: code,
+                    customEndpointURL: CloudAuthClient.cloudASRWSURL,
+                    useBearerAuth: true
+                )
+                let noteTag = profile.note.isEmpty ? "" : " · \(profile.note)"
+                lastSeedASRProbeSummary = String(
+                    format: "🎟️ 兑换码实测通过（%@%@）：剩余 %.1f / %.0f 分钟 · 首帧 %dms",
+                    profile.code, noteTag, profile.remainingMinutes, profile.quotaMinutes, rttMs
+                )
+                statusBanner = String(
+                    format: "⚡ 豆包兑换码连通成功（剩余 %.1f 分钟 · %dms）",
+                    profile.remainingMinutes, rttMs
+                )
+            } else {
+                voucherProfile = nil
+                let rttMs = try await VolcSeedASRClient.probeHandshakeLatency(apiKey: key)
+                let hotCount = min(65, lexiconStore.entries.count)
+                lastSeedASRProbeSummary = "⚡ 实测通过（volc.seedasr.sauc.duration）：国内直连握手+首帧 \(rttMs)ms · 已挂载 \(hotCount) 个专属热词"
+                statusBanner = "⚡ 豆包 Seed-ASR 2.0 连通成功：首帧 \(rttMs)ms"
+            }
         } catch {
             lastSeedASRProbeSummary = "❌ 豆包语音连通未通过：\(error.localizedDescription)"
         }
@@ -1303,6 +1537,10 @@ public final class AppState: ObservableObject {
         if isOfficialCloudTrialActive {
             Task { [weak self] in
                 await self?.refreshCloudAccount()
+            }
+        } else if isUsingDoubaoVoucher && llmConfig.asrProvider == .volcSeedASR {
+            Task { [weak self] in
+                await self?.refreshVoucherStatusIfApplicable(notifyUserOnLowOrExhausted: true)
             }
         }
 

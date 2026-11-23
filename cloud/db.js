@@ -1,11 +1,13 @@
 "use strict";
 
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const initSqlJs = require("sql.js");
 
 // Currency unit: micro-CNY (100,000 micro-CNY = ¥1.00)
 const MICRO_PER_CNY = 100_000;
+const VOUCHER_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 class CloudDB {
   constructor(dbFilePath) {
@@ -76,9 +78,22 @@ class CloudDB {
         day_key TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS voucher_codes (
+        code TEXT PRIMARY KEY,
+        note TEXT NOT NULL DEFAULT '',
+        quota_seconds REAL NOT NULL DEFAULT 30000,
+        used_seconds REAL NOT NULL DEFAULT 0,
+        session_count INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'active',
+        notified_exhausted INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        last_used_at TEXT
+      );
+
       CREATE INDEX IF NOT EXISTS idx_usage_day ON usage_logs(day_key);
       CREATE INDEX IF NOT EXISTS idx_usage_user ON usage_logs(user_id);
       CREATE INDEX IF NOT EXISTS idx_otp_email ON email_otps(email);
+      CREATE INDEX IF NOT EXISTS idx_voucher_created ON voucher_codes(created_at);
     `);
 
     const defaults = {
@@ -87,6 +102,8 @@ class CloudDB {
       total_budget_micro_cny: String(50_000_000), // ¥500.00 total
       trial_signup_enabled: "1",
       relay_enabled: "1",
+      feishu_webhook_url: "",
+      feishu_webhook_secret: "",
     };
     for (const [k, v] of Object.entries(defaults)) {
       this.db.run("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", [k, v]);
@@ -159,6 +176,8 @@ class CloudDB {
       totalBudgetMicroCny: Number(map.total_budget_micro_cny || 50_000_000),
       trialSignupEnabled: map.trial_signup_enabled !== "0",
       relayEnabled: map.relay_enabled !== "0",
+      feishuWebhookUrl: String(map.feishu_webhook_url || "").trim(),
+      feishuWebhookSecret: String(map.feishu_webhook_secret || "").trim(),
     };
   }
 
@@ -169,6 +188,8 @@ class CloudDB {
       totalBudgetMicroCny: "total_budget_micro_cny",
       trialSignupEnabled: "trial_signup_enabled",
       relayEnabled: "relay_enabled",
+      feishuWebhookUrl: "feishu_webhook_url",
+      feishuWebhookSecret: "feishu_webhook_secret",
     };
     for (const [k, dbKey] of Object.entries(mapping)) {
       if (patch[k] !== undefined) {
@@ -295,6 +316,130 @@ class CloudDB {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [userId, email, service, model, units, cost, now, dayKey],
     );
+  }
+
+  // ---------- Doubao ASR Voucher Codes ----------
+
+  static normalizeVoucherCode(raw) {
+    return String(raw || "").trim().toUpperCase();
+  }
+
+  static generateVoucherCode() {
+    const pick = (n) => {
+      const bytes = crypto.randomBytes(n);
+      let s = "";
+      for (let i = 0; i < n; i++) {
+        s += VOUCHER_ALPHABET[bytes[i] % VOUCHER_ALPHABET.length];
+      }
+      return s;
+    };
+    return `TZ-${pick(4)}-${pick(4)}`;
+  }
+
+  findVoucherByCode(code) {
+    const clean = CloudDB.normalizeVoucherCode(code);
+    if (!clean) return null;
+    return this.queryOne("SELECT * FROM voucher_codes WHERE UPPER(code) = ?", [clean]);
+  }
+
+  listVouchers(limit = 200) {
+    return this.queryAll("SELECT * FROM voucher_codes ORDER BY created_at DESC LIMIT ?", [limit]);
+  }
+
+  createVouchers({ count = 1, quotaMinutes = 500, note = "" }) {
+    const n = Math.min(50, Math.max(1, Math.round(Number(count) || 1)));
+    const mins = Math.max(1, Number(quotaMinutes) || 500);
+    const quotaSec = Math.round(mins * 60);
+    const cleanNote = String(note || "").trim().slice(0, 80);
+    const now = new Date().toISOString();
+    const created = [];
+
+    for (let i = 0; i < n; i++) {
+      let code = CloudDB.generateVoucherCode();
+      while (this.findVoucherByCode(code)) {
+        code = CloudDB.generateVoucherCode();
+      }
+      const itemNote = n > 1 && cleanNote ? `${cleanNote} #${i + 1}` : cleanNote;
+      this.exec(
+        `INSERT INTO voucher_codes (code, note, quota_seconds, used_seconds, session_count, status, notified_exhausted, created_at, last_used_at)
+         VALUES (?, ?, ?, 0, 0, 'active', 0, ?, NULL)`,
+        [code, itemNote, quotaSec, now],
+      );
+      created.push(this.findVoucherByCode(code));
+    }
+    this.flushSync();
+    return created;
+  }
+
+  updateVoucher(code, { note, quotaMinutes, addMinutes, status } = {}) {
+    const row = this.findVoucherByCode(code);
+    if (!row) return null;
+
+    let nextNote = row.note || "";
+    if (note !== undefined) {
+      nextNote = String(note || "").trim().slice(0, 80);
+    }
+
+    let nextQuotaSec = Number(row.quota_seconds || 0);
+    if (quotaMinutes !== undefined && Number.isFinite(Number(quotaMinutes)) && Number(quotaMinutes) >= 0) {
+      nextQuotaSec = Math.round(Number(quotaMinutes) * 60);
+    } else if (addMinutes !== undefined && Number.isFinite(Number(addMinutes)) && Number(addMinutes) !== 0) {
+      nextQuotaSec = Math.max(0, Math.round(nextQuotaSec + Number(addMinutes) * 60));
+    }
+
+    let nextStatus = row.status || "active";
+    if (status === "active" || status === "revoked") {
+      nextStatus = status;
+    }
+
+    const usedSec = Number(row.used_seconds || 0);
+    const nextNotified = nextQuotaSec > usedSec ? 0 : Number(row.notified_exhausted || 0);
+
+    this.exec(
+      `UPDATE voucher_codes
+       SET note = ?, quota_seconds = ?, status = ?, notified_exhausted = ?
+       WHERE code = ?`,
+      [nextNote, nextQuotaSec, nextStatus, nextNotified, row.code],
+    );
+    this.flushSync();
+    return this.findVoucherByCode(row.code);
+  }
+
+  recordVoucherUsage({ code, durationSeconds, model, costMicroCny, countSession = true }) {
+    const row = this.findVoucherByCode(code);
+    if (!row) return { voucher: null, justExhausted: false };
+
+    const dur = Math.max(0.1, Number(durationSeconds) || 0);
+    const cost = Math.max(1, Math.round(costMicroCny || dur * 16));
+    const now = new Date().toISOString();
+    const dayKey = this.todayKey();
+
+    const prevUsed = Number(row.used_seconds || 0);
+    const quotaSec = Number(row.quota_seconds || 0);
+    const nextUsed = Number((prevUsed + dur).toFixed(2));
+    const wasNotified = Number(row.notified_exhausted || 0) === 1;
+    const isNowExhausted = nextUsed >= quotaSec;
+    const justExhausted = isNowExhausted && !wasNotified;
+    const nextNotified = justExhausted || wasNotified ? 1 : 0;
+
+    this.exec(
+      `UPDATE voucher_codes
+       SET used_seconds = ?,
+           session_count = session_count + ?,
+           notified_exhausted = ?,
+           last_used_at = ?
+       WHERE code = ?`,
+      [nextUsed, countSession ? 1 : 0, nextNotified, now, row.code],
+    );
+
+    const displayLabel = row.note ? `[兑换码] ${row.note} (${row.code})` : `[兑换码] ${row.code}`;
+    this.exec(
+      `INSERT INTO usage_logs (user_id, email, service, model, units, cost_micro_cny, created_at, day_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [`voucher:${row.code}`, displayLabel, "asr_voucher", model, Number(dur.toFixed(2)), cost, now, dayKey],
+    );
+    this.flushSync();
+    return { voucher: this.findVoucherByCode(row.code), justExhausted };
   }
 }
 

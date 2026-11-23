@@ -404,22 +404,43 @@ impl VolcSeedASRClient {
 
     /// Live diagnostic probe: verifies `volc.seedasr.sauc.duration` WebSocket auth + direct RTT in milliseconds.
     pub async fn probe_handshake_latency(api_key: &str) -> Result<u64, String> {
+        Self::probe_handshake_latency_with_endpoint(api_key, ENDPOINT_URL, false).await
+    }
+
+    pub async fn probe_handshake_latency_with_endpoint(
+        api_key: &str,
+        endpoint_url: &str,
+        use_bearer_auth: bool,
+    ) -> Result<u64, String> {
         let clean_key = api_key.trim();
         if clean_key.is_empty() {
-            return Err("请先粘贴豆包语音 API Key".to_string());
+            return Err("请先粘贴豆包语音 API Key 或兑换码".to_string());
         }
-        let mut request = ENDPOINT_URL
+        let target_endpoint = if endpoint_url.trim().is_empty() {
+            ENDPOINT_URL
+        } else {
+            endpoint_url.trim()
+        };
+        let mut request = target_endpoint
             .into_client_request()
             .map_err(|e| format!("无效地址：{e}"))?;
         let headers = request.headers_mut();
-        headers.insert(
-            "X-Api-Key",
-            HeaderValue::from_str(clean_key).map_err(|_| "API Key 包含非法字符".to_string())?,
-        );
-        headers.insert(
-            "X-Api-Resource-Id",
-            HeaderValue::from_static(DEFAULT_RESOURCE_ID),
-        );
+        if use_bearer_auth {
+            headers.insert(
+                "Authorization",
+                HeaderValue::from_str(&format!("Bearer {clean_key}"))
+                    .map_err(|_| "兑换码包含非法字符".to_string())?,
+            );
+        } else {
+            headers.insert(
+                "X-Api-Key",
+                HeaderValue::from_str(clean_key).map_err(|_| "API Key 包含非法字符".to_string())?,
+            );
+            headers.insert(
+                "X-Api-Resource-Id",
+                HeaderValue::from_static(DEFAULT_RESOURCE_ID),
+            );
+        }
         headers.insert(
             "X-Api-Connect-Id",
             HeaderValue::from_str(&Uuid::new_v4().to_string()).unwrap(),

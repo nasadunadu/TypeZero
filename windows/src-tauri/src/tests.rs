@@ -584,4 +584,19 @@ fn test_dsp_resampler_agc_wav_and_seed_asr_framing() {
         PolishEngine::guard_against_unexpected_translation(mixed_raw, mixed_out),
         mixed_out
     );
+
+    // 7. Doubao ASR Voucher code detection & normalization
+    assert!(crate::core::cloud::is_voucher_code("tz-a3k9-7m2p"));
+    assert_eq!(
+        crate::core::cloud::normalized_voucher_code(" tz-a3k9-7m2p "),
+        "TZ-A3K9-7M2P"
+    );
+    assert!(!crate::core::cloud::is_voucher_code("volc-raw-api-key-12345"));
+    assert!(!crate::core::cloud::is_voucher_code("TZ-123"));
+
+    // 8. Semantic version comparator for in-app auto-update
+    assert!(crate::core::updater::is_newer_version("0.5.6", "0.5.5"));
+    assert!(crate::core::updater::is_newer_version("v0.10.0", "0.5.9"));
+    assert!(!crate::core::updater::is_newer_version("0.5.5", "0.5.5"));
+    assert!(!crate::core::updater::is_newer_version("0.5.4", "0.5.5"));
 }

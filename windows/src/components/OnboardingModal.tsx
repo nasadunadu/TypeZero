@@ -111,7 +111,7 @@ export const OnboardingModal: React.FC<Props> = ({ snapshot, onRefresh, onFinish
             </p>
           </div>
           <span className="pill-badge pill-lilac" style={{ marginLeft: "auto", fontFamily: "var(--font-mono)" }}>
-            v0.5.5
+            v0.5.6
           </span>
         </div>
 

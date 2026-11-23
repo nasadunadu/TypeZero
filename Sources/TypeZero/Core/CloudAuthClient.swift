@@ -45,6 +45,27 @@ public struct CloudGooglePollResponse: Codable, Sendable {
     public let error: String?
 }
 
+public struct CloudVoucherProfile: Codable, Equatable, Sendable {
+    public let code: String
+    public let note: String
+    public let quotaSeconds: Double
+    public let usedSeconds: Double
+    public let remainingSeconds: Double
+    public let quotaMinutes: Double
+    public let usedMinutes: Double
+    public let remainingMinutes: Double
+    public let sessionCount: Int
+    public let status: String
+    public let exhausted: Bool
+    public let revoked: Bool
+}
+
+private struct CloudVoucherStatusResponse: Codable {
+    let ok: Bool
+    let asrReady: Bool
+    let voucher: CloudVoucherProfile
+}
+
 private struct CloudMeResponse: Codable {
     let ok: Bool
     let user: CloudUserProfile
@@ -156,6 +177,30 @@ public enum CloudAuthClient {
         }
         try validateHTTP(resp, data: data)
         throw CloudAuthError.serverError("Google 登录状态解析失败")
+    }
+
+    public static func normalizedVoucherCode(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    }
+
+    public static func isVoucherCode(_ raw: String) -> Bool {
+        let clean = normalizedVoucherCode(raw)
+        guard clean.hasPrefix("TZ-"), clean.count >= 10 else { return false }
+        return clean.allSatisfy { $0.isASCII && ($0.isUppercase || $0.isNumber || $0 == "-") }
+    }
+
+    public static func fetchVoucherStatus(code: String) async throws -> (asrReady: Bool, voucher: CloudVoucherProfile) {
+        let clean = normalizedVoucherCode(code)
+        guard isVoucherCode(clean) else {
+            throw CloudAuthError.serverError("兑换码格式无效（应类似 TZ-XXXX-XXXX）")
+        }
+        guard let url = URL(string: "\(baseURL)/api/voucher/status") else { throw CloudAuthError.invalidURL }
+        var req = URLRequest(url: url)
+        req.setValue("Bearer \(clean)", forHTTPHeaderField: "Authorization")
+        let (data, resp) = try await session.data(for: req)
+        try validateHTTP(resp, data: data)
+        let decoded = try JSONDecoder().decode(CloudVoucherStatusResponse.self, from: data)
+        return (decoded.asrReady, decoded.voucher)
     }
 
     public static func fetchProfile(token: String) async throws -> CloudUserProfile {

@@ -8,6 +8,8 @@ interface Props {
   selectedTab: SidebarTab;
   onSelectTab: (tab: SidebarTab) => void;
   onOpenMicSettings: () => void;
+  onCheckForUpdates: () => void;
+  onInstallUpdate: () => void;
 }
 
 const NAV_ITEMS: Array<{ id: SidebarTab; label: string; icon: React.ReactNode }> = [
@@ -22,6 +24,8 @@ export const Sidebar: React.FC<Props> = ({
   selectedTab,
   onSelectTab,
   onOpenMicSettings,
+  onCheckForUpdates,
+  onInstallUpdate,
 }) => {
   const { config } = snapshot;
 
@@ -182,6 +186,46 @@ export const Sidebar: React.FC<Props> = ({
           >
             常驻待命
           </span>
+        </div>
+
+        <div className="telemetry-row" style={{ borderTop: "1px solid var(--hairline)", paddingTop: 6, marginTop: 4 }}>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "var(--ink-muted)" }}>
+            v{snapshot.currentVersion || "0.5.6"}
+          </span>
+          {snapshot.availableUpdate ? (
+            <button
+              type="button"
+              style={{
+                border: "none",
+                background: "transparent",
+                padding: 0,
+                cursor: "pointer",
+                fontSize: 11,
+                fontWeight: 600,
+                color: "var(--violet)",
+              }}
+              disabled={Boolean(snapshot.isInstallingUpdate)}
+              onClick={onInstallUpdate}
+            >
+              {snapshot.isInstallingUpdate ? "升级中…" : `✨ 升级 ${snapshot.availableUpdate.tag}`}
+            </button>
+          ) : (
+            <button
+              type="button"
+              style={{
+                border: "none",
+                background: "transparent",
+                padding: 0,
+                cursor: "pointer",
+                fontSize: 11,
+                color: "var(--ink-secondary)",
+              }}
+              disabled={Boolean(snapshot.isCheckingUpdate)}
+              onClick={onCheckForUpdates}
+            >
+              {snapshot.isCheckingUpdate ? "检查中…" : "检查更新"}
+            </button>
+          )}
         </div>
 
         {!snapshot.micAvailable && (

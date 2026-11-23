@@ -378,6 +378,26 @@ export const api = {
     await invoke("cloud_logout");
   },
 
+  async refreshVoucherStatus(): Promise<void> {
+    if (!isTauriRuntime()) return;
+    await invoke("refresh_voucher_status");
+  },
+
+  async checkForUpdates(manual: boolean): Promise<void> {
+    if (!isTauriRuntime()) return;
+    await invoke("check_for_updates", { manual });
+  },
+
+  async installAvailableUpdate(): Promise<void> {
+    if (!isTauriRuntime()) return;
+    await invoke("install_available_update");
+  },
+
+  async dismissUpdateBanner(): Promise<void> {
+    if (!isTauriRuntime()) return;
+    await invoke("dismiss_update_banner");
+  },
+
   async listenStateChanged(cb: (snap: AppSnapshot) => void): Promise<UnlistenFn> {
     if (!isTauriRuntime()) return () => {};
     return listen<AppSnapshot>("state-changed", (ev) => cb(ev.payload));
