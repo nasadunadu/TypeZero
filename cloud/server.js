@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
 const express = require("express");
@@ -108,103 +109,254 @@ function hashOtp(email, code) {
     .digest("hex");
 }
 
-// GitHub Release Auto-Update Feed (cached in-memory for 10 min for instant CN & global checks)
+// GitHub Release Auto-Update Feed (Stale-While-Revalidate + SQLite persisted for <50ms instant checks in CN & globally)
 const GITHUB_REPO = (process.env.GITHUB_REPO || "nasadunadu/TypeZero").trim();
-const VERSION_CACHE_TTL_MS = 10 * 60 * 1000;
+const SITE_DOWNLOADS_DIR = process.env.TYPEZERO_DOWNLOADS_DIR || "/srv/typezero-site/downloads";
+const VERSION_CACHE_TTL_MS = 5 * 60 * 1000;
 let cachedVersionManifest = null;
 let cachedVersionFetchedAt = 0;
+let inflightVersionRefresh = null;
 
 function extractSha256FromText(text) {
   const m = String(text || "").match(/\b([a-f0-9]{64})\b/i);
   return m ? m[1].toLowerCase() : "";
 }
 
-async function fetchLatestReleaseManifest() {
+function fetchWithTimeout(url, opts = {}, timeoutMs = 4500) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...opts, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
+async function refreshReleaseManifestFromGitHub(db) {
+  if (inflightVersionRefresh) {
+    return inflightVersionRefresh;
+  }
+  inflightVersionRefresh = (async () => {
+    const resp = await fetchWithTimeout(
+      `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
+      {
+        headers: {
+          Accept: "application/vnd.github+json",
+          "User-Agent": "typezero-cloud-updater/1.0",
+        },
+      },
+      4500,
+    );
+    if (!resp.ok) {
+      throw new Error(`GitHub releases API HTTP ${resp.status}`);
+    }
+    const rel = await resp.json();
+    const tag = String(rel.tag_name || "").trim();
+    const version = tag.replace(/^v/i, "");
+    const assets = Array.isArray(rel.assets) ? rel.assets : [];
+
+    const findAssetIn = (list, re) => (Array.isArray(list) ? list : []).find((a) => re.test(String(a.name || "")));
+    let macRel = rel;
+    let macDmg = findAssetIn(assets, /macOS-arm64\.dmg$/i);
+    let macShaAsset = findAssetIn(assets, /macOS-arm64\.dmg\.sha256$/i);
+    let winRel = rel;
+    let winSetup = findAssetIn(assets, /Windows-x64-setup\.exe$/i);
+    let winSetupShaAsset = findAssetIn(assets, /Windows-x64-setup\.exe\.sha256$/i);
+    let winPortable = findAssetIn(assets, /Windows-x64-portable\.zip$/i);
+
+    // When a macOS-only (or Windows-only) release ships, keep the other platform pointing
+    // to its most recent stable release so website / updater links never break.
+    if (!winSetup || !macDmg) {
+      try {
+        const listResp = await fetchWithTimeout(
+          `https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=10`,
+          {
+            headers: {
+              Accept: "application/vnd.github+json",
+              "User-Agent": "typezero-cloud-updater/1.0",
+            },
+          },
+          4500,
+        );
+        if (listResp.ok) {
+          const releases = await listResp.json();
+          if (Array.isArray(releases)) {
+            for (const candidate of releases) {
+              if (!candidate || candidate.draft || candidate.prerelease) continue;
+              const candAssets = Array.isArray(candidate.assets) ? candidate.assets : [];
+              if (!macDmg) {
+                const candMac = findAssetIn(candAssets, /macOS-arm64\.dmg$/i);
+                if (candMac) {
+                  macRel = candidate;
+                  macDmg = candMac;
+                  macShaAsset = findAssetIn(candAssets, /macOS-arm64\.dmg\.sha256$/i);
+                }
+              }
+              if (!winSetup) {
+                const candWin = findAssetIn(candAssets, /Windows-x64-setup\.exe$/i);
+                if (candWin) {
+                  winRel = candidate;
+                  winSetup = candWin;
+                  winSetupShaAsset = findAssetIn(candAssets, /Windows-x64-setup\.exe\.sha256$/i);
+                  winPortable = findAssetIn(candAssets, /Windows-x64-portable\.zip$/i);
+                }
+              }
+              if (macDmg && winSetup) break;
+            }
+          }
+        }
+      } catch {
+        // Non-fatal: fall through to cached manifest fallback below
+      }
+    }
+
+    const checkEcsMirror = (filename) => {
+      if (!filename) return "";
+      try {
+        if (fs.existsSync(path.join(SITE_DOWNLOADS_DIR, filename))) {
+          return `${PUBLIC_BASE_URL}/downloads/${filename}`;
+        }
+      } catch {
+        // Non-fatal
+      }
+      return "";
+    };
+
+    const readShaAsset = async (asset) => {
+      if (!asset?.browser_download_url) return "";
+      try {
+        const r = await fetchWithTimeout(
+          asset.browser_download_url,
+          { headers: { "User-Agent": "typezero-cloud-updater/1.0" } },
+          2500,
+        );
+        if (!r.ok) return "";
+        return extractSha256FromText(await r.text());
+      } catch {
+        return "";
+      }
+    };
+
+    const macBodySha = extractSha256FromText(macRel?.body);
+    const [macSha, winSha] = await Promise.all([
+      macBodySha ? Promise.resolve(macBodySha) : readShaAsset(macShaAsset),
+      readShaAsset(winSetupShaAsset),
+    ]);
+
+    const macTag = String(macRel?.tag_name || tag).trim();
+    const winTag = String(winRel?.tag_name || tag).trim();
+    const ecsMacUrl = checkEcsMirror(macDmg?.name);
+    const ecsWinSetupUrl = checkEcsMirror(winSetup?.name);
+    const ecsWinPortableUrl = checkEcsMirror(winPortable?.name);
+
+    const prevMac = cachedVersionManifest?.macos;
+    const prevWin = cachedVersionManifest?.windows;
+
+    const macosEntry = macDmg
+      ? {
+          version: macTag.replace(/^v/i, ""),
+          tag: macTag,
+          dmgUrl: ecsMacUrl || macDmg.browser_download_url || "",
+          fallbackDmgUrl: macDmg.browser_download_url || ecsMacUrl || "",
+          fileName: macDmg.name || `TypeZero-${macTag}-macOS-arm64.dmg`,
+          sizeBytes: Number(macDmg.size || 0),
+          sha256: macSha || macBodySha,
+        }
+      : prevMac && prevMac.dmgUrl
+        ? prevMac
+        : {
+            version: macTag.replace(/^v/i, ""),
+            tag: macTag,
+            dmgUrl: "",
+            fallbackDmgUrl: "",
+            fileName: `TypeZero-${macTag}-macOS-arm64.dmg`,
+            sizeBytes: 0,
+            sha256: "",
+          };
+
+    const windowsEntry = winSetup
+      ? {
+          version: winTag.replace(/^v/i, ""),
+          tag: winTag,
+          setupUrl: ecsWinSetupUrl || winSetup.browser_download_url || "",
+          fallbackSetupUrl: winSetup.browser_download_url || ecsWinSetupUrl || "",
+          portableUrl: ecsWinPortableUrl || winPortable?.browser_download_url || "",
+          fileName: winSetup.name || `TypeZero-${winTag}-Windows-x64-setup.exe`,
+          sizeBytes: Number(winSetup.size || 0),
+          sha256: winSha,
+        }
+      : prevWin && prevWin.setupUrl
+        ? prevWin
+        : {
+            version: winTag.replace(/^v/i, ""),
+            tag: winTag,
+            setupUrl: "",
+            fallbackSetupUrl: "",
+            portableUrl: "",
+            fileName: `TypeZero-${winTag}-Windows-x64-setup.exe`,
+            sizeBytes: 0,
+            sha256: "",
+          };
+
+    const manifest = {
+      ok: true,
+      version,
+      tag,
+      name: String(rel.name || `TypeZero ${tag}`),
+      publishedAt: rel.published_at || "",
+      releaseNotes: String(rel.body || "").slice(0, 2400),
+      releaseUrl: String(rel.html_url || `https://github.com/${GITHUB_REPO}/releases/tag/${tag}`),
+      macos: macosEntry,
+      windows: windowsEntry,
+    };
+    cachedVersionManifest = manifest;
+    cachedVersionFetchedAt = Date.now();
+    if (db) {
+      try {
+        db.setSetting("cached_version_manifest_json", JSON.stringify(manifest));
+      } catch {
+        // Non-fatal
+      }
+    }
+    return manifest;
+  })().finally(() => {
+    inflightVersionRefresh = null;
+  });
+  return inflightVersionRefresh;
+}
+
+async function getLatestReleaseManifest(db, { forceRefresh = false, waitSync = false } = {}) {
+  if (!cachedVersionManifest && db) {
+    try {
+      const saved = db.getSetting("cached_version_manifest_json", "");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.version) {
+          cachedVersionManifest = parsed;
+        }
+      }
+    } catch {
+      // Ignore corrupt persisted cache
+    }
+  }
+
   const now = Date.now();
-  if (cachedVersionManifest && now - cachedVersionFetchedAt < VERSION_CACHE_TTL_MS) {
+  const isStale = !cachedVersionManifest || now - cachedVersionFetchedAt >= VERSION_CACHE_TTL_MS;
+
+  if (waitSync) {
+    try {
+      return await refreshReleaseManifestFromGitHub(db);
+    } catch (err) {
+      if (cachedVersionManifest) return cachedVersionManifest;
+      throw err;
+    }
+  }
+
+  // Instant Stale-While-Revalidate: return cached manifest in <50ms, refresh GitHub asynchronously
+  if (cachedVersionManifest) {
+    if (forceRefresh || isStale) {
+      refreshReleaseManifestFromGitHub(db).catch(() => {});
+    }
     return cachedVersionManifest;
   }
-  const resp = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
-    headers: {
-      Accept: "application/vnd.github+json",
-      "User-Agent": "typezero-cloud-updater/1.0",
-    },
-  });
-  if (!resp.ok) {
-    if (cachedVersionManifest) return cachedVersionManifest;
-    throw new Error(`GitHub releases API HTTP ${resp.status}`);
-  }
-  const rel = await resp.json();
-  const tag = String(rel.tag_name || "").trim();
-  const version = tag.replace(/^v/i, "");
-  const assets = Array.isArray(rel.assets) ? rel.assets : [];
 
-  const findAsset = (re) => assets.find((a) => re.test(String(a.name || "")));
-  const macDmg = findAsset(/macOS-arm64\.dmg$/i);
-  const macShaAsset = findAsset(/macOS-arm64\.dmg\.sha256$/i);
-  const winSetup = findAsset(/Windows-x64-setup\.exe$/i);
-  const winSetupShaAsset = findAsset(/Windows-x64-setup\.exe\.sha256$/i);
-  const winPortable = findAsset(/Windows-x64-portable\.zip$/i);
-
-  const readShaAsset = async (asset) => {
-    if (!asset?.browser_download_url) return "";
-    try {
-      const r = await fetch(asset.browser_download_url, {
-        headers: { "User-Agent": "typezero-cloud-updater/1.0" },
-      });
-      if (!r.ok) return "";
-      return extractSha256FromText(await r.text());
-    } catch {
-      return "";
-    }
-  };
-
-  const checkEcsMirror = async (filename) => {
-    if (!filename) return "";
-    const url = `${PUBLIC_BASE_URL}/downloads/${filename}`;
-    try {
-      const r = await fetch(url, { method: "HEAD" });
-      return r.ok ? url : "";
-    } catch {
-      return "";
-    }
-  };
-
-  const [macSha, winSha, ecsMacUrl, ecsWinSetupUrl, ecsWinPortableUrl] = await Promise.all([
-    readShaAsset(macShaAsset),
-    readShaAsset(winSetupShaAsset),
-    checkEcsMirror(macDmg?.name),
-    checkEcsMirror(winSetup?.name),
-    checkEcsMirror(winPortable?.name),
-  ]);
-
-  const manifest = {
-    ok: true,
-    version,
-    tag,
-    name: String(rel.name || `TypeZero ${tag}`),
-    publishedAt: rel.published_at || "",
-    releaseNotes: String(rel.body || "").slice(0, 2400),
-    releaseUrl: String(rel.html_url || `https://github.com/${GITHUB_REPO}/releases/tag/${tag}`),
-    macos: {
-      dmgUrl: ecsMacUrl || macDmg?.browser_download_url || "",
-      fallbackDmgUrl: macDmg?.browser_download_url || ecsMacUrl || "",
-      fileName: macDmg?.name || `TypeZero-${tag}-macOS-arm64.dmg`,
-      sizeBytes: Number(macDmg?.size || 0),
-      sha256: macSha || extractSha256FromText(rel.body),
-    },
-    windows: {
-      setupUrl: ecsWinSetupUrl || winSetup?.browser_download_url || "",
-      fallbackSetupUrl: winSetup?.browser_download_url || ecsWinSetupUrl || "",
-      portableUrl: ecsWinPortableUrl || winPortable?.browser_download_url || "",
-      fileName: winSetup?.name || `TypeZero-${tag}-Windows-x64-setup.exe`,
-      sizeBytes: Number(winSetup?.size || 0),
-      sha256: winSha,
-    },
-  };
-  cachedVersionManifest = manifest;
-  cachedVersionFetchedAt = now;
-  return manifest;
+  return refreshReleaseManifestFromGitHub(db);
 }
 
 function isVoucherCodeFormat(raw) {
@@ -233,6 +385,8 @@ function formatVoucherPublic(row) {
     exhausted: remSec <= 0,
     revoked: status !== "active",
     notifiedExhausted: Boolean(row.notified_exhausted),
+    activated: Boolean(row.activated_at || Number(row.session_count || 0) > 0 || usedSec > 0),
+    activatedAt: row.activated_at || row.last_used_at || null,
     createdAt: row.created_at,
     lastUsedAt: row.last_used_at || null,
   };
@@ -518,13 +672,12 @@ async function createApp(customDbPath, options = {}) {
   });
 
   app.get("/api/version", async (req, res) => {
-    if (String(req.query.refresh || "") === "1") {
-      cachedVersionFetchedAt = 0;
-    }
+    const forceRefresh = String(req.query.refresh || "") === "1";
+    const waitSync = String(req.query.sync || "") === "1";
     try {
       const manifest = typeof options.getVersionManifest === "function"
         ? await options.getVersionManifest()
-        : await fetchLatestReleaseManifest();
+        : await getLatestReleaseManifest(db, { forceRefresh, waitSync });
       res.setHeader("Cache-Control", "public, max-age=120");
       res.json(manifest);
     } catch (err) {
@@ -811,10 +964,11 @@ async function createApp(customDbPath, options = {}) {
     if (!row) {
       return res.status(404).json({ error: "兑换码不存在，请核对是否粘贴完整" });
     }
+    const activatedRow = db.markVoucherActivated(row.code) || row;
     res.json({
       ok: true,
       asrReady: Boolean(VOLC_SPEECH_API_KEY),
-      voucher: formatVoucherPublic(row),
+      voucher: formatVoucherPublic(activatedRow),
     });
   });
 
@@ -1299,6 +1453,11 @@ if (require.main === module) {
     .then(({ server, db }) => {
       server.listen(PORT, "127.0.0.1", () => {
         console.log(`TypeZero Cloud Gateway listening on http://127.0.0.1:${PORT}`);
+        // Warm release manifest immediately & keep fresh every 10 min in background
+        getLatestReleaseManifest(db, { forceRefresh: true }).catch(() => {});
+        setInterval(() => {
+          refreshReleaseManifestFromGitHub(db).catch(() => {});
+        }, 10 * 60 * 1000).unref();
       });
       const shutdown = () => {
         db.flushSync();

@@ -158,11 +158,11 @@
         document.getElementById("feishuStatusHint").textContent = d.feishuWebhookMasked ? `已配置：${d.feishuWebhookMasked}` : "未配置";
 
         const vouchers = d.vouchers || [];
-        const activeVouchers = vouchers.filter((v) => !v.revoked && !v.exhausted).length;
+        const activatedVouchers = vouchers.filter((v) => v.activated).length;
         const totalVoucherUsedMin = vouchers.reduce((acc, v) => acc + Number(v.usedMinutes || 0), 0);
 
         document.getElementById("kpiGrid").innerHTML = `
-          <div class="card"><div class="kpi-val">${vouchers.length}</div><div class="kpi-label">豆包兑换码（可用 ${activeVouchers} · 累计 ${totalVoucherUsedMin.toFixed(1)} 分钟）</div></div>
+          <div class="card"><div class="kpi-val">${vouchers.length}</div><div class="kpi-label">豆包兑换码（已激活 ${activatedVouchers} · 累计 ${totalVoucherUsedMin.toFixed(1)} 分钟）</div></div>
           <div class="card"><div class="kpi-val">${d.totalUsers}</div><div class="kpi-label">邮箱注册用户（已领体验金 ${d.trialUsers}）</div></div>
           <div class="card"><div class="kpi-val">¥${d.budget.todaySpentCny.toFixed(3)}</div><div class="kpi-label">今日消耗 / 上限 ¥${d.budget.dailyBudgetCny}</div></div>
           <div class="card"><div class="kpi-val" style="color:${d.budget.withinBudget ? "var(--green)" : "var(--red)"}">${d.budget.withinBudget ? "运行中" : "已熔断"}</div><div class="kpi-label">累计 ¥${d.budget.totalSpentCny.toFixed(3)} / 上限 ¥${d.budget.totalBudgetCny}</div></div>
@@ -172,13 +172,27 @@
           ? `<tr><td colspan="7" style="color:var(--muted);text-align:center;padding:16px;">尚未生成豆包语音兑换码，上方填好朋友备注和分钟数即可一键生成。</td></tr>`
           : vouchers.map((v) => {
               const pct = v.quotaMinutes > 0 ? Math.min(100, (v.usedMinutes / v.quotaMinutes) * 100) : 100;
+              const fmtTime = (iso) => {
+                if (!iso) return "";
+                const dt = new Date(iso);
+                return Number.isNaN(dt.getTime()) ? "" : dt.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+              };
               const badge = v.revoked
                 ? `<span class="pill warn" style="background:rgba(209,50,60,.12);color:var(--red);">已停用</span>`
                 : v.exhausted
                   ? `<span class="pill warn" style="background:rgba(209,50,60,.12);color:var(--red);">已用完${v.notifiedExhausted ? "·已飞书提醒" : ""}</span>`
                   : v.remainingMinutes < 10
                     ? `<span class="pill warn">即将用完</span>`
-                    : `<span class="pill ok">正常使用</span>`;
+                    : v.sessionCount > 0
+                      ? `<span class="pill ok">使用中</span>`
+                      : v.activated
+                        ? `<span class="pill" style="background:var(--lilac);color:var(--violet);">✓ 已激活</span>`
+                        : `<span class="pill" style="background:var(--well);color:var(--muted);">待激活</span>`;
+              const subTime = v.lastUsedAt
+                ? `最近 ${fmtTime(v.lastUsedAt)}`
+                : v.activatedAt
+                  ? `激活 ${fmtTime(v.activatedAt)}`
+                  : "尚未绑定";
               return `
                 <tr>
                   <td class="mono"><button class="sec" style="padding:4px 8px;font-family:ui-monospace,Consolas,monospace;" onclick="copyText('${v.code}')">${v.code} 📋</button></td>
@@ -191,7 +205,10 @@
                   </td>
                   <td class="mono"><strong>${v.remainingMinutes.toFixed(1)} 分钟</strong></td>
                   <td class="mono">${v.sessionCount}</td>
-                  <td>${badge}</td>
+                  <td>
+                    <div>${badge}</div>
+                    <div style="font-size:10.5px;color:var(--muted);margin-top:3px;">${subTime}</div>
+                  </td>
                   <td class="row">
                     <button class="sec" onclick="addVoucherMinutes('${v.code}', 500)">+500分</button>
                     <button class="sec" onclick="editVoucherQuota('${v.code}', ${v.quotaMinutes})">改额度</button>

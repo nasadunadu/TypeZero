@@ -1870,16 +1870,16 @@ public final class AppState: ObservableObject {
     private func loadConfig() {
         if let data = try? Data(contentsOf: configURL),
            var decoded = try? JSONDecoder().decode(LLMConfig.self, from: data) {
-            if !UserDefaults.standard.bool(forKey: "tz_default_inline_off_v2") {
-                decoded.enableLiveInlineTyping = false
-                UserDefaults.standard.set(true, forKey: "tz_default_inline_off_v2")
+            if !UserDefaults.standard.bool(forKey: "tz_default_inline_on_v3") {
+                decoded.enableLiveInlineTyping = true
+                UserDefaults.standard.set(true, forKey: "tz_default_inline_on_v3")
                 self.llmConfig = decoded
                 saveConfig()
                 return
             }
             self.llmConfig = decoded
         } else {
-            UserDefaults.standard.set(true, forKey: "tz_default_inline_off_v2")
+            UserDefaults.standard.set(true, forKey: "tz_default_inline_on_v3")
         }
     }
 

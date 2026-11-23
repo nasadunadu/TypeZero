@@ -1470,8 +1470,8 @@ struct EngineSettingsSection: View {
                 TZMatrixControlRow(label: "上屏模式") {
                     TZSegmentBar(
                         items: [
-                            ("胶囊跳符 · 松手瞬贴（默认）", !appState.llmConfig.enableLiveInlineTyping, { appState.llmConfig.enableLiveInlineTyping = false }),
-                            ("开启前端输入框逐字跳出", appState.llmConfig.enableLiveInlineTyping, { appState.llmConfig.enableLiveInlineTyping = true })
+                            ("开启前端输入框逐字跳出（默认）", appState.llmConfig.enableLiveInlineTyping, { appState.llmConfig.enableLiveInlineTyping = true }),
+                            ("胶囊跳符 · 松手瞬贴", !appState.llmConfig.enableLiveInlineTyping, { appState.llmConfig.enableLiveInlineTyping = false })
                         ]
                     )
                 }
@@ -2618,7 +2618,7 @@ struct OnboardingWizardSheet: View {
                         .foregroundStyle(TZTheme.inkSecondary)
                 }
                 Spacer()
-                Text("v0.5.7")
+                Text("v0.5.8")
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(TZTheme.violet)
                     .padding(.horizontal, 9)

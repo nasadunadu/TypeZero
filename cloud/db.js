@@ -87,6 +87,7 @@ class CloudDB {
         status TEXT NOT NULL DEFAULT 'active',
         notified_exhausted INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
+        activated_at TEXT,
         last_used_at TEXT
       );
 
@@ -95,6 +96,13 @@ class CloudDB {
       CREATE INDEX IF NOT EXISTS idx_otp_email ON email_otps(email);
       CREATE INDEX IF NOT EXISTS idx_voucher_created ON voucher_codes(created_at);
     `);
+
+    // Safe forward migration for existing DBs created before activated_at existed
+    try {
+      this.db.run("ALTER TABLE voucher_codes ADD COLUMN activated_at TEXT");
+    } catch (_) {
+      // Column already exists
+    }
 
     const defaults = {
       trial_bonus_micro_cny: String(100_000), // ¥1.00
@@ -361,8 +369,8 @@ class CloudDB {
       }
       const itemNote = n > 1 && cleanNote ? `${cleanNote} #${i + 1}` : cleanNote;
       this.exec(
-        `INSERT INTO voucher_codes (code, note, quota_seconds, used_seconds, session_count, status, notified_exhausted, created_at, last_used_at)
-         VALUES (?, ?, ?, 0, 0, 'active', 0, ?, NULL)`,
+        `INSERT INTO voucher_codes (code, note, quota_seconds, used_seconds, session_count, status, notified_exhausted, created_at, activated_at, last_used_at)
+         VALUES (?, ?, ?, 0, 0, 'active', 0, ?, NULL, NULL)`,
         [code, itemNote, quotaSec, now],
       );
       created.push(this.findVoucherByCode(code));
@@ -405,6 +413,19 @@ class CloudDB {
     return this.findVoucherByCode(row.code);
   }
 
+  markVoucherActivated(code) {
+    const row = this.findVoucherByCode(code);
+    if (!row) return null;
+    if (row.activated_at) return row;
+    const now = new Date().toISOString();
+    this.exec(
+      `UPDATE voucher_codes SET activated_at = COALESCE(activated_at, ?) WHERE code = ?`,
+      [now, row.code],
+    );
+    this.flushSync();
+    return this.findVoucherByCode(row.code);
+  }
+
   recordVoucherUsage({ code, durationSeconds, model, costMicroCny, countSession = true }) {
     const row = this.findVoucherByCode(code);
     if (!row) return { voucher: null, justExhausted: false };
@@ -427,9 +448,10 @@ class CloudDB {
        SET used_seconds = ?,
            session_count = session_count + ?,
            notified_exhausted = ?,
+           activated_at = COALESCE(activated_at, ?),
            last_used_at = ?
        WHERE code = ?`,
-      [nextUsed, countSession ? 1 : 0, nextNotified, now, row.code],
+      [nextUsed, countSession ? 1 : 0, nextNotified, now, now, row.code],
     );
 
     const displayLabel = row.note ? `[兑换码] ${row.note} (${row.code})` : `[兑换码] ${row.code}`;

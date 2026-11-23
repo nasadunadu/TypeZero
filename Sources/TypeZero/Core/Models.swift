@@ -420,7 +420,7 @@ public struct LLMConfig: Codable, Equatable {
         openAIASRBaseURL: String = "https://api.openai.com/v1",
         openAIASRModel: String = "gpt-4o-mini-transcribe",
         enableVolcSeedASR: Bool = true,
-        enableLiveInlineTyping: Bool = false,
+        enableLiveInlineTyping: Bool = true,
         enableFastBypassForShortPhrases: Bool = true,
         stripTrailingPeriodInChatApps: Bool = true,
         enablePanguSpacing: Bool = true,
@@ -521,7 +521,7 @@ public struct LLMConfig: Codable, Equatable {
         self.openAIASRModel = decodedOpenAIASRModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? "gpt-4o-mini-transcribe" : decodedOpenAIASRModel
         self.enableVolcSeedASR = (resolvedASR == .volcSeedASR)
-        self.enableLiveInlineTyping = (try? c.decode(Bool.self, forKey: .enableLiveInlineTyping)) ?? false
+        self.enableLiveInlineTyping = (try? c.decode(Bool.self, forKey: .enableLiveInlineTyping)) ?? true
         self.enableFastBypassForShortPhrases = (try? c.decode(Bool.self, forKey: .enableFastBypassForShortPhrases)) ?? true
         self.stripTrailingPeriodInChatApps = (try? c.decode(Bool.self, forKey: .stripTrailingPeriodInChatApps)) ?? true
         self.enablePanguSpacing = (try? c.decode(Bool.self, forKey: .enablePanguSpacing)) ?? true

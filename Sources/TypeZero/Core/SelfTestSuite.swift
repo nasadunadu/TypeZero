@@ -193,10 +193,15 @@ public enum SelfTestSuite {
             "Context-ranked hotwords dynamically inject live CamelCase/uppercase terms from active context"
         )
 
-        // 9. Default Capsule Micro-Symbol Mode (`enableLiveInlineTyping == false`) + Smart <=28-Char Clean Cloud Bypass
+        // 9. Default Live Inline Typing Mode (`enableLiveInlineTyping == true`) + Smart <=28-Char Clean Cloud Bypass
         expect(
-            LLMConfig.default.enableLiveInlineTyping == false,
-            "Default config turns OFF frontend inline typing in favor of capsule symbol counter + instant paste"
+            LLMConfig.default.enableLiveInlineTyping == true,
+            "Default config turns ON frontend inline typing by default"
+        )
+        let decodedEmptyConfig = try? JSONDecoder().decode(LLMConfig.self, from: Data("{}".utf8))
+        expect(
+            decodedEmptyConfig?.enableLiveInlineTyping == true,
+            "Decoding config JSON without enableLiveInlineTyping defaults to true"
         )
         expect(
             PolishEngine.canBypassCloudPolish(
