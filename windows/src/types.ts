@@ -88,6 +88,7 @@ export interface LLMConfig {
   enableAutoLearn: boolean;
   enableAutoMuteDuringDictation: boolean;
   speechLocale: string;
+  speechLocaleExplicitlySet?: boolean;
   triggerKey: TriggerKeyOption;
   customHotkey: CustomHotkeySpec;
   triggerBehavior: TriggerBehavior;

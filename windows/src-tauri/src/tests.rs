@@ -505,6 +505,18 @@ fn test_dsp_resampler_agc_wav_and_seed_asr_framing() {
         24,
     );
     assert_eq!(hint, "TypeZero, DeepSeek");
+    let en_hint = OpenAITranscriptionClient::build_prompt_hint_for_locale(
+        &[
+            "五彩石".into(),
+            "TypeZero".into(),
+            "火山引擎".into(),
+            "DeepSeek".into(),
+        ],
+        80,
+        Some("en-US"),
+    );
+    assert_eq!(en_hint, "TypeZero, DeepSeek");
+    assert_eq!(OpenAITranscriptionClient::iso_language_code("auto"), None);
     assert_eq!(
         OpenAITranscriptionClient::iso_language_code("zh-CN").as_deref(),
         Some("zh")
@@ -527,13 +539,49 @@ fn test_dsp_resampler_agc_wav_and_seed_asr_framing() {
         gz.len()
     );
 
-    // 5. Legacy config migration
+    // 5. Legacy config migration (including speechLocale auto-migration & explicit preservation)
     let legacy_raw: serde_json::Value = serde_json::from_str(
-        r#"{"enableVolcSeedASR":false,"baseURL":"https://api.openai.com/v1","modelName":"gpt-4.1-mini"}"#,
+        r#"{"enableVolcSeedASR":false,"speechLocale":"zh-CN","baseURL":"https://api.openai.com/v1","modelName":"gpt-4.1-mini"}"#,
     )
     .unwrap();
     let mut migrated: LLMConfig = serde_json::from_value(legacy_raw.clone()).unwrap();
     migrated.normalize_after_deserialize(&legacy_raw);
     assert_eq!(migrated.asr_provider, ASRProviderOption::LocalSenseVoice);
     assert!(!migrated.enable_volc_seed_asr);
+    assert_eq!(migrated.speech_locale, "auto");
+
+    let explicit_raw: serde_json::Value = serde_json::from_str(
+        r#"{"speechLocale":"zh-CN","speechLocaleExplicitlySet":true}"#,
+    )
+    .unwrap();
+    let mut explicit_cfg: LLMConfig = serde_json::from_value(explicit_raw.clone()).unwrap();
+    explicit_cfg.normalize_after_deserialize(&explicit_raw);
+    assert_eq!(explicit_cfg.speech_locale, "zh-CN");
+    assert_eq!(LLMConfig::sense_voice_language_code("auto"), "auto");
+    assert_eq!(LLMConfig::sense_voice_language_code("zh-CN"), "zh");
+    assert_eq!(LLMConfig::sense_voice_language_code("en-US"), "en");
+
+    // 6. Anti-translation circuit breaker (blocks accidental En->Zh & Zh->En while preserving normal polishing)
+    let en_raw = "Hey team, let's push the release tomorrow afternoon after we verify the audio pipeline.";
+    let bad_en_to_zh = "嘿团队，我们在验证完音频管线后，明天下午再发布这个版本吧。";
+    assert_eq!(
+        PolishEngine::guard_against_unexpected_translation(en_raw, bad_en_to_zh),
+        en_raw
+    );
+    assert_eq!(
+        PolishEngine::guard_against_unexpected_translation(en_raw, en_raw),
+        en_raw
+    );
+    let zh_raw = "我们今天下午三点开会同步一下最新的产品进展和发布计划";
+    let bad_zh_to_en = "We will have a meeting at 3 pm this afternoon to sync on the latest product progress and release plan.";
+    assert_eq!(
+        PolishEngine::guard_against_unexpected_translation(zh_raw, bad_zh_to_en),
+        zh_raw
+    );
+    let mixed_raw = "我们用 DeepSeek 和 TypeZero 来做语音输入法";
+    let mixed_out = "我们用 DeepSeek 和 TypeZero 来做语音输入法。";
+    assert_eq!(
+        PolishEngine::guard_against_unexpected_translation(mixed_raw, mixed_out),
+        mixed_out
+    );
 }

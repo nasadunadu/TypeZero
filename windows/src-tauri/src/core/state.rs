@@ -266,6 +266,7 @@ impl AppState {
             openai_asr_model: cfg.openai_asr_model,
             openai_asr_api_key: openai_asr_key,
             enable_whisper_agc: cfg.enable_whisper_agc,
+            speech_locale: cfg.speech_locale,
         });
     }
 
@@ -819,12 +820,13 @@ impl AppState {
     // MARK: - Settings, Verification & Provider Activation
 
     pub fn update_config<F: FnOnce(&mut LLMConfig)>(&self, mutate: F) {
-        let (prev_provider, prev_asr, prev_login) = {
+        let (prev_provider, prev_asr, prev_login, prev_locale) = {
             let g = self.inner.lock();
             (
                 g.config.selected_provider,
                 g.config.asr_provider,
                 g.config.launch_at_login,
+                g.config.speech_locale.clone(),
             )
         };
         let new_cfg = {
@@ -838,6 +840,9 @@ impl AppState {
         self.save_config();
         self.sync_asr_engine_config();
         self.sync_hotkey_config();
+        if new_cfg.speech_locale != prev_locale {
+            self.asr.load_sense_voice_async(None);
+        }
         if new_cfg.asr_provider != prev_asr {
             self.asr.prewarm_cloud_socket_if_ready();
         }

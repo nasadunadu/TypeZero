@@ -19,6 +19,9 @@ public final class AppState: ObservableObject {
                 lastOpenAIASRProbeSummary = ""
                 asrEngine.prewarmCloudSocketIfReady()
             }
+            if oldValue.speechLocale != llmConfig.speechLocale {
+                asrEngine.reloadSenseVoiceModelAsync()
+            }
             if oldValue.selectedProvider != llmConfig.selectedProvider {
                 apiKeyInput = KeychainHelper.loadAPIKey(for: llmConfig.selectedProvider)
                 lastBenchmarkSummary = ""
@@ -110,6 +113,7 @@ public final class AppState: ObservableObject {
     private var activeMode: DictationMode = .dictate
     private var isSessionActive: Bool = false
     private var isFinalizingSession: Bool = false
+    private var userSubmittedViaEnter: Bool = false
     private var liveInputSession: LiveInputSession? = nil
     private var sandboxBaseBeforeSession: String = ""
     private var isTypingInsideOwnApp: Bool = false
@@ -190,7 +194,7 @@ public final class AppState: ObservableObject {
                     self?.micAuthorized = mic
                     self?.speechAuthorized = speech
                     if mic && speech {
-                        self?.asrEngine.warmUp(localeIdentifier: self?.llmConfig.speechLocale ?? "zh-CN")
+                        self?.asrEngine.warmUp(localeIdentifier: self?.llmConfig.speechLocale ?? "auto")
                     }
                 }
             }
@@ -291,6 +295,38 @@ public final class AppState: ObservableObject {
         hotkeyMonitor.onCancel = { [weak self] in
             self?.cancelDictationSession()
         }
+        hotkeyMonitor.onUserSubmitKeyPressed = { [weak self] in
+            self?.handleUserPressedSubmitEnter()
+        }
+    }
+
+    /// Invoked when the user physically hits bare `Return` / `Enter` / `Cmd+Return` to send their message directly:
+    /// - If live inline text is already in the box while still recording: cleanly stops dictation WITHOUT re-pasting!
+    /// - If we're currently inside the 200-400ms DeepSeek polish window: immediately aborts post-polish pasting so no ghost text remains!
+    private func handleUserPressedSubmitEnter() {
+        guard !isTypingInsideOwnApp else { return }
+        if isFinalizingSession {
+            userSubmittedViaEnter = true
+            liveInputSession?.abortBecauseUserSubmitted()
+            return
+        }
+        guard isSessionActive,
+              llmConfig.enableLiveInlineTyping,
+              activeMode == .dictate,
+              let emitted = liveInputSession?.currentText,
+              !emitted.isEmpty else {
+            return
+        }
+        userSubmittedViaEnter = true
+        isSessionActive = false
+        audioDucker.restoreIfNeeded()
+        hotkeyMonitor.syncRecordingState(false)
+        asrEngine.cancel()
+        AudioLevelBus.shared.reset()
+        liveInputSession?.abortBecauseUserSubmitted()
+        liveInputSession = nil
+        phase = .idle
+        ContextInjector.appendInjectionTrace("submitEnter app=\(activeContext.bundleID) stoppedLiveSession emitted=\(emitted.count)")
     }
 
     private func playSubtleCue(_ soundName: String, volume: Float = 0.30) {
@@ -321,7 +357,7 @@ public final class AppState: ObservableObject {
             self?.micAuthorized = mic
             self?.speechAuthorized = speech
             if mic && speech {
-                self?.asrEngine.warmUp(localeIdentifier: self?.llmConfig.speechLocale ?? "zh-CN")
+                self?.asrEngine.warmUp(localeIdentifier: self?.llmConfig.speechLocale ?? "auto")
             }
         }
         self.accessibilityGranted = ContextInjector.isAccessibilityTrusted(promptIfNeeded: true)
@@ -425,6 +461,7 @@ public final class AppState: ObservableObject {
 
     public func syncASREngineConfig() {
         asrEngine.enableWhisperAGC = llmConfig.enableWhisperAGC
+        asrEngine.speechLocale = llmConfig.speechLocale
         asrEngine.asrProvider = llmConfig.asrProvider
         asrEngine.volcSpeechAPIKey = KeychainHelper.loadVolcSpeechAPIKey()
         asrEngine.useCloudTrialRelay = isOfficialCloudTrialActive
@@ -432,6 +469,15 @@ public final class AppState: ObservableObject {
         asrEngine.openAIASRBaseURL = llmConfig.openAIASRBaseURL
         asrEngine.openAIASRModel = llmConfig.openAIASRModel
         asrEngine.openAIASRAPIKey = effectiveOpenAIASRKey
+    }
+
+    public func setSpeechLocale(_ locale: String) {
+        let normalized = locale.trimmingCharacters(in: .whitespacesAndNewlines)
+        let target = normalized.isEmpty ? "auto" : normalized
+        var updated = llmConfig
+        updated.speechLocale = target
+        updated.speechLocaleExplicitlySet = true
+        llmConfig = updated
     }
 
     // MARK: - TypeZero Cloud Auth & Official Free Trial
@@ -1061,6 +1107,7 @@ public final class AppState: ObservableObject {
         }
 
         // 1. 0.0ms INSTANT visual + audio feedback & immediate mic stream launch (ZERO synchronous IPC or CoreAudio stall on MainActor!)
+        userSubmittedViaEnter = false
         isSessionActive = true
         hotkeyMonitor.syncRecordingState(true)
         if isTypingInsideOwnApp {
@@ -1260,7 +1307,11 @@ public final class AppState: ObservableObject {
         }
 
         var landedInInput = true
-        if isTypingInsideOwnApp {
+        if userSubmittedViaEnter {
+            // User already hit Enter and sent the message during polishing — do NOT re-paste a ghost copy!
+            ContextInjector.appendInjectionTrace("finalize app=\(activeContext.bundleID) branch=abortedUserSubmitInAppState final=\(finalText.count)")
+            landedInInput = true
+        } else if isTypingInsideOwnApp {
             sandboxText = sandboxBaseBeforeSession + finalText
         } else if didStreamViaSSE {
             liveInputSession?.finishSSEPolishStream(with: finalText)

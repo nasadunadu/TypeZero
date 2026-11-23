@@ -11,7 +11,8 @@ typedef struct TZ_SenseVoiceHandle TZ_SenseVoiceHandle;
 
 TZ_SenseVoiceHandle *tz_sensevoice_create(const char *model_path,
                                           const char *tokens_path,
-                                          int32_t num_threads);
+                                          int32_t num_threads,
+                                          const char *language);
 
 /// Transcribes mono float PCM samples [-1, 1]. Caller must free returned string with tz_sensevoice_free_string().
 char *tz_sensevoice_transcribe(TZ_SenseVoiceHandle *handle,

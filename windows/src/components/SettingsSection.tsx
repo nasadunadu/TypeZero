@@ -643,6 +643,31 @@ export const SettingsSection: React.FC<Props> = ({ snapshot, onUpdateConfig, onR
         </div>
         <div className="card-body-pad">
 
+        <div className="segment-bar">
+          {(
+            [
+              ["auto", "自动识别（中/英/多语）"],
+              ["zh-CN", "锁定中文"],
+              ["en-US", "锁定英文"],
+            ] as Array<[string, string]>
+          ).map(([loc, label]) => (
+            <button
+              key={loc}
+              type="button"
+              className={`segment-btn ${(config.speechLocale || "auto") === loc ? "selected" : ""}`}
+              onClick={() =>
+                onUpdateConfig({
+                  ...config,
+                  speechLocale: loc,
+                  speechLocaleExplicitlySet: true,
+                })
+              }
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         {/* ASR A: Volcengine Seed-ASR 2.0 */}
         {(() => {
           const active = config.asrProvider === "volcSeedASR";

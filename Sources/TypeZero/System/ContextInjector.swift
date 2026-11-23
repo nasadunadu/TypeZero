@@ -86,6 +86,7 @@ public final class LiveInputSession: @unchecked Sendable {
     private var previousHypothesis: String = ""
     private var pacerTimer: DispatchSourceTimer?
     private var isPacerStopped: Bool = false
+    private var abortedByUserSubmit: Bool = false
     private var lastEmitUptimeNs: UInt64 = 0
     private let stateLock = NSLock()
 
@@ -131,6 +132,31 @@ public final class LiveInputSession: @unchecked Sendable {
             return false
         }
         return true
+    }
+
+    public func abortBecauseUserSubmitted() {
+        stopPacer(drainQueue: false)
+        stateLock.lock()
+        abortedByUserSubmit = true
+        stateLock.unlock()
+    }
+
+    /// Detects when an AX-readable input box (e.g. Antigravity, Cursor, Chrome, Slack) is explicitly empty (`""`)
+    /// after we already typed 4+ chars live into it — proving the user already sent/cleared the draft!
+    public static func isBoxClearedAfterLiveEmit(
+        currentBoxText: String?,
+        alreadyEmitted: String,
+        isRichSlowEditor: Bool
+    ) -> Bool {
+        guard !isRichSlowEditor, alreadyEmitted.count >= 4 else { return false }
+        guard let box = currentBoxText else { return false }
+        return box.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// When `Cmd+A` + `Cmd+C` times out (`copyTimeout`, pasteboard unchanged for >220ms) after we already emitted
+    /// 4+ chars live into the box, the box is empty (user already hit Enter/Send or unfocused). NEVER blind-paste again!
+    public static func shouldAbortOnAtomicProbeFailure(probeReason: String, alreadyEmitted: String) -> Bool {
+        return probeReason == "copyTimeout" && alreadyEmitted.count >= 4
     }
 
     public static func computeAtomicReplacementDiff(emitted: String, finalText: String) -> (commonPrefixCount: Int, replaceCount: Int, replacementSuffix: String) {
@@ -224,6 +250,10 @@ public final class LiveInputSession: @unchecked Sendable {
     public func consumeSSEChunk(_ delta: String) {
         guard !delta.isEmpty else { return }
         stateLock.lock()
+        if abortedByUserSubmit {
+            stateLock.unlock()
+            return
+        }
         sseAccumulated.append(delta)
 
         if sseHasDiverged {
@@ -324,6 +354,14 @@ public final class LiveInputSession: @unchecked Sendable {
 
     /// Reconciles final post-formatted text AND cleans up any residual duplicated list prefixes (`2. 2. ` -> `2. `).
     public func finishSSEPolishStream(with finalFormatted: String) {
+        stateLock.lock()
+        if abortedByUserSubmit {
+            stateLock.unlock()
+            ContextInjector.appendInjectionTrace("finishSSE branch=abortedUserSubmit final=\(finalFormatted.count)")
+            return
+        }
+        stateLock.unlock()
+
         flushPostNewlineGuardBufferIfAny()
 
         stateLock.lock()
@@ -583,9 +621,15 @@ public final class LiveInputSession: @unchecked Sendable {
     public func finalizeAfterKeyRelease(with finalText: String) -> Bool {
         stopPacer(drainQueue: true)
         stateLock.lock()
+        let aborted = abortedByUserSubmit
         let ctx = self.context
         let alreadyEmitted = emittedText
         stateLock.unlock()
+
+        if aborted {
+            ContextInjector.appendInjectionTrace("finalize app=\(ctx.bundleID) branch=abortedUserSubmit emitted=\(alreadyEmitted.count) final=\(finalText.count)")
+            return true
+        }
 
         let isRichSlowEditor = ctx.prefersAtomicPolishReplacement
         let prePasteUs: useconds_t = isRichSlowEditor ? 55_000 : 35_000
@@ -621,6 +665,18 @@ public final class LiveInputSession: @unchecked Sendable {
 
         let currentBoxText = ContextInjector.readCurrentFocusedValue()
         let boxLen = currentBoxText?.count ?? -1
+
+        // Guard A: On standard AX apps (Antigravity, Cursor, Chrome, Slack, etc.), if we already typed 4+ chars
+        // live into the box and the box is now explicitly empty `""`, the user already pressed Enter / clicked Send!
+        // NEVER re-paste a ghost duplicate back into the freshly emptied box!
+        if Self.isBoxClearedAfterLiveEmit(
+            currentBoxText: currentBoxText,
+            alreadyEmitted: alreadyEmitted,
+            isRichSlowEditor: isRichSlowEditor
+        ) {
+            ContextInjector.appendInjectionTrace("finalize app=\(ctx.bundleID) branch=abortedBoxEmpty emitted=\(alreadyEmitted.count) boxLen=\(boxLen) final=\(finalText.count)")
+            return true
+        }
 
         // Only treat AX value as proof that emitted text didn't land when AX actually returned a NON-EMPTY string!
         // Qt/Canvas editors (like WeChat 4.0) may return "" or nil even while the live draft is visibly inside the box.
@@ -702,6 +758,11 @@ public final class LiveInputSession: @unchecked Sendable {
                 )
                 if probe.succeeded {
                     ContextInjector.appendInjectionTrace("finalize app=\(ctx.bundleID) branch=cmdACopyPaste emitted=\(alreadyEmitted.count) boxLen=\(boxLen) final=\(finalText.count) detail=\(probe.reason)")
+                } else if Self.shouldAbortOnAtomicProbeFailure(probeReason: probe.reason, alreadyEmitted: alreadyEmitted) {
+                    // `Cmd+A` + `Cmd+C` timed out (>220ms) after we already emitted live text -> box is empty (already sent)!
+                    // Abort cleanly instead of blind-pasting a ghost duplicate into an empty compose box!
+                    ContextInjector.appendInjectionTrace("finalize app=\(ctx.bundleID) branch=abortedCopyTimeoutEmptyBox emitted=\(alreadyEmitted.count) boxLen=\(boxLen) final=\(finalText.count)")
+                    return true
                 } else {
                     ContextInjector.selectLeftCharacters(count: diff.replaceCount, slowRichEditor: isRichSlowEditor)
                     let perCharUs = isRichSlowEditor ? 3_500 : 700

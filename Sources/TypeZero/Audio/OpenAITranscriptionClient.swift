@@ -84,14 +84,23 @@ public final class OpenAITranscriptionClient: @unchecked Sendable {
     }
 
     /// Builds a concise, instruction-free vocabulary prompt so Whisper/GPT-4o-transcribe biases toward user lexicon terms
-    /// without hallucinating instructions when audio is brief.
-    public static func buildPromptHint(hotwords: [String], maxChars: Int = 380) -> String {
+    /// without hallucinating instructions or biasing English audio toward Chinese when `languageLocale` is English.
+    public static func buildPromptHint(
+        hotwords: [String],
+        maxChars: Int = 380,
+        languageLocale: String? = nil
+    ) -> String {
+        let preferLatinOnly = languageLocale.flatMap { Self.isoLanguageCode(from: $0) } == "en"
         var seen = Set<String>()
         var collected: [String] = []
         var totalLen = 0
         for raw in hotwords {
             let term = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard term.count >= 2, term.count <= 32 else { continue }
+            if preferLatinOnly {
+                let hasCJK = term.unicodeScalars.contains { ($0.value >= 0x4E00 && $0.value <= 0x9FFF) || ($0.value >= 0x3400 && $0.value <= 0x4DBF) }
+                if hasCJK { continue }
+            }
             let key = term.lowercased()
             guard !seen.contains(key) else { continue }
             let projected = totalLen + term.count + (collected.isEmpty ? 0 : 2)
@@ -167,12 +176,13 @@ public final class OpenAITranscriptionClient: @unchecked Sendable {
         appendField(name: "temperature", value: "0")
 
         if let locale = languageLocale, let iso = Self.isoLanguageCode(from: locale) {
-            // Only hint Chinese/other language when explicitly configured; keep bilingual Mandarin+English natural
-            // Note: passing `language=zh` on OpenAI gpt-4o-mini-transcribe & Groq whisper-large-v3-turbo still preserves English tech terms while dramatically reducing random non-CJK hallucinations on short clips.
+            // Only send `language` when explicitly locked by user ("zh-CN" / "en-US").
+            // When `speechLocale == "auto"`, omit `language` completely so gpt-4o-mini-transcribe / Whisper
+            // auto-detects the spoken language instead of translating English speech into Chinese!
             appendField(name: "language", value: iso)
         }
 
-        let promptHint = Self.buildPromptHint(hotwords: hotwords)
+        let promptHint = Self.buildPromptHint(hotwords: hotwords, languageLocale: languageLocale)
         if !promptHint.isEmpty {
             appendField(name: "prompt", value: promptHint)
         }
@@ -240,7 +250,7 @@ public final class OpenAITranscriptionClient: @unchecked Sendable {
             model: model,
             apiKey: apiKey,
             hotwords: [],
-            languageLocale: "zh-CN",
+            languageLocale: nil,
             timeoutSeconds: 8.5
         )
         return ms

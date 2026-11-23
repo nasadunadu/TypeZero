@@ -386,9 +386,28 @@ public struct LLMConfig: Codable, Equatable {
     public var enableAutoMuteDuringDictation: Bool
     public var showInDock: Bool
     public var speechLocale: String
+    public var speechLocaleExplicitlySet: Bool
     public var useOfficialCloudTrial: Bool
 
     public static let `default` = LLMConfig()
+
+    /// Maps `speechLocale` (`"auto"`, `"zh-CN"`, `"en-US"`, etc.) to sherpa-onnx SenseVoice language token.
+    public static func senseVoiceLanguageCode(for speechLocale: String) -> String {
+        let trimmed = speechLocale.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if trimmed.isEmpty || trimmed == "auto" {
+            return "auto"
+        }
+        if trimmed == "yue" || trimmed == "zh-hk" || trimmed == "zh_hk" {
+            return "yue"
+        }
+        let head = trimmed.split(whereSeparator: { $0 == "-" || $0 == "_" }).first.map(String.init) ?? trimmed
+        switch head {
+        case "zh", "en", "ja", "ko", "yue":
+            return head
+        default:
+            return "auto"
+        }
+    }
 
     public init(
         selectedProvider: LLMProviderOption? = nil,
@@ -409,7 +428,8 @@ public struct LLMConfig: Codable, Equatable {
         enableAutoLearn: Bool = true,
         enableAutoMuteDuringDictation: Bool = true,
         showInDock: Bool = false,
-        speechLocale: String = "zh-CN",
+        speechLocale: String = "auto",
+        speechLocaleExplicitlySet: Bool = false,
         useOfficialCloudTrial: Bool = false
     ) {
         let resolvedProvider = selectedProvider ?? LLMProviderOption.infer(from: baseURL)
@@ -435,6 +455,7 @@ public struct LLMConfig: Codable, Equatable {
         self.enableAutoMuteDuringDictation = enableAutoMuteDuringDictation
         self.showInDock = showInDock
         self.speechLocale = speechLocale
+        self.speechLocaleExplicitlySet = speechLocaleExplicitlySet
         self.useOfficialCloudTrial = useOfficialCloudTrial
     }
 
@@ -508,7 +529,17 @@ public struct LLMConfig: Codable, Equatable {
         self.enableAutoLearn = (try? c.decode(Bool.self, forKey: .enableAutoLearn)) ?? true
         self.enableAutoMuteDuringDictation = (try? c.decode(Bool.self, forKey: .enableAutoMuteDuringDictation)) ?? true
         self.showInDock = (try? c.decode(Bool.self, forKey: .showInDock)) ?? false
-        self.speechLocale = (try? c.decode(String.self, forKey: .speechLocale)) ?? "zh-CN"
+        let explicitlySetLocale = (try? c.decode(Bool.self, forKey: .speechLocaleExplicitlySet)) ?? false
+        let decodedLocale = ((try? c.decode(String.self, forKey: .speechLocale)) ?? "auto")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.speechLocaleExplicitlySet = explicitlySetLocale
+        // Auto-migrate legacy v0.5.4 configs where `speechLocale` was hardcoded to `"zh-CN"` without UI control
+        // so English/bilingual users no longer trigger forced `language=zh` translation in ASR models.
+        if !explicitlySetLocale && (decodedLocale.isEmpty || decodedLocale == "zh-CN") {
+            self.speechLocale = "auto"
+        } else {
+            self.speechLocale = decodedLocale.isEmpty ? "auto" : decodedLocale
+        }
         self.useOfficialCloudTrial = (try? c.decode(Bool.self, forKey: .useOfficialCloudTrial)) ?? false
     }
 }

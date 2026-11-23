@@ -297,6 +297,7 @@ pub struct SenseVoiceRecognizer {
     lib: Library,
     recognizer: *const c_void,
     pub is_full_fp32: bool,
+    pub language: String,
 }
 
 // SAFETY: SenseVoiceRecognizer is only accessed behind an exclusive decode mutex.
@@ -304,7 +305,7 @@ unsafe impl Send for SenseVoiceRecognizer {}
 unsafe impl Sync for SenseVoiceRecognizer {}
 
 impl SenseVoiceRecognizer {
-    pub fn load_if_available() -> Option<Self> {
+    pub fn load_if_available(language: &str) -> Option<Self> {
         let paths = sense_voice_model_paths()?;
         let lib_path = locate_sherpa_runtime_library()?;
         let cpu_count = std::thread::available_parallelism()
@@ -319,6 +320,7 @@ impl SenseVoiceRecognizer {
             &paths.tokens_path,
             threads,
             paths.is_full_fp32,
+            language,
         )
         .ok()
     }
@@ -329,6 +331,7 @@ impl SenseVoiceRecognizer {
         tokens_path: &Path,
         num_threads: i32,
         is_full_fp32: bool,
+        language: &str,
     ) -> Result<Self, String> {
         // Preload sibling onnxruntime.dll if present so Windows loader resolves dependent DLLs seamlessly
         let onnx_dep = if let Some(dir) = lib_path.parent() {
@@ -356,7 +359,12 @@ impl SenseVoiceRecognizer {
             .map_err(|_| "模型路径含非法空字符".to_string())?;
         let c_tokens = CString::new(tokens_path.to_string_lossy().as_ref())
             .map_err(|_| "tokens 路径含非法空字符".to_string())?;
-        let c_lang = CString::new("zh").unwrap();
+        let effective_lang = if language.trim().is_empty() {
+            "auto"
+        } else {
+            language.trim()
+        };
+        let c_lang = CString::new(effective_lang).unwrap_or_else(|_| CString::new("auto").unwrap());
         let c_provider = CString::new("cpu").unwrap();
         let c_decoding = CString::new("greedy_search").unwrap();
 
@@ -389,6 +397,7 @@ impl SenseVoiceRecognizer {
             lib,
             recognizer,
             is_full_fp32,
+            language: effective_lang.to_string(),
         })
     }
 

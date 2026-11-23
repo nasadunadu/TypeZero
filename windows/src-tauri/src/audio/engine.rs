@@ -8,7 +8,7 @@ use crate::audio::sherpa_ffi::{
 };
 use crate::audio::volc_asr::VolcSeedASRClient;
 use crate::core::polish::PolishEngine;
-use crate::models::ASRProviderOption;
+use crate::models::{ASRProviderOption, LLMConfig};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -25,6 +25,7 @@ pub struct ASREngineConfig {
     pub openai_asr_model: String,
     pub openai_asr_api_key: String,
     pub enable_whisper_agc: bool,
+    pub speech_locale: String,
 }
 
 impl Default for ASREngineConfig {
@@ -38,6 +39,7 @@ impl Default for ASREngineConfig {
             openai_asr_model: "gpt-4o-mini-transcribe".to_string(),
             openai_asr_api_key: String::new(),
             enable_whisper_agc: true,
+            speech_locale: "auto".to_string(),
         }
     }
 }
@@ -93,7 +95,7 @@ impl Default for CaptureState {
             did_flush_micro_pause_tail: false,
             is_decoding_chunk: false,
             open_ai_hotwords: Vec::new(),
-            open_ai_locale: "zh-CN".to_string(),
+            open_ai_locale: "auto".to_string(),
             session_start: now,
             last_activity_at: now,
         }
@@ -200,16 +202,19 @@ impl StreamingASREngine {
         let rec_lock = Arc::clone(&self.recognizer);
         let loaded_flag = Arc::clone(&self.is_sensevoice_loaded);
         let fp32_flag = Arc::clone(&self.is_full_fp32);
+        let target_lang = LLMConfig::sense_voice_language_code(&self.config.lock().speech_locale);
 
         std::thread::spawn(move || {
             {
                 let guard = rec_lock.lock();
-                if guard.is_some() {
-                    loaded_flag.store(true, Ordering::SeqCst);
-                    return;
+                if let Some(existing) = guard.as_ref() {
+                    if existing.language == target_lang {
+                        loaded_flag.store(true, Ordering::SeqCst);
+                        return;
+                    }
                 }
             }
-            if let Some(loaded) = SenseVoiceRecognizer::load_if_available() {
+            if let Some(loaded) = SenseVoiceRecognizer::load_if_available(target_lang) {
                 let fp32 = loaded.is_full_fp32;
                 *rec_lock.lock() = Some(loaded);
                 loaded_flag.store(true, Ordering::SeqCst);

@@ -53,6 +53,9 @@ public final class HotkeyMonitor {
     public var onTriggerStart: (() -> Void)?
     public var onTriggerStop: (() -> Void)?
     public var onCancel: (() -> Void)?
+    /// Fires when the user physically presses bare `Return` / `Numpad Enter` / `Cmd+Return` (not Shift/Opt newline),
+    /// allowing TypeZero to immediately abort post-polish pasting if the user already sent the message!
+    public var onUserSubmitKeyPressed: (() -> Void)?
 
     private var isStarted: Bool = false
     private var globalFlagsMonitor: Any?
@@ -349,7 +352,21 @@ public final class HotkeyMonitor {
             holdDidFireStart = false
             swallowNextReleaseAfterInstantStop = false
             DispatchQueue.main.async { self.onCancel?() }
+            return
         }
+
+        if Self.isUserSubmitEnterKey(keyCode: event.keyCode, modifiers: event.modifierFlags) {
+            DispatchQueue.main.async { self.onUserSubmitKeyPressed?() }
+        }
+    }
+
+    public static func isUserSubmitEnterKey(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> Bool {
+        guard keyCode == 36 || keyCode == 76 else { return false }
+        // Shift+Enter / Option+Enter / Control+Enter are soft newlines inside chat boxes, not message send!
+        if !modifiers.intersection([.shift, .option, .control]).isEmpty {
+            return false
+        }
+        return true
     }
 
     private func handleFlagsChanged(_ event: NSEvent) {

@@ -1419,6 +1419,16 @@ struct EngineSettingsSection: View {
                     .foregroundStyle(TZTheme.inkSecondary)
             } content: {
 
+                TZMatrixControlRow(label: "识别语言") {
+                    TZSegmentBar(
+                        items: [
+                            ("自动识别（中/英/多语）", appState.llmConfig.speechLocale == "auto", { appState.setSpeechLocale("auto") }),
+                            ("锁定中文", appState.llmConfig.speechLocale == "zh-CN", { appState.setSpeechLocale("zh-CN") }),
+                            ("锁定英文", appState.llmConfig.speechLocale == "en-US", { appState.setSpeechLocale("en-US") })
+                        ]
+                    )
+                }
+
                 // ASR Option A: Doubao Seed-ASR 2.0 + Inline Key
                 let volcASRActive = (appState.llmConfig.asrProvider == .volcSeedASR)
                 let volcASRExpanded = (expandedASRProvider == .volcSeedASR)
@@ -2421,7 +2431,7 @@ struct OnboardingWizardSheet: View {
                         .foregroundStyle(TZTheme.inkSecondary)
                 }
                 Spacer()
-                Text("v0.5.4")
+                Text("v0.5.5")
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(TZTheme.violet)
                     .padding(.horizontal, 9)

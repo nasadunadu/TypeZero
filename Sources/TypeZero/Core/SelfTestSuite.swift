@@ -366,11 +366,48 @@ public enum SelfTestSuite {
             hotwords: ["TypeZero", "typezero", "DeepSeek", "SwiftUI", "A", "Groq"],
             maxChars: 24
         )
+        let enPromptHint = OpenAITranscriptionClient.buildPromptHint(
+            hotwords: ["五彩石", "TypeZero", "火山引擎", "DeepSeek"],
+            maxChars: 80,
+            languageLocale: "en-US"
+        )
         expect(
             promptHint == "TypeZero, DeepSeek"
+                && enPromptHint == "TypeZero, DeepSeek"
+                && OpenAITranscriptionClient.isoLanguageCode(from: "auto") == nil
                 && OpenAITranscriptionClient.isoLanguageCode(from: "zh-CN") == "zh"
                 && OpenAITranscriptionClient.isoLanguageCode(from: "en-US") == "en",
-            "Deduplicates and bounds OpenAI/Groq vocabulary prompt hints and maps locale to ISO-639-1"
+            "Deduplicates and bounds OpenAI/Groq vocabulary prompt hints, filters CJK terms in EN mode, and omits language for auto"
+        )
+
+        // 12b. Anti-Translation Language Guardrails & Legacy speechLocale Auto-Migration
+        let legacyLocaleJSON = #"{"speechLocale":"zh-CN","modelName":"deepseek-flash"}"#.data(using: .utf8)!
+        let explicitLocaleJSON = #"{"speechLocale":"zh-CN","speechLocaleExplicitlySet":true,"modelName":"deepseek-flash"}"#.data(using: .utf8)!
+        let migratedLocaleCfg = try? JSONDecoder().decode(LLMConfig.self, from: legacyLocaleJSON)
+        let explicitLocaleCfg = try? JSONDecoder().decode(LLMConfig.self, from: explicitLocaleJSON)
+        expect(
+            LLMConfig.default.speechLocale == "auto"
+                && migratedLocaleCfg?.speechLocale == "auto"
+                && explicitLocaleCfg?.speechLocale == "zh-CN"
+                && LLMConfig.senseVoiceLanguageCode(for: "auto") == "auto"
+                && LLMConfig.senseVoiceLanguageCode(for: "zh-CN") == "zh"
+                && LLMConfig.senseVoiceLanguageCode(for: "en-US") == "en",
+            "Defaults speechLocale to auto, migrates legacy unconfigured zh-CN to auto, preserves explicit user choice, and maps SenseVoice language"
+        )
+
+        let enRaw = "Hey team, let's push the release tomorrow afternoon after we verify the audio pipeline."
+        let badEnToZh = "嘿团队，我们在验证完音频管线后，明天下午再发布这个版本吧。"
+        let goodEnPolished = "Hey team, let's push the release tomorrow afternoon after we verify the audio pipeline."
+        let zhRaw = "我们今天下午三点开会同步一下最新的产品进展和发布计划"
+        let badZhToEn = "We will have a meeting at 3 pm this afternoon to sync on the latest product progress and release plan."
+        let mixedRaw = "我们用 DeepSeek 和 TypeZero 来做语音输入法"
+        let mixedOut = "我们用 DeepSeek 和 TypeZero 来做语音输入法。"
+        expect(
+            PolishEngine.guardAgainstUnexpectedTranslation(rawInput: enRaw, llmOutput: badEnToZh) == enRaw
+                && PolishEngine.guardAgainstUnexpectedTranslation(rawInput: enRaw, llmOutput: goodEnPolished) == goodEnPolished
+                && PolishEngine.guardAgainstUnexpectedTranslation(rawInput: zhRaw, llmOutput: badZhToEn) == zhRaw
+                && PolishEngine.guardAgainstUnexpectedTranslation(rawInput: mixedRaw, llmOutput: mixedOut) == mixedOut,
+            "Anti-translation circuit breaker rejects accidental En->Zh and Zh->En LLM translations while preserving normal EN, ZH, and mixed polishing"
         )
 
         // 13. Zero-Rewind Atomic Polish Routing (WeChat/QQ & Long Drafts >= 25 Chars) + Prefix-Preserving Replacement Diff
@@ -494,6 +531,32 @@ public enum SelfTestSuite {
             "Live inline typing absorbs Doubao DDC filler deletion with 0 payback stall on the very next syllable"
         )
 
+        // 51. Empty-box guard detects sent/cleared input box on AX apps (prevents ghost re-paste after Enter/Send)
+        expect(
+            LiveInputSession.isBoxClearedAfterLiveEmit(currentBoxText: "", alreadyEmitted: "这是一段已经发出去的语音内容", isRichSlowEditor: false) == true
+                && LiveInputSession.isBoxClearedAfterLiveEmit(currentBoxText: nil, alreadyEmitted: "这是一段在微信里的语音内容", isRichSlowEditor: true) == false
+                && LiveInputSession.isBoxClearedAfterLiveEmit(currentBoxText: "", alreadyEmitted: "", isRichSlowEditor: false) == false,
+            "Empty-box guard aborts re-paste when AX input box is cleared after live emit without breaking WeChat nil AX"
+        )
+
+        // 52. Atomic probe copyTimeout guard aborts blind Shift+Left re-paste into emptied box
+        expect(
+            LiveInputSession.shouldAbortOnAtomicProbeFailure(probeReason: "copyTimeout", alreadyEmitted: "已经发出去了的六十个字草稿") == true
+                && LiveInputSession.shouldAbortOnAtomicProbeFailure(probeReason: "richMediaGuard", alreadyEmitted: "带图片的草稿") == false
+                && LiveInputSession.shouldAbortOnAtomicProbeFailure(probeReason: "copyTimeout", alreadyEmitted: "") == false,
+            "Atomic probe copyTimeout aborts blind Shift+Left re-paste when box was already emptied"
+        )
+
+        // 53. Physical Return/Enter detection triggers on bare Return / Cmd+Return and ignores Shift+Return soft newlines
+        expect(
+            HotkeyMonitor.isUserSubmitEnterKey(keyCode: 36, modifiers: []) == true
+                && HotkeyMonitor.isUserSubmitEnterKey(keyCode: 36, modifiers: [.command]) == true
+                && HotkeyMonitor.isUserSubmitEnterKey(keyCode: 76, modifiers: []) == true
+                && HotkeyMonitor.isUserSubmitEnterKey(keyCode: 36, modifiers: [.shift]) == false
+                && HotkeyMonitor.isUserSubmitEnterKey(keyCode: 36, modifiers: [.option]) == false,
+            "Submit-Enter detector recognizes bare/Cmd Return while preserving Shift+Enter and Option+Enter soft newlines"
+        )
+
         print("==> Summary: \(passed) passed, \(failed) failed.")
         return failed == 0 ? 0 : 1
     }
@@ -523,7 +586,7 @@ public enum SelfTestSuite {
 
         // 1. Local 886MB SenseVoice FP32
         let tLoad0 = DispatchTime.now().uptimeNanoseconds
-        guard let handle = tz_sensevoice_create(paths.model, paths.tokens, 6) else {
+        guard let handle = tz_sensevoice_create(paths.model, paths.tokens, 6, "auto") else {
             print("  ✗ Failed to load SenseVoice model (\(paths.isFullFP32 ? "FP32" : "INT8"))")
             return 1
         }

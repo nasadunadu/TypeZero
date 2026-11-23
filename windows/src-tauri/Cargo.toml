@@ -1,6 +1,6 @@
 [package]
 name = "typezero-windows"
-version = "0.5.4"
+version = "0.5.5"
 description = "TypeZero for Windows — Zero-latency AI voice dictation & semantic structuring engine"
 authors = ["TypeZero Contributors"]
 license = "MIT"

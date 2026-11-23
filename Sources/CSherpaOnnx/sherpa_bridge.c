@@ -9,10 +9,13 @@ struct TZ_SenseVoiceHandle {
 
 TZ_SenseVoiceHandle *tz_sensevoice_create(const char *model_path,
                                           const char *tokens_path,
-                                          int32_t num_threads) {
+                                          int32_t num_threads,
+                                          const char *language) {
     if (!model_path || !tokens_path) {
         return NULL;
     }
+
+    const char *effective_lang = (language && language[0] != '\0') ? language : "auto";
 
     SherpaOnnxOfflineRecognizerConfig config;
     memset(&config, 0, sizeof(config));
@@ -21,9 +24,8 @@ TZ_SenseVoiceHandle *tz_sensevoice_create(const char *model_path,
     config.feat_config.feature_dim = 80;
 
     config.model_config.sense_voice.model = model_path;
-    // Lock Mandarin acoustic prior ("zh" still natively decodes mixed English BPE tokens in SenseVoice!)
-    // Prevents short 1-2s clips from drifting into Cantonese/Japanese phoneme priors under "auto".
-    config.model_config.sense_voice.language = "zh";
+    // Follow user speechLocale ("auto" by default so English dictation is never forced into Chinese phonemes!)
+    config.model_config.sense_voice.language = effective_lang;
     config.model_config.sense_voice.use_itn = 1;
     config.model_config.tokens = tokens_path;
     config.model_config.num_threads = num_threads > 0 ? num_threads : 4;

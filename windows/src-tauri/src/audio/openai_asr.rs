@@ -81,6 +81,18 @@ impl OpenAITranscriptionClient {
     }
 
     pub fn build_prompt_hint(hotwords: &[String], max_chars: usize) -> String {
+        Self::build_prompt_hint_for_locale(hotwords, max_chars, None)
+    }
+
+    pub fn build_prompt_hint_for_locale(
+        hotwords: &[String],
+        max_chars: usize,
+        language_locale: Option<&str>,
+    ) -> String {
+        let prefer_latin_only = language_locale
+            .and_then(Self::iso_language_code)
+            .as_deref()
+            == Some("en");
         let mut seen = HashSet::new();
         let mut collected = Vec::new();
         let mut total_len = 0usize;
@@ -88,6 +100,13 @@ impl OpenAITranscriptionClient {
             let term = raw.trim();
             let len = term.chars().count();
             if !(2..=32).contains(&len) {
+                continue;
+            }
+            if prefer_latin_only
+                && term
+                    .chars()
+                    .any(|c| ('\u{4E00}'..='\u{9FFF}').contains(&c) || ('\u{3400}'..='\u{4DBF}').contains(&c))
+            {
                 continue;
             }
             let key = term.to_lowercase();
@@ -162,7 +181,7 @@ impl OpenAITranscriptionClient {
                 form = form.text("language", iso);
             }
         }
-        let prompt_hint = Self::build_prompt_hint(hotwords, 380);
+        let prompt_hint = Self::build_prompt_hint_for_locale(hotwords, 380, language_locale);
         if !prompt_hint.is_empty() {
             form = form.text("prompt", prompt_hint);
         }
@@ -219,7 +238,7 @@ impl OpenAITranscriptionClient {
         let wav = Self::encode_pcm16_to_wav(&pcm, 16_000);
         let client = Self::new();
         let (_, ms) = client
-            .transcribe(wav, base_url, model, api_key, &[], Some("zh-CN"), 8.5)
+            .transcribe(wav, base_url, model, api_key, &[], None, 8.5)
             .await?;
         Ok(ms)
     }

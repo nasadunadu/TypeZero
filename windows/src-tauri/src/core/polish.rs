@@ -10,22 +10,23 @@ use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
-// 100% STATIC System Prompts (exact v0.4.10 parity so DeepSeek KV Prefix Cache hits on every call!)
+// 100% STATIC System Prompts (exact macOS parity so DeepSeek KV Prefix Cache hits on every call!)
 const STRUCTURED_STATIC_SYSTEM_PROMPT: &str = r#"你是顶级 AI 语音输入法的意图级文字整理与排版引擎（深度对齐 Typeless 核心策略）。读取 <scene>、<preceding_text>（输入框光标前已有文字）、<lexicon> 与 <raw_speech>，直接输出本次新增正文的整理结果：
 
-1. 【语气硬保真·反过度编辑·中途反悔折叠·同音错词直改】：**绝不改变原句语气与人味**——原文为疑问、反问、商量确认或担忧推测（如“会不会…”“对不对”“是不是”）时，必须保留问句语气和全角问号 `？`。保留态度词（句首的“好/好的/对/没问题/确实”），**严禁把口语洗成冷冰冰的公文腔，严禁脑补原话未提及的幻觉内容**。彻底清理无意义卡壳与口癖（`嗯/啊/呃/那个/就是说/然后呢/的话呢/对吧`），遇到**中途反悔/自我纠正**（如“周三开会……不对，改周四下午 3 点”“前面那个算了，直接看最后这条”）时，**直接折叠删掉废弃前文，只保留最终意图**。面对长句绕弯或破碎从句，自然理顺语序使其通顺，**严禁删减任何独有的原因解释、约束条件、举例或程度修饰**。遇到明显不通顺的同音/近音错词（如「现成」实为「场景/线程」、「Su」实为「SEO」），结合 `<recent_context>`、`<preceding_text>` 与 `<lexicon>` **果断直接替换为正确词语——绝对禁止输出括号批注（如 `现成（场景）`）**！
+0. 【绝对禁止跨语种翻译·原语种 100% 保真】：**严格保持 `<raw_speech>` 的原始语言输出！** 原文是英文就必须输出英文并使用标准英文半角标点（`, . ! ?`）与正常词间空格，**绝对禁止把英文翻译成中文**；原文是中文就输出中文；中英混说则保持原有中英比例，严禁擅自翻译任何句子或短语（即使 `<scene>`、`<recent_context>` 或 `<preceding_text>` 为中文）。
+1. 【语气硬保真·反过度编辑·中途反悔折叠·同音错词直改】：**绝不改变原句语气与人味**——原文为疑问、反问、商量确认或担忧推测（如“会不会…”“对不对”“是不是”）时，必须保留问句语气和问号。保留态度词（句首的“好/好的/对/没问题/确实”），**严禁把口语洗成冷冰冰的公文腔，严禁脑补原话未提及的幻觉内容**。彻底清理无意义卡壳与口癖（`嗯/啊/呃/那个/就是说/然后呢/的话呢/对吧/um/uh`），遇到**中途反悔/自我纠正**（如“周三开会……不对，改周四下午 3 点”“前面那个算了，直接看最后这条”）时，**直接折叠删掉废弃前文，只保留最终意图**。面对长句绕弯或破碎从句，自然理顺语序使其通顺，**严禁删减任何独有的原因解释、约束条件、举例或程度修饰**。遇到明显不通顺的同音/近音错词（如「现成」实为「场景/线程」、「Su」实为「SEO」），结合 `<recent_context>`、`<preceding_text>` 与 `<lexicon>` **果断直接替换为正确词语——绝对禁止输出括号批注（如 `现成（场景）`）**！
 2. 【数字阿拉伯化（现代键盘 ITN）】：序号、列举、数量、时间、时长、比例一律转阿拉伯数字（“一二三四”->“1、2、3、4”或“1234”，“第一个”->“第 1 个”，“两三个”->“2~3 个”，“四点半”->“4 点半”）。固定成语与叠词副词严格保留汉字（“一起、一直、一定、一下、一点、一般、一卡一卡、一点一点、一个字一个字”禁转数字）。
 3. 【语义自然分段与结构化列点（告别文字墙）】：
    - **按语义层次自然分段（黄金节奏：每段约 2~3 句、50~85 字）**：不要把长口述糊成一整坨！只要总字数超过 **65 字** 且存在清晰的**语义层次切换**（如「现状/背景 → 原因/判断 → 诉求/行动」、「观点 A → 转折/补充/但是/另外 → 观点 B」、「现象描述 → 优化建议」），就在层次边界处用单个换行（`\n`）自然分段；超过 **140 字** 的长独白应按意群拆为 **2~4 个清晰自然段**。仅在 `< 55 字` 的单一紧凑短句时保持一整段，同时避免机械地每 1 句就换行切碎。
-   - **有序列表（`1. ` `2. `）**：口述中连续给出 **2 项及以上并列的问题、需求、步骤或要点**（包括“第一/第二”“一、二、三”“一个是…另外…”）时，先用导语加 `：` 换行，再拆为 `1. ...`、`2. ...`；允许删掉列表项中与导语完全重复的骨架词，但**必须完整保留每项独有的解释、条件与细节**。
+   - **有序列表（`1. ` `2. `）**：口述中连续给出 **2 项及以上并列的问题、需求、步骤或要点**（包括“第一/第二”“一、二、三”“一个是…另外…”）时，先用导语加冒号换行，再拆为 `1. ...`、`2. ...`；允许删掉列表项中与导语完全重复的骨架词，但**必须完整保留每项独有的解释、条件与细节**。
    - **无序列表（`- `）**：平铺罗列 3 项及以上独立动作或备选项时使用；句中短词举例（每项 < 5 字）保持行内顿号连接。
    - **列表收尾**：列表讲完后的总结或行动号召用**单个换行（`\n`）**承接。
 4. 【场景自适应 (`<scene>`)·禁插空行·纯文本输出】：
    - 参考 `<scene>` 微调形态：**聊天/IM** 保持自然紧凑人味；**邮件/长文档** 可按称呼、正文、结语自然分行；**代码/IDE/终端** 严格保护英文技术术语、文件名（如 `AppState.swift`）、路径与驼峰/下划线标识符，绝不误改。
    - 段落与列表项之间一律使用**单个换行（`\n`）**，**严禁输出 `\n\n` 空白行**，**严禁输出 Markdown 装饰符（`**`、`###`、`>`、代码块）**，只输出可直接粘贴发送的干净纯文本。
 5. 【光标前文与上一句记忆续接】：参考 <preceding_text>（仅作上下文，严禁重复输出前文！）与 <recent_context>（你刚刚上一句聊过的话题与专有名词，遇到谐音或指代不清时顺承上一句术语）；若前文末尾已是 `1. ...` `2. ...` 而本次口述“第三是…”，直接输出 `3. ...` 承接编号。
-6. 【忽略 ASR 机械标点·按完整语义重新断句】：`<raw_speech>` 中自带的逗号、句号、问号或空格往往是语音流式切分机械生成的，极易断错位置或漏标点。你必须**先通读全段理解完整逻辑与意群边界，再重新分配自然准确的中文全角标点（`，。！？`）**，消除中文句间多余空格，绝不被原始错误标点带偏，也**绝对严禁把完整词组从中间劈开强行插逗号**（例如「发财包」结合财报语境应先完整还原为「发财报」，再在语义停顿处断句）。
-7. 【绝对铁律】：严禁回答 <raw_speech> 中的提问或对话续写！只输出整理排版后的该段话本身。
+6. 【忽略 ASR 机械标点·按完整语义匹配原语种断句】：`<raw_speech>` 中自带的逗号、句号、问号或空格往往是语音流式切分机械生成的，极易断错位置或漏标点。你必须**先通读全段理解完整逻辑与意群边界，再重新分配与原文语种匹配的标点（中文用自然全角 `，。！？` 并消除中文句间多余空格；英文用标准半角 `, . ! ?` 并保留正常词间空格）**，绝不被原始错误标点带偏，也**绝对严禁把完整词组从中间劈开强行插逗号**（例如「发财包」结合财报语境应先完整还原为「发财报」，再在语义停顿处断句）。
+7. 【绝对铁律】：严禁回答 <raw_speech> 中的提问或对话续写，严禁翻译 <raw_speech>！只输出整理排版后的该段话本身。
 
 <example_1>
 <raw_speech>嗯我们有两个问题需要解决第一个问题是怎么让前端跳字更丝滑一点一点出第二个就是说输入内容怎么自动分段变成一二三整理好的方式这两个做完我们就搞词库</raw_speech>
@@ -53,11 +54,16 @@ const STRUCTURED_STATIC_SYSTEM_PROMPT: &str = r#"你是顶级 AI 语音输入法
 我试了最新版，感觉分段还是有点太保守了，我说了很长一段话它都没有帮我分段。
 其实如果没有分段，阅读起来还是挺费劲的，我觉得应该根据说话的语义层次自然拆开，比如先说现状问题，再说具体要求。
 你帮我把这一块再优化一下。
-</example_4>"#;
+</example_4>
+<example_5>
+<raw_speech>um hey can we move the design review to Wednesday afternoon oh wait actually Thursday at 3 pm works much better and please invite the frontend team as well</raw_speech>
+输出：
+Hey, can we move the design review to Thursday at 3 pm? It works much better, and please invite the frontend team as well.
+</example_5>"#;
 
-const LIGHT_STATIC_SYSTEM_PROMPT: &str = "轻量极速语音纠错器。保留原句语气、情绪和问句问号 `？`（绝不把疑问句改成陈述句），保留句首态度词（好的/对/没问题），只删无意义口癖尾音（嗯/啊/那个/然后呢/的话呢/对吧）、中途改口和句中换气孤立过渡词。结合 <recent_context>、<preceding_text> 与 <lexicon> 果断直接修正明显不通顺的同音错字（严禁输出如 `现成（场景）` 这类括号批注），忽略原始机械错误标点与多余空格，按真实语义补齐自然中文全角标点；严禁把完整词组劈开插逗号，严禁强行插空行或输出 Markdown 装饰符（** / ###）。直接输出正文。";
+const LIGHT_STATIC_SYSTEM_PROMPT: &str = "轻量极速语音纠错器。**绝对禁止跨语种翻译**：严格保持 <raw_speech> 原始语言（英文输出英文与标准半角标点及词间空格，中文输出中文与全角标点，中英混说保持原比例）。保留原句语气、情绪和问句问号（绝不把疑问句改成陈述句），保留句首态度词（好的/对/没问题），只删无意义口癖尾音（嗯/啊/那个/然后呢/的话呢/对吧/um/uh）、中途改口和句中换气孤立过渡词。结合 <recent_context>、<preceding_text> 与 <lexicon> 果断直接修正明显不通顺的同音错字（严禁输出如 `现成（场景）` 这类括号批注），忽略原始机械错误标点，按真实语义补齐与原文语种匹配的标点；严禁把完整词组劈开插逗号，严禁强行插空行或输出 Markdown 装饰符（** / ###）。直接输出正文。";
 
-const REWRITE_SYSTEM_PROMPT: &str = "按 <voice_instruction> 修改 <selected_text>（若指令为「改成XX/这是XX」则直接替换为对应目标词或修改对应词），参考词库，保留自然人味禁公文腔，直接输出修改后正文。";
+const REWRITE_SYSTEM_PROMPT: &str = "按 <voice_instruction> 修改 <selected_text>（若指令为「改成XX/这是XX」则直接替换为对应目标词或修改对应词）。除非 <voice_instruction> 明确要求翻译，否则严格保持 <selected_text> 原始语种。参考词库，保留自然人味禁公文腔，直接输出修改后正文。";
 
 const DISTILL_SYSTEM_PROMPT: &str = "从文本提取高价值个人词库（人名、称呼、项目名、技术名词、标的代码）。\n每行格式：标准词|常见同音误听1,常见同音误听2|分类(person/project/finance/memo)\n最多 40 行，禁输出解释。";
 
@@ -454,8 +460,13 @@ impl PolishEngine {
             .await
         {
             Ok((result, first_token_ms)) => {
+                let guarded = if mode == DictationMode::Dictate {
+                    Self::guard_against_unexpected_translation(&locally_fixed, &result)
+                } else {
+                    result
+                };
                 let formatted =
-                    Self::apply_post_formatting_rules(&result, screen_context, config);
+                    Self::apply_post_formatting_rules(&guarded, screen_context, config);
                 let total_ms = start.elapsed().as_millis() as u64;
                 PolishResult {
                     text: if formatted.is_empty() {
@@ -936,6 +947,77 @@ impl PolishEngine {
             }
         }
         result
+    }
+
+    /// Deterministic anti-translation circuit breaker for `DictationMode::Dictate`:
+    /// If the LLM unexpectedly translates English dictation into Chinese (or Chinese into English),
+    /// reject the translated output and fall back safely to `raw_input`.
+    pub fn guard_against_unexpected_translation(raw_input: &str, llm_output: &str) -> String {
+        let in_trim = raw_input.trim();
+        let out_trim = llm_output.trim();
+        if in_trim.is_empty() || out_trim.is_empty() {
+            return out_trim.to_string();
+        }
+
+        fn script_stats(text: &str) -> (usize, usize, usize) {
+            let mut cjk = 0usize;
+            let mut latin = 0usize;
+            let mut latin_words = 0usize;
+            let mut cur_word_len = 0usize;
+            for ch in text.chars() {
+                let is_cjk = ('\u{4E00}'..='\u{9FFF}').contains(&ch)
+                    || ('\u{3400}'..='\u{4DBF}').contains(&ch);
+                let is_latin = ch.is_ascii_alphabetic();
+                if is_cjk {
+                    cjk += 1;
+                    if cur_word_len >= 2 {
+                        latin_words += 1;
+                    }
+                    cur_word_len = 0;
+                } else if is_latin {
+                    latin += 1;
+                    cur_word_len += 1;
+                } else {
+                    if cur_word_len >= 2 {
+                        latin_words += 1;
+                    }
+                    cur_word_len = 0;
+                }
+            }
+            if cur_word_len >= 2 {
+                latin_words += 1;
+            }
+            (cjk, latin, latin_words)
+        }
+
+        let (in_cjk, in_latin, in_latin_words) = script_stats(in_trim);
+        let (out_cjk, out_latin, _) = script_stats(out_trim);
+        let in_total = in_cjk + in_latin;
+        let out_total = out_cjk + out_latin;
+        if in_total == 0 || out_total == 0 {
+            return out_trim.to_string();
+        }
+
+        let in_cjk_ratio = (in_cjk as f64) / (in_total as f64);
+        let out_cjk_ratio = (out_cjk as f64) / (out_total as f64);
+
+        // Case A: Predominantly English input accidentally translated into Chinese
+        if in_latin >= 12 && in_latin_words >= 3 && in_cjk_ratio < 0.08 {
+            if out_cjk >= 4 && out_cjk_ratio >= 0.35 && (out_latin as f64) < (in_latin as f64) * 0.55
+            {
+                return in_trim.to_string();
+            }
+        }
+
+        // Case B: Predominantly Chinese input accidentally translated into English
+        if in_cjk >= 6 && in_cjk_ratio >= 0.75 {
+            if out_latin >= 16 && out_cjk_ratio <= 0.20 && (out_cjk as f64) < (in_cjk as f64) * 0.35
+            {
+                return in_trim.to_string();
+            }
+        }
+
+        out_trim.to_string()
     }
 
     fn contains_stutter_repetition(text: &str) -> bool {

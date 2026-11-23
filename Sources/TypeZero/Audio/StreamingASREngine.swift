@@ -67,13 +67,15 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
     public var openAIASRModel: String = "gpt-4o-mini-transcribe"
     public var openAIASRAPIKey: String = ""
     public var enableWhisperAGC: Bool = true
+    public var speechLocale: String = "auto"
     public var onPartialResult: ((_ text: String, _ flushTrailingChar: Bool) -> Void)?
     public var onModelReady: (() -> Void)?
     public var onCloudFailoverNotice: ((_ reason: String) -> Void)?
     public var onError: ((String) -> Void)?
     private var didFlushMicroPauseTail: Bool = false
     private var openAIActiveHotwords: [String] = []
-    private var openAIActiveLocale: String = "zh-CN"
+    private var openAIActiveLocale: String = "auto"
+    private var loadedSenseVoiceLanguage: String = ""
     /// Rolling 220ms pre-roll ring buffer captured while mic is hot-standby (KeyDown / 15s keep-alive)
     /// so the very first syllable spoken right at keypress is NEVER clipped!
     private var preRollSamples: [Float] = []
@@ -174,16 +176,30 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
         modelInitLock.lock()
         defer { modelInitLock.unlock() }
 
-        guard senseVoiceHandle == nil, let paths = Self.senseVoiceModelPaths() else {
+        let targetLang = LLMConfig.senseVoiceLanguageCode(for: speechLocale)
+        if senseVoiceHandle != nil && loadedSenseVoiceLanguage == targetLang {
+            isUsingSenseVoice = true
+            return
+        }
+        guard let paths = Self.senseVoiceModelPaths() else {
             isUsingSenseVoice = (senseVoiceHandle != nil)
             return
         }
         let maxThreads = paths.isFullFP32 ? 8 : 6
         let threads = Int32(max(4, min(maxThreads, ProcessInfo.processInfo.activeProcessorCount - 2)))
-        if let handle = tz_sensevoice_create(paths.model, paths.tokens, threads) {
+        if let handle = tz_sensevoice_create(paths.model, paths.tokens, threads, targetLang) {
+            let oldHandleBits = senseVoiceHandle.map { Int(bitPattern: $0) }
             self.senseVoiceHandle = handle
+            self.loadedSenseVoiceLanguage = targetLang
             self.isUsingSenseVoice = true
             self.isFullPrecisionFP32 = paths.isFullFP32
+            if let bits = oldHandleBits {
+                decodeQueue.async {
+                    if let oldPtr = OpaquePointer(bitPattern: bits) {
+                        tz_sensevoice_destroy(oldPtr)
+                    }
+                }
+            }
             DispatchQueue.main.async { [weak self] in
                 self?.onModelReady?()
             }
@@ -229,7 +245,8 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
         }
     }
 
-    public func warmUp(localeIdentifier: String = "zh-CN") {
+    public func warmUp(localeIdentifier: String = "auto") {
+        speechLocale = localeIdentifier
         prewarmCloudSocketIfReady()
         audioControlQueue.async { [weak self] in
             guard let self else { return }
@@ -249,7 +266,7 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
     /// Non-blocking ultra-fast streaming start: launches CoreAudio tap on dedicated `.userInteractive` queue
     /// so `@MainActor` UI responds in 0.0ms without dropping the first spoken syllable!
     public func startStreamingAsync(
-        localeIdentifier: String = "zh-CN",
+        localeIdentifier: String = "auto",
         contextualStrings: [String] = [],
         dialogContext: [String] = []
     ) {
@@ -406,7 +423,7 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
     }
 
     private func startStreamingInternal(
-        localeIdentifier: String = "zh-CN",
+        localeIdentifier: String = "auto",
         contextualStrings: [String] = [],
         dialogContext: [String] = []
     ) throws {
@@ -538,7 +555,10 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
         guard recordingFormat.sampleRate > 0, recordingFormat.channelCount > 0 else {
             throw NSError(domain: "TypeZero.ASR", code: -2, userInfo: [NSLocalizedDescriptionKey: "麦克风输入不可用，请检查麦克风权限"])
         }
-        let recognizer = SFSpeechRecognizer(locale: Locale(identifier: localeIdentifier)) ?? SFSpeechRecognizer()
+        let trimmedLoc = localeIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        let recognizer = (trimmedLoc.isEmpty || trimmedLoc.lowercased() == "auto")
+            ? SFSpeechRecognizer()
+            : (SFSpeechRecognizer(locale: Locale(identifier: trimmedLoc)) ?? SFSpeechRecognizer())
         guard let recognizer, recognizer.isAvailable else {
             throw NSError(domain: "TypeZero.ASR", code: -1, userInfo: [NSLocalizedDescriptionKey: "未找到本地模型且系统听写未就绪"])
         }

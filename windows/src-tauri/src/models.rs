@@ -453,6 +453,8 @@ pub struct LLMConfig {
     #[serde(default = "default_speech_locale")]
     pub speech_locale: String,
     #[serde(default)]
+    pub speech_locale_explicitly_set: bool,
+    #[serde(default)]
     pub trigger_key: TriggerKeyOption,
     #[serde(default)]
     pub custom_hotkey: CustomHotkeySpec,
@@ -487,7 +489,7 @@ fn default_openai_asr_model() -> String {
     "gpt-4o-mini-transcribe".to_string()
 }
 fn default_speech_locale() -> String {
-    "zh-CN".to_string()
+    "auto".to_string()
 }
 
 impl Default for LLMConfig {
@@ -516,6 +518,7 @@ impl Default for LLMConfig {
             enable_auto_learn: true,
             enable_auto_mute_during_dictation: true,
             speech_locale: default_speech_locale(),
+            speech_locale_explicitly_set: false,
             trigger_key: TriggerKeyOption::RightAlt,
             custom_hotkey: CustomHotkeySpec::default(),
             trigger_behavior: TriggerBehavior::TapToggle,
@@ -528,6 +531,29 @@ impl Default for LLMConfig {
 }
 
 impl LLMConfig {
+    /// Maps `speech_locale` (`"auto"`, `"zh-CN"`, `"en-US"`, etc.) to sherpa-onnx SenseVoice language token.
+    pub fn sense_voice_language_code(speech_locale: &str) -> &'static str {
+        let trimmed = speech_locale.trim().to_lowercase();
+        if trimmed.is_empty() || trimmed == "auto" {
+            return "auto";
+        }
+        if trimmed == "yue" || trimmed == "zh-hk" || trimmed == "zh_hk" {
+            return "yue";
+        }
+        let head = trimmed
+            .split(['-', '_'])
+            .next()
+            .unwrap_or(trimmed.as_str());
+        match head {
+            "zh" => "zh",
+            "en" => "en",
+            "ja" => "ja",
+            "ko" => "ko",
+            "yue" => "yue",
+            _ => "auto",
+        }
+    }
+
     pub fn select_asr_provider(&mut self, provider: ASRProviderOption) {
         self.asr_provider = provider;
         self.enable_volc_seed_asr = provider == ASRProviderOption::VolcSeedASR;
@@ -588,6 +614,16 @@ impl LLMConfig {
         }
         if self.openai_asr_model.trim().is_empty() {
             self.openai_asr_model = default_openai_asr_model();
+        }
+        let trimmed_locale = self.speech_locale.trim().to_string();
+        if !self.speech_locale_explicitly_set
+            && (trimmed_locale.is_empty() || trimmed_locale == "zh-CN")
+        {
+            self.speech_locale = "auto".to_string();
+        } else if trimmed_locale.is_empty() {
+            self.speech_locale = "auto".to_string();
+        } else {
+            self.speech_locale = trimmed_locale;
         }
         self.provider_models.insert(
             self.selected_provider.key_name().to_string(),
