@@ -558,6 +558,74 @@ public enum SelfTestSuite {
             "Empty-box guard aborts re-paste when AX input box is cleared after live emit without breaking WeChat nil AX"
         )
 
+        // 52. DMG / AppTranslocation detection, hdiutil plist parsing, and safe auto-eject guardrails
+        let sampleHdiutilPlist = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>images</key>
+            <array>
+                <dict>
+                    <key>system-entities</key>
+                    <array>
+                        <dict><key>mount-point</key><string>/Volumes/TypeZero v0.5.8</string></dict>
+                        <dict><key>mount-point</key><string>/Volumes/TypeZero v0.5.8</string></dict>
+                    </array>
+                </dict>
+                <dict>
+                    <key>system-entities</key>
+                    <array>
+                        <dict><key>mount-point</key><string>/private/tmp/hidden_mnt</string></dict>
+                    </array>
+                </dict>
+            </array>
+        </dict>
+        </plist>
+        """.data(using: .utf8)!
+        let parsedMounts = AppLaunchGuard.parseMountedDMGPoints(fromPlistData: sampleHdiutilPlist)
+        expect(
+            parsedMounts == ["/Volumes/TypeZero v0.5.8"]
+                && AppLaunchGuard.isInstallerBundlePath(
+                    "/Volumes/TypeZero v0.5.8/TypeZero.app",
+                    mountedDMGPoints: parsedMounts,
+                    isReadOnlyVolume: true,
+                    isRootVolume: false
+                )
+                && AppLaunchGuard.isInstallerBundlePath(
+                    "/private/var/folders/xx/T/AppTranslocation/1234/d/TypeZero.app",
+                    mountedDMGPoints: [],
+                    isReadOnlyVolume: true,
+                    isRootVolume: false
+                )
+                && !AppLaunchGuard.isInstallerBundlePath(
+                    "/Applications/TypeZero.app",
+                    mountedDMGPoints: parsedMounts,
+                    isReadOnlyVolume: false,
+                    isRootVolume: true
+                )
+                && !AppLaunchGuard.isInstallerBundlePath(
+                    "/Volumes/ExternalSSD/Apps/TypeZero.app",
+                    mountedDMGPoints: parsedMounts,
+                    isReadOnlyVolume: false,
+                    isRootVolume: false
+                )
+                && !AppLaunchGuard.isInstallerBundlePath(
+                    "/Users/nasa/Downloads/TypeZero/build.noindex/TypeZero.app",
+                    mountedDMGPoints: parsedMounts,
+                    isReadOnlyVolume: false,
+                    isRootVolume: true
+                )
+                && AppLaunchGuard.determineDMGMigrationMode(currentVersion: "0.5.8", installedVersion: nil) == .freshInstall
+                && AppLaunchGuard.determineDMGMigrationMode(currentVersion: "0.5.9", installedVersion: "0.5.8") == .upgradeInstalled(existingVersion: "0.5.8")
+                && AppLaunchGuard.determineDMGMigrationMode(currentVersion: "0.5.8", installedVersion: "0.5.8") == .alreadyInstalled(existingVersion: "0.5.8")
+                && AppLaunchGuard.shouldAutoEjectInstallerDMG(dmgAppVersion: "0.5.8", runningAppVersion: "0.5.8", dmgBundleID: AppLaunchGuard.expectedBundleID)
+                && AppLaunchGuard.shouldAutoEjectInstallerDMG(dmgAppVersion: "0.5.7", runningAppVersion: "0.5.8", dmgBundleID: AppLaunchGuard.expectedBundleID)
+                && !AppLaunchGuard.shouldAutoEjectInstallerDMG(dmgAppVersion: "0.5.9", runningAppVersion: "0.5.8", dmgBundleID: AppLaunchGuard.expectedBundleID)
+                && !AppLaunchGuard.shouldAutoEjectInstallerDMG(dmgAppVersion: "0.5.8", runningAppVersion: "0.5.8", dmgBundleID: "com.other.app"),
+            "LaunchGuard detects DMG/AppTranslocation runs, parses hdiutil mounts, chooses right migration mode, and only auto-ejects matching <= version DMGs"
+        )
+
         // 52. Atomic probe copyTimeout guard aborts blind Shift+Left re-paste into emptied box
         expect(
             LiveInputSession.shouldAbortOnAtomicProbeFailure(probeReason: "copyTimeout", alreadyEmitted: "已经发出去了的六十个字草稿") == true
@@ -574,6 +642,23 @@ public enum SelfTestSuite {
                 && HotkeyMonitor.isUserSubmitEnterKey(keyCode: 36, modifiers: [.shift]) == false
                 && HotkeyMonitor.isUserSubmitEnterKey(keyCode: 36, modifiers: [.option]) == false,
             "Submit-Enter detector recognizes bare/Cmd Return while preserving Shift+Enter and Option+Enter soft newlines"
+        )
+
+        // 54. UI 2.0 appearance & floating HUD defaults + legacy JSON backward compatibility
+        let legacyUIDecode = try? JSONDecoder().decode(LLMConfig.self, from: Data("{\"modelName\":\"deepseek-flash\"}".utf8))
+        var customUICfg = LLMConfig.default
+        customUICfg.appearance = .dark
+        customUICfg.floatingPillStyle = .frostedLight
+        let encodedUICfg = try? JSONEncoder().encode(customUICfg)
+        let roundTrippedUICfg = encodedUICfg.flatMap { try? JSONDecoder().decode(LLMConfig.self, from: $0) }
+        expect(
+            LLMConfig.default.appearance == .system
+                && LLMConfig.default.floatingPillStyle == .obsidian
+                && legacyUIDecode?.appearance == .system
+                && legacyUIDecode?.floatingPillStyle == .obsidian
+                && roundTrippedUICfg?.appearance == .dark
+                && roundTrippedUICfg?.floatingPillStyle == .frostedLight,
+            "UI 2.0 appearance defaults to system and floating pill defaults to obsidian with clean legacy JSON migration"
         )
 
         print("==> Summary: \(passed) passed, \(failed) failed.")

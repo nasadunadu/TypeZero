@@ -5,7 +5,8 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 APP_NAME="TypeZero"
-VERSION="0.5.8"
+VERSION="0.6.0"
+BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build.noindex}"
 DIST_DIR="$ROOT_DIR/dist"
 DMG_PATH="$DIST_DIR/${APP_NAME}-v${VERSION}-macOS-arm64.dmg"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
@@ -20,14 +21,16 @@ if [ -z "$NOTARY_PROFILE" ]; then
 fi
 
 echo "==> 1. Building & signing ${APP_NAME}.app v${VERSION}..."
-"$ROOT_DIR/scripts/build-app.sh"
-"$ROOT_DIR/build/${APP_NAME}.app/Contents/MacOS/${APP_NAME}" --self-test
+BUILD_DIR="$BUILD_DIR" "$ROOT_DIR/scripts/build-app.sh"
+"$BUILD_DIR/${APP_NAME}.app/Contents/MacOS/${APP_NAME}" --self-test
 
 mkdir -p "$DIST_DIR"
 STAGE_DIR="$(mktemp -d -t typezero_dmg_stage)"
 trap '/usr/bin/trash "$STAGE_DIR" 2>/dev/null || true' EXIT
 
-ditto "$ROOT_DIR/build/${APP_NAME}.app" "$STAGE_DIR/${APP_NAME}.app"
+# Prevent Spotlight (mds_stores) from indexing mounted DMG volumes and blocking eject
+touch "$STAGE_DIR/.metadata_never_index"
+ditto "$BUILD_DIR/${APP_NAME}.app" "$STAGE_DIR/${APP_NAME}.app"
 ln -s /Applications "$STAGE_DIR/Applications"
 
 cat > "$STAGE_DIR/首次安装说明.txt" <<'EOF'

@@ -34,6 +34,7 @@ public final class AppState: ObservableObject {
         }
     }
     @Published public var selectedTab: SidebarTab = .home
+    @Published public var selectedSettingsTab: SettingsSectionTab = .general
     @Published public var triggerKey: TriggerKeyOption = .fnKey {
         didSet {
             hotkeyMonitor.triggerOption = triggerKey
@@ -228,6 +229,10 @@ public final class AppState: ObservableObject {
         // so SwiftUI's root AttributeGraph finishes initializing @StateObject without re-entrant layout crash!
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            if AppLaunchGuard.promptInstallerVolumeMigrationIfNeeded() {
+                return
+            }
+            AppLaunchGuard.ejectStaleInstallerDMGsInBackground()
             self.applyDockVisibilityPolicy()
             self.pillController.attach(appState: self)
             self.asrEngine.warmUp(localeIdentifier: self.llmConfig.speechLocale)
@@ -1845,6 +1850,14 @@ public final class AppState: ObservableObject {
         return uniqueDays.count
     }
 
+    public var todayCharactersDictated: Int {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        return history
+            .filter { cal.isDate($0.timestamp, inSameDayAs: today) }
+            .reduce(0) { $0 + $1.characterCount }
+    }
+
     public func dailyCountMap() -> [Date: Int] {
         let cal = Calendar.current
         var map: [Date: Int] = [:]
@@ -1853,6 +1866,21 @@ public final class AppState: ObservableObject {
             map[day, default: 0] += rec.characterCount
         }
         return map
+    }
+
+    public func recentDailySeries(days: Int = 7) -> [Double] {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let map = dailyCountMap()
+        return (0..<days).reversed().map { offset in
+            let day = cal.date(byAdding: .day, value: -offset, to: today) ?? today
+            return Double(map[day] ?? 0)
+        }
+    }
+
+    public func removeHistoryRecord(id: UUID) {
+        history.removeAll { $0.id == id }
+        saveHistory()
     }
 
     private func loadHistory() {

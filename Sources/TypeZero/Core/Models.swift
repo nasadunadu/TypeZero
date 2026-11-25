@@ -1,19 +1,76 @@
 import Foundation
 
 public enum SidebarTab: String, CaseIterable, Identifiable, Sendable {
-    case home = "洞察总览"
-    case history = "口述历史"
-    case dictionary = "个人词库"
-    case settings = "引擎与快捷键"
+    case home = "主页"
+    case history = "历史"
+    case dictionary = "词库"
+    case settings = "设置"
 
     public var id: String { rawValue }
 
     public var icon: String {
         switch self {
-        case .home: return "sparkles.rectangle.stack"
-        case .history: return "clock.arrow.circlepath"
-        case .dictionary: return "character.book.closed"
-        case .settings: return "slider.horizontal.3"
+        case .home: return "house"
+        case .history: return "clock"
+        case .dictionary: return "book.closed"
+        case .settings: return "gearshape"
+        }
+    }
+
+    public var activeIcon: String {
+        switch self {
+        case .home: return "house.fill"
+        case .history: return "clock.fill"
+        case .dictionary: return "book.closed.fill"
+        case .settings: return "gearshape.fill"
+        }
+    }
+}
+
+public enum SettingsSectionTab: String, CaseIterable, Identifiable, Sendable {
+    case general = "通用与快捷键"
+    case engines = "语音与模型"
+    case account = "账户与额度"
+
+    public var id: String { rawValue }
+
+    public var icon: String {
+        switch self {
+        case .general: return "command"
+        case .engines: return "waveform"
+        case .account: return "person.crop.circle"
+        }
+    }
+}
+
+public enum AppAppearanceOption: String, CaseIterable, Codable, Identifiable, Sendable {
+    case system = "system"
+    case light = "light"
+    case dark = "dark"
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .system: return "跟随系统"
+        case .light: return "浅色"
+        case .dark: return "深色"
+        }
+    }
+}
+
+public enum FloatingPillStyleOption: String, CaseIterable, Codable, Identifiable, Sendable {
+    case obsidian = "obsidian"
+    case frostedLight = "frostedLight"
+    case system = "system"
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .obsidian: return "曜石灵动岛"
+        case .frostedLight: return "浅色磨砂"
+        case .system: return "跟随外观"
         }
     }
 }
@@ -388,6 +445,8 @@ public struct LLMConfig: Codable, Equatable {
     public var speechLocale: String
     public var speechLocaleExplicitlySet: Bool
     public var useOfficialCloudTrial: Bool
+    public var appearance: AppAppearanceOption
+    public var floatingPillStyle: FloatingPillStyleOption
 
     public static let `default` = LLMConfig()
 
@@ -430,7 +489,9 @@ public struct LLMConfig: Codable, Equatable {
         showInDock: Bool = false,
         speechLocale: String = "auto",
         speechLocaleExplicitlySet: Bool = false,
-        useOfficialCloudTrial: Bool = false
+        useOfficialCloudTrial: Bool = false,
+        appearance: AppAppearanceOption = .system,
+        floatingPillStyle: FloatingPillStyleOption = .obsidian
     ) {
         let resolvedProvider = selectedProvider ?? LLMProviderOption.infer(from: baseURL)
         self.selectedProvider = resolvedProvider
@@ -457,6 +518,8 @@ public struct LLMConfig: Codable, Equatable {
         self.speechLocale = speechLocale
         self.speechLocaleExplicitlySet = speechLocaleExplicitlySet
         self.useOfficialCloudTrial = useOfficialCloudTrial
+        self.appearance = appearance
+        self.floatingPillStyle = floatingPillStyle
     }
 
     public mutating func selectASRProvider(_ provider: ASRProviderOption) {
@@ -541,5 +604,7 @@ public struct LLMConfig: Codable, Equatable {
             self.speechLocale = decodedLocale.isEmpty ? "auto" : decodedLocale
         }
         self.useOfficialCloudTrial = (try? c.decode(Bool.self, forKey: .useOfficialCloudTrial)) ?? false
+        self.appearance = (try? c.decode(AppAppearanceOption.self, forKey: .appearance)) ?? .system
+        self.floatingPillStyle = (try? c.decode(FloatingPillStyleOption.self, forKey: .floatingPillStyle)) ?? .obsidian
     }
 }

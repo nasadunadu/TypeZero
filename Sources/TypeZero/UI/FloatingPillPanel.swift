@@ -61,10 +61,10 @@ public final class AudioLevelBus: @unchecked Sendable {
     }
 }
 
-/// Ultra-minimalist, zero-text floating acoustic micro-pill:
-/// - Strictly NEVER displays live transcribed text (text streams exclusively inside the user's selected input box!).
-/// - Decouples Accessibility IPC caret queries onto a background serial queue (zero main-thread stalls!).
-/// - Glides at 60fps in pure memory and renders a 60/120fps continuous fluid sine-wave visualization.
+/// Dynamic-Island-inspired floating acoustic HUD capsule:
+/// - Default Obsidian glass look (high contrast on both light & dark apps), switchable to Frosted Light or System in Settings.
+/// - Strictly NEVER displays live transcribed text (text streams directly in the target input box).
+/// - Decouples Accessibility IPC caret queries onto a background serial queue (zero main-thread stalls).
 public final class FloatingPillController: @unchecked Sendable {
     private var panel: NSPanel?
     private weak var boundAppState: AppState?
@@ -76,14 +76,13 @@ public final class FloatingPillController: @unchecked Sendable {
     private var cachedTargetOrigin: CGPoint? = nil
     private var currentOrigin: CGPoint = .zero
     private var isRequestedVisible: Bool = false
-    private let pillSize = CGSize(width: 224, height: 58)
+    private let pillSize = CGSize(width: 240, height: 64)
 
     public init() {}
 
     @MainActor
     public func attach(appState: AppState) {
         self.boundAppState = appState
-        // Pre-warm panel offscreen so first Fn press shows in 0ms without NSHostingView creation hitch!
         ensurePanelCreated()
     }
 
@@ -122,8 +121,6 @@ public final class FloatingPillController: @unchecked Sendable {
 
             if !panel.isVisible {
                 let sizeSnapshot = pillSize
-                // Resolve initial anchor off-main-thread so the pill spawns right beneath the input box
-                // without flashing at the bottom Dock first (bounded by a 60ms fast-path fallback).
                 var hasShown = false
                 let presentAt: @MainActor (CGPoint) -> Void = { [weak self] pos in
                     guard let self, self.isRequestedVisible, !hasShown, let panel = self.panel else { return }
@@ -176,7 +173,6 @@ public final class FloatingPillController: @unchecked Sendable {
         stopDualLayerCaretTracking()
         let sizeSnapshot = pillSize
 
-        // Layer 1 (Background Queue, 7Hz): Off-main-thread AX caret query with 35ms IPC timeout — NEVER blocks UI or typewriter!
         let poll = DispatchSource.makeTimerSource(queue: axPollQueue)
         poll.schedule(deadline: .now(), repeating: .milliseconds(140), leeway: .milliseconds(15))
         poll.setEventHandler { [weak self] in
@@ -190,7 +186,6 @@ public final class FloatingPillController: @unchecked Sendable {
         self.axPollTimer = poll
         poll.resume()
 
-        // Layer 2 (Main Queue, 60fps): Pure in-memory float Lerp (~0.001ms per tick) — magnetic glide!
         let lerp = DispatchSource.makeTimerSource(queue: .main)
         lerp.schedule(deadline: .now() + .milliseconds(16), repeating: .milliseconds(16), leeway: .milliseconds(2))
         lerp.setEventHandler { [weak self] in
@@ -223,7 +218,6 @@ public final class FloatingPillController: @unchecked Sendable {
         let dist = hypot(dx, dy)
         guard dist > 0.5 else { return }
 
-        // Snap immediately if jumping across screen on initial caret discovery; glide smoothly while typing
         if dist > 260 {
             currentOrigin = target
         } else {
@@ -242,12 +236,38 @@ public final class FloatingPillController: @unchecked Sendable {
     }
 }
 
-/// Custom vector Möbius Strip brand mark.
+// MARK: - Vector Möbius Infinity Brand Mark
+
 public struct MobiusMarkView: View {
     public var size: CGFloat = 24
+    public var monochromeWhite: Bool = false
 
-    public init(size: CGFloat = 24) {
+    public init(size: CGFloat = 24, monochromeWhite: Bool = false) {
         self.size = size
+        self.monochromeWhite = monochromeWhite
+    }
+
+    private func mobiusPoint(_ t: Double, cx: CGFloat, cy: CGFloat, rx: CGFloat, ry: CGFloat) -> CGPoint {
+        let s = sin(t)
+        let c = cos(t)
+        let denom = 1.0 + 0.72 * s * s
+        let x = cx + rx * CGFloat(c / denom)
+        let y = cy + ry * CGFloat((1.65 * s * c) / denom)
+        return CGPoint(x: x, y: y)
+    }
+
+    private func arcPath(from startT: Double, to endT: Double, steps: Int, cx: CGFloat, cy: CGFloat, rx: CGFloat, ry: CGFloat) -> Path {
+        var path = Path()
+        for i in 0...steps {
+            let t = startT + (endT - startT) * Double(i) / Double(steps)
+            let pt = mobiusPoint(t, cx: cx, cy: cy, rx: rx, ry: ry)
+            if i == 0 {
+                path.move(to: pt)
+            } else {
+                path.addLine(to: pt)
+            }
+        }
+        return path
     }
 
     public var body: some View {
@@ -255,48 +275,157 @@ public struct MobiusMarkView: View {
             let w = canvasSize.width
             let h = canvasSize.height
             let cx = w * 0.5
-            let cy = h * 0.52
-            let rx = w * 0.38
-            let ry = h * 0.24
+            let cy = h * 0.5
+            let rx = w * 0.39
+            let ry = h * 0.40
+            let strokeW = max(2.1, w * 0.148)
+            let roundStyle = StrokeStyle(lineWidth: strokeW, lineCap: .round, lineJoin: .round)
 
-            var backLoop = Path()
-            let steps = 90
-            for i in 0...steps {
-                let t = Double(i) / Double(steps) * Double.pi * 2.0
-                let denom = 1.0 + pow(sin(t), 2)
-                let x = cx + rx * CGFloat(cos(t) / denom)
-                let y = cy + ry * 1.55 * CGFloat((sin(t) * cos(t)) / denom)
-                if i == 0 {
-                    backLoop.move(to: CGPoint(x: x, y: y))
-                } else {
-                    backLoop.addLine(to: CGPoint(x: x, y: y))
+            // 1. Single unbroken closed loop (guarantees 100% seamless 9 & 3 o'clock outer poles!)
+            var fullLoop = arcPath(from: 0, to: Double.pi * 2.0, steps: 140, cx: cx, cy: cy, rx: rx, ry: ry)
+            fullLoop.closeSubpath()
+
+            // Localized back-underpass arm around center crossing (t = 3*pi/2), extending well past recess radius
+            let backCrossArm = arcPath(
+                from: Double.pi * 1.5 - 0.85,
+                to: Double.pi * 1.5 + 0.85,
+                steps: 48,
+                cx: cx,
+                cy: cy,
+                rx: rx,
+                ry: ry
+            )
+            // Localized front-overpass arm around center crossing (t = pi/2), extending well past crown radius
+            let frontCrossArm = arcPath(
+                from: Double.pi * 0.5 - 0.74,
+                to: Double.pi * 0.5 + 0.74,
+                steps: 48,
+                cx: cx,
+                cy: cy,
+                rx: rx,
+                ry: ry
+            )
+            // Short central shadow-caster bar along front overpass
+            let crossingShadowBar = arcPath(
+                from: Double.pi * 0.5 - 0.34,
+                to: Double.pi * 0.5 + 0.34,
+                steps: 24,
+                cx: cx,
+                cy: cy,
+                rx: rx,
+                ry: ry
+            )
+
+            // Unified single top-left-lit gradient shared IDENTICALLY by fullLoop and frontCrossArm -> 0.000 seam!
+            let topY = cy - ry * 0.65 - strokeW * 0.5
+            let botY = cy + ry * 0.65 + strokeW * 0.5
+            let unifiedShading: GraphicsContext.Shading = monochromeWhite
+                ? .linearGradient(
+                    Gradient(stops: [
+                        .init(color: .white, location: 0.0),
+                        .init(color: Color(red: 0.965, green: 0.980, blue: 1.00), location: 0.52),
+                        .init(color: Color(red: 0.855, green: 0.900, blue: 1.00), location: 1.0)
+                    ]),
+                    startPoint: CGPoint(x: cx - rx * 0.25, y: topY),
+                    endPoint: CGPoint(x: cx + rx * 0.25, y: botY)
+                )
+                : .linearGradient(
+                    Gradient(stops: [
+                        .init(color: Color(red: 0.45, green: 0.40, blue: 1.00), location: 0.0),
+                        .init(color: Color(red: 0.36, green: 0.58, blue: 1.00), location: 0.52),
+                        .init(color: Color(red: 0.20, green: 0.80, blue: 1.00), location: 1.0)
+                    ]),
+                    startPoint: CGPoint(x: cx - rx, y: topY),
+                    endPoint: CGPoint(x: cx + rx, y: botY)
+                )
+
+            // Pass 1: Continuous unbroken Möbius base
+            context.stroke(fullLoop, with: unifiedShading, style: roundStyle)
+
+            // Pass 2: Smooth localized 3D underpass shading + cast shadow strictly clipped to backCrossArm
+            // (Both radial recess & cast shadow hit 0.000 alpha long before the arm endpoints -> zero cap crease!)
+            let backMask = backCrossArm.strokedPath(StrokeStyle(lineWidth: strokeW, lineCap: .butt, lineJoin: .round))
+            context.drawLayer { layer in
+                layer.clip(to: backMask)
+                let centerPt = CGPoint(x: cx, y: cy)
+                layer.fill(
+                    Path(CGRect(x: cx - strokeW * 2.5, y: cy - strokeW * 2.5, width: strokeW * 5.0, height: strokeW * 5.0)),
+                    with: .radialGradient(
+                        Gradient(stops: [
+                            .init(
+                                color: monochromeWhite
+                                    ? Color(red: 0.22, green: 0.30, blue: 0.74).opacity(0.46)
+                                    : Color.black.opacity(0.32),
+                                location: 0.0
+                            ),
+                            .init(
+                                color: monochromeWhite
+                                    ? Color(red: 0.34, green: 0.42, blue: 0.84).opacity(0.16)
+                                    : Color.black.opacity(0.08),
+                                location: 0.50
+                            ),
+                            .init(color: .clear, location: 1.0)
+                        ]),
+                        center: centerPt,
+                        startRadius: 0,
+                        endRadius: strokeW * 1.60
+                    )
+                )
+                layer.addFilter(.blur(radius: max(0.85, strokeW * 0.28)))
+                layer.stroke(
+                    crossingShadowBar,
+                    with: .color(
+                        monochromeWhite
+                            ? Color(red: 0.07, green: 0.05, blue: 0.40).opacity(0.70)
+                            : Color.black.opacity(0.46)
+                    ),
+                    style: StrokeStyle(lineWidth: strokeW * 1.44, lineCap: .round, lineJoin: .round)
+                )
+            }
+
+            // Pass 3: Redraw front overpass arm with the EXACT same unified gradient (mathematically invisible blend at endpoints!)
+            context.stroke(frontCrossArm, with: unifiedShading, style: StrokeStyle(lineWidth: strokeW, lineCap: .butt, lineJoin: .round))
+
+            // Pass 4: Whisper-clean luminous crown highlight right on top of the central front overpass
+            if monochromeWhite && size >= 20 {
+                let crownMask = frontCrossArm.strokedPath(StrokeStyle(lineWidth: strokeW, lineCap: .butt, lineJoin: .round))
+                context.drawLayer { layer in
+                    layer.clip(to: crownMask)
+                    layer.fill(
+                        Path(CGRect(x: cx - strokeW * 1.8, y: cy - strokeW * 1.8, width: strokeW * 3.6, height: strokeW * 3.6)),
+                        with: .radialGradient(
+                            Gradient(colors: [Color.white.opacity(0.55), Color.white.opacity(0.0)]),
+                            center: CGPoint(x: cx - strokeW * 0.12, y: cy - strokeW * 0.18),
+                            startRadius: 0,
+                            endRadius: strokeW * 1.32
+                        )
+                    )
                 }
             }
-            backLoop.closeSubpath()
-
-            let grad = GraphicsContext.Shading.linearGradient(
-                Gradient(colors: [
-                    Color(red: 0.353, green: 0.275, blue: 0.910), // #5A46E8 Royal Violet
-                    Color(red: 0.486, green: 0.345, blue: 0.949),
-                    Color(red: 0.220, green: 0.490, blue: 0.960)
-                ]),
-                startPoint: CGPoint(x: w * 0.12, y: h * 0.25),
-                endPoint: CGPoint(x: w * 0.88, y: h * 0.75)
-            )
-
-            context.stroke(
-                backLoop,
-                with: grad,
-                style: StrokeStyle(lineWidth: max(2.2, size * 0.145), lineCap: .round, lineJoin: .round)
-            )
         }
         .frame(width: size, height: size)
     }
 }
 
-/// Pure acoustic wave micro-capsule — ZERO live text duplication, ZERO per-frame SwiftUI state invalidations!
+// MARK: - Obsidian Dynamic Island / Frosted Liquid Glass Floating Pill View
+
 struct FloatingPillView: View {
     @ObservedObject var appState: AppState
+    @Environment(\.colorScheme) private var systemScheme
+
+    private var isObsidian: Bool {
+        switch appState.llmConfig.floatingPillStyle {
+        case .obsidian:
+            return true
+        case .frostedLight:
+            return false
+        case .system:
+            if let explicit = appState.llmConfig.appearance.colorScheme {
+                return explicit == .dark
+            }
+            return systemScheme == .dark
+        }
+    }
 
     var body: some View {
         Group {
@@ -306,81 +435,70 @@ struct FloatingPillView: View {
 
             case .listening(_, let mode):
                 let accentColor = mode == .rewriteSelection
-                    ? Color(red: 0.56, green: 0.24, blue: 0.88)
-                    : Color(red: 0.353, green: 0.275, blue: 0.910)
+                    ? Color(red: 0.68, green: 0.44, blue: 1.00)
+                    : Color(red: 0.48, green: 0.45, blue: 1.00)
 
                 if appState.llmConfig.enableLiveInlineTyping || mode == .rewriteSelection {
-                    HStack(spacing: 9) {
-                        MobiusMarkView(size: 16)
-                        FluidSineWaveView(accent: accentColor)
-                            .frame(width: 62, height: 16)
-                    }
-                    .padding(.horizontal, 13)
-                    .frame(height: 31)
-                    .background(.ultraThinMaterial)
-                    .background(Color(red: 0.988, green: 0.984, blue: 0.973).opacity(0.94))
-                    .clipShape(Capsule())
-                    .overlay(Capsule().strokeBorder(Color(red: 0.09, green: 0.086, blue: 0.106).opacity(0.10), lineWidth: 0.8))
-                } else {
-                    // Default Fast-Paste Mode: rhythmic micro-symbols reading live character count ABOVE the sound wave!
-                    VStack(spacing: 4) {
-                        MicroSymbolStreamView(accent: accentColor)
-                        HStack(spacing: 8) {
-                            MobiusMarkView(size: 14)
-                            FluidSineWaveView(accent: accentColor)
-                                .frame(width: 86, height: 14)
-                        }
+                    HStack(spacing: 9.5) {
+                        MobiusMarkView(size: 16, monochromeWhite: false)
+                        FluidSineWaveView(accent: accentColor, isDarkSurface: isObsidian)
+                            .frame(width: 68, height: 18)
                     }
                     .padding(.horizontal, 14)
-                    .padding(.vertical, 6.5)
-                    .background(.ultraThinMaterial)
-                    .background(Color(red: 0.988, green: 0.984, blue: 0.973).opacity(0.95))
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .strokeBorder(Color(red: 0.09, green: 0.086, blue: 0.106).opacity(0.10), lineWidth: 0.8)
-                    )
+                    .frame(height: 33)
+                    .modifier(FloatingPillSurfaceModifier(isObsidian: isObsidian, cornerRadius: 999))
+                } else {
+                    VStack(spacing: 4) {
+                        MicroSymbolStreamView(accent: accentColor, isDarkSurface: isObsidian)
+                        HStack(spacing: 8.5) {
+                            MobiusMarkView(size: 14, monochromeWhite: false)
+                            FluidSineWaveView(accent: accentColor, isDarkSurface: isObsidian)
+                                .frame(width: 86, height: 15)
+                        }
+                    }
+                    .padding(.horizontal, 15)
+                    .padding(.vertical, 7)
+                    .modifier(FloatingPillSurfaceModifier(isObsidian: isObsidian, cornerRadius: 19))
                 }
 
             case .polishing:
                 HStack(spacing: 8) {
-                    MobiusMarkView(size: 15)
-                    ShimmerDotsView()
+                    MobiusMarkView(size: 15, monochromeWhite: false)
+                    ShimmerDotsView(isDarkSurface: isObsidian)
+                    Text("润色")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(isObsidian ? Color.white.opacity(0.75) : Color(red: 0.20, green: 0.21, blue: 0.27))
                 }
-                .padding(.horizontal, 13)
-                .frame(height: 29)
-                .background(.ultraThinMaterial)
-                .background(Color(red: 0.988, green: 0.984, blue: 0.973).opacity(0.95))
-                .clipShape(Capsule())
-                .overlay(Capsule().strokeBorder(Color(red: 0.353, green: 0.275, blue: 0.910).opacity(0.22), lineWidth: 0.8))
+                .padding(.horizontal, 14)
+                .frame(height: 32)
+                .modifier(FloatingPillSurfaceModifier(isObsidian: isObsidian, cornerRadius: 999, accentRim: true))
 
             case .completed:
-                HStack(spacing: 5) {
+                HStack(spacing: 5.5) {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color(red: 0.12, green: 0.72, blue: 0.42))
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(Color(red: 0.16, green: 0.80, blue: 0.45))
+                    Text("已上屏")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(isObsidian ? Color.white.opacity(0.92) : Color(red: 0.10, green: 0.11, blue: 0.14))
                 }
-                .padding(.horizontal, 10)
-                .frame(height: 26)
-                .background(Color.white.opacity(0.95))
-                .clipShape(Capsule())
-                .overlay(Capsule().strokeBorder(Color.black.opacity(0.06), lineWidth: 0.8))
+                .padding(.horizontal, 12)
+                .frame(height: 29)
+                .modifier(FloatingPillSurfaceModifier(isObsidian: isObsidian, cornerRadius: 999))
 
             case .savedToClipboard(let msg):
-                HStack(spacing: 5) {
+                HStack(spacing: 5.5) {
                     Image(systemName: "doc.on.clipboard.fill")
                         .font(.system(size: 11))
-                        .foregroundStyle(Color(red: 0.10, green: 0.42, blue: 1.0))
+                        .foregroundStyle(Color(red: 0.24, green: 0.68, blue: 1.0))
                     Text(msg)
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.10, green: 0.10, blue: 0.14))
+                        .foregroundStyle(isObsidian ? Color.white.opacity(0.92) : Color(red: 0.10, green: 0.11, blue: 0.14))
                         .lineLimit(1)
                 }
-                .padding(.horizontal, 10)
-                .frame(height: 28)
-                .background(Color.white.opacity(0.96))
-                .clipShape(Capsule())
-                .overlay(Capsule().strokeBorder(Color(red: 0.10, green: 0.42, blue: 1.0).opacity(0.3), lineWidth: 0.8))
+                .padding(.horizontal, 12)
+                .frame(height: 30)
+                .modifier(FloatingPillSurfaceModifier(isObsidian: isObsidian, cornerRadius: 999))
 
             case .error:
                 HStack(spacing: 5) {
@@ -388,19 +506,72 @@ struct FloatingPillView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(Color.orange)
                 }
-                .padding(.horizontal, 10)
-                .frame(height: 28)
-                .background(Color.white.opacity(0.96))
-                .clipShape(Capsule())
-                .overlay(Capsule().strokeBorder(Color.orange.opacity(0.4), lineWidth: 0.8))
+                .padding(.horizontal, 11)
+                .frame(height: 29)
+                .modifier(FloatingPillSurfaceModifier(isObsidian: isObsidian, cornerRadius: 999))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
-/// Smooth 3-dot wave indicator during sub-300ms polish transition (replaces clunky macOS NSProgressIndicator spinner).
+private struct FloatingPillSurfaceModifier: ViewModifier {
+    let isObsidian: Bool
+    let cornerRadius: CGFloat
+    var accentRim: Bool = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                ZStack {
+                    if isObsidian {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color(red: 0.115, green: 0.120, blue: 0.148).opacity(0.96),
+                                        Color(red: 0.062, green: 0.066, blue: 0.086).opacity(0.97)
+                                    ],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                    } else {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(.ultraThinMaterial)
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(Color.white.opacity(0.84))
+                    }
+                }
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: accentRim
+                                ? [Color(red: 0.48, green: 0.45, blue: 1.0).opacity(0.65), Color(red: 0.24, green: 0.75, blue: 0.98).opacity(0.32)]
+                                : (isObsidian
+                                    ? [Color.white.opacity(0.24), Color.white.opacity(0.06)]
+                                    : [Color.white, Color.black.opacity(0.10)]),
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 0.9
+                    )
+            )
+            .shadow(
+                color: Color.black.opacity(isObsidian ? 0.36 : 0.14),
+                radius: 12,
+                x: 0,
+                y: 5
+            )
+    }
+}
+
+/// Smooth 3-dot luminous flow indicator during sub-300ms polish transition.
 struct ShimmerDotsView: View {
+    var isDarkSurface: Bool = true
+
     var body: some View {
         TimelineView(.animation) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate * 7.5
@@ -408,7 +579,11 @@ struct ShimmerDotsView: View {
                 ForEach(0..<3, id: \.self) { idx in
                     let wave = (sin(t - Double(idx) * 0.85) + 1.0) * 0.5
                     Circle()
-                        .fill(Color(red: 0.353, green: 0.275, blue: 0.910).opacity(0.35 + wave * 0.65))
+                        .fill(
+                            isDarkSurface
+                                ? Color(red: 0.62, green: 0.60, blue: 1.0).opacity(0.38 + wave * 0.62)
+                                : Color(red: 0.31, green: 0.275, blue: 0.90).opacity(0.35 + wave * 0.65)
+                        )
                         .frame(width: 4.5, height: 4.5)
                         .offset(y: CGFloat((wave - 0.5) * -3.0))
                 }
@@ -417,10 +592,10 @@ struct ShimmerDotsView: View {
     }
 }
 
-/// Rhythmic micro-symbol cipher ribbon displayed ABOVE the acoustic sine wave when live inline typing is off:
-/// Turns each recognized syllable into a delicate dancing symbol (`• · ✦ ▪`) + live character count without distracting draft text!
+/// Rhythmic micro-symbol cipher ribbon displayed ABOVE the acoustic bars when live inline typing is off.
 struct MicroSymbolStreamView: View {
     let accent: Color
+    var isDarkSurface: Bool = true
     private static let glyphCycle: [String] = ["•", "·", "✦", "•", "▪", "·"]
 
     var body: some View {
@@ -437,9 +612,9 @@ struct MicroSymbolStreamView: View {
                 if windowCount == 0 {
                     HStack(spacing: 4) {
                         ForEach(0..<3, id: \.self) { i in
-                            let pulse = 0.22 + 0.20 * (sin(t * 4.2 - Double(i) * 0.9) + 1.0) * 0.5
+                            let pulse = 0.28 + 0.26 * (sin(t * 4.2 - Double(i) * 0.9) + 1.0) * 0.5
                             Circle()
-                                .fill(Color(red: 0.09, green: 0.086, blue: 0.106).opacity(pulse))
+                                .fill((isDarkSurface ? Color.white : Color.black).opacity(pulse))
                                 .frame(width: 3.2, height: 3.2)
                         }
                     }
@@ -454,7 +629,11 @@ struct MicroSymbolStreamView: View {
                             let waveY = CGFloat(sin(t * 6.5 - Double(serial) * 0.65) * 1.1)
                             Text(glyph)
                                 .font(.system(size: glyph == "✦" ? 8.5 : 10.5, weight: .bold, design: .monospaced))
-                                .foregroundStyle(isNewest ? accent : Color(red: 0.09, green: 0.086, blue: 0.106).opacity(0.68))
+                                .foregroundStyle(
+                                    isNewest
+                                        ? accent
+                                        : (isDarkSurface ? Color.white.opacity(0.76) : Color(red: 0.09, green: 0.086, blue: 0.106).opacity(0.70))
+                                )
                                 .scaleEffect(popScale)
                                 .offset(y: waveY)
                         }
@@ -463,10 +642,10 @@ struct MicroSymbolStreamView: View {
 
                     Text("\(visibleTotal)")
                         .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                        .foregroundStyle(accent)
-                        .padding(.horizontal, 5)
+                        .foregroundStyle(isDarkSurface ? Color.white.opacity(0.90) : accent)
+                        .padding(.horizontal, 5.5)
                         .padding(.vertical, 1)
-                        .background(accent.opacity(0.11))
+                        .background(accent.opacity(isDarkSurface ? 0.32 : 0.13))
                         .clipShape(Capsule())
                 }
             }
@@ -477,6 +656,7 @@ struct MicroSymbolStreamView: View {
 /// 120Hz ProMotion fluid multi-ribbon sine wave reading directly from `AudioLevelBus` without SwiftUI state diffs!
 struct FluidSineWaveView: View {
     let accent: Color
+    var isDarkSurface: Bool = true
 
     var body: some View {
         TimelineView(.animation) { timeline in
@@ -484,18 +664,38 @@ struct FluidSineWaveView: View {
             let smoothLevel = AudioLevelBus.shared.sampleBallisticEnvelope()
             Canvas { ctx, size in
                 let midY = size.height * 0.5
-                let amp = max(1.5, CGFloat(smoothLevel) * size.height * 0.47)
+                let amp = max(1.8, CGFloat(smoothLevel) * size.height * 0.47)
 
-                for layer in 0..<3 {
+                let primaryShading: GraphicsContext.Shading = isDarkSurface
+                    ? .linearGradient(
+                        Gradient(colors: [
+                            Color(red: 0.56, green: 0.50, blue: 1.00),
+                            Color(red: 0.42, green: 0.66, blue: 1.00),
+                            Color(red: 0.24, green: 0.85, blue: 1.00)
+                        ]),
+                        startPoint: CGPoint(x: 0, y: midY),
+                        endPoint: CGPoint(x: size.width, y: midY)
+                    )
+                    : .linearGradient(
+                        Gradient(colors: [
+                            Color(red: 0.353, green: 0.275, blue: 0.910),
+                            Color(red: 0.28, green: 0.46, blue: 0.98),
+                            Color(red: 0.08, green: 0.65, blue: 0.92)
+                        ]),
+                        startPoint: CGPoint(x: 0, y: midY),
+                        endPoint: CGPoint(x: size.width, y: midY)
+                    )
+
+                for layer in (0..<3).reversed() {
                     var path = Path()
                     let phaseShift = Double(layer) * 1.15
                     let speed = layer == 0 ? 10.5 : (layer == 1 ? 7.4 : 5.2)
                     let freq = layer == 0 ? 2.7 : (layer == 1 ? 2.0 : 1.5)
                     let scale: CGFloat = layer == 0 ? 1.0 : (layer == 1 ? 0.78 : 0.55)
 
-                    for xInt in stride(from: 0, through: Int(size.width), by: 2) {
+                    for xInt in stride(from: 0, through: Int(size.width), by: 1) {
                         let x = CGFloat(xInt)
-                        let norm = Double(x / size.width)
+                        let norm = Double(x / max(1, size.width))
                         let envelope = pow(sin(norm * Double.pi), 1.25)
                         let yOffset = sin(norm * Double.pi * freq - t * speed + phaseShift) * Double(amp * scale) * envelope
                         let pt = CGPoint(x: x, y: midY + CGFloat(yOffset))
@@ -506,13 +706,21 @@ struct FluidSineWaveView: View {
                         }
                     }
 
-                    let opacity = layer == 0 ? 0.94 : (layer == 1 ? 0.42 : 0.20)
-                    let width: CGFloat = layer == 0 ? 1.9 : (layer == 1 ? 1.35 : 1.0)
-                    ctx.stroke(
-                        path,
-                        with: .color(accent.opacity(opacity)),
-                        style: StrokeStyle(lineWidth: width, lineCap: .round)
-                    )
+                    let width: CGFloat = layer == 0 ? (isDarkSurface ? 2.0 : 1.9) : (layer == 1 ? 1.35 : 1.0)
+                    if layer == 0 {
+                        ctx.stroke(
+                            path,
+                            with: primaryShading,
+                            style: StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round)
+                        )
+                    } else {
+                        let opacity = layer == 1 ? (isDarkSurface ? 0.50 : 0.42) : (isDarkSurface ? 0.24 : 0.20)
+                        ctx.stroke(
+                            path,
+                            with: .color(accent.opacity(opacity)),
+                            style: StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round)
+                        )
+                    }
                 }
             }
         }

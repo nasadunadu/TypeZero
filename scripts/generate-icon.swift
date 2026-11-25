@@ -3,8 +3,9 @@ import AppKit
 import CoreGraphics
 import Foundation
 
-/// Renders a high-craft macOS squircle icon with a warm-ivory porcelain surface
-/// and an abstract 3D twisted Möbius ribbon (zero dark-background clichés).
+/// Renders the TypeZero 2.0 flagship macOS squircle icon:
+/// Deep Sapphire-Indigo optical crystal squircle + razor-sharp 3D woven Pure-White/Ice-Silver Möbius ribbon.
+/// Unified 1:1 with `TZBrandEmblemView` & `MobiusMarkView` across Sidebar, Menu Bar, Dock, and Finder.
 func renderMobiusIcon(pixelSize: Int, to url: URL) throws {
     let rep = NSBitmapImageRep(
         bitmapDataPlanes: nil,
@@ -24,158 +25,242 @@ func renderMobiusIcon(pixelSize: Int, to url: URL) throws {
     NSGraphicsContext.current = nsCtx
     let cg = nsCtx.cgContext
     let s = CGFloat(pixelSize)
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
 
     cg.setAllowsAntialiasing(true)
     cg.setShouldAntialias(true)
+    cg.interpolationQuality = .high
 
-    // 1. Apple macOS standard icon inset & continuous squircle card (light porcelain finish)
+    // 1. Apple macOS standard icon inset & continuous squircle card
     let pad = s * 0.095
     let cardRect = CGRect(x: pad, y: pad, width: s - pad * 2, height: s - pad * 2)
-    let corner = cardRect.width * 0.225
-    let squircle = NSBezierPath(roundedRect: cardRect, xRadius: corner, yRadius: corner)
+    let cardSide = cardRect.width
+    let corner = cardSide * 0.24
+    let squirclePath = CGPath(roundedRect: cardRect, cornerWidth: corner, cornerHeight: corner, transform: nil)
 
-    // Soft drop shadow
+    // Crisp outer drop shadow
     cg.saveGState()
     cg.setShadow(
-        offset: CGSize(width: 0, height: -s * 0.02),
-        blur: s * 0.045,
-        color: NSColor(calibratedWhite: 0.0, alpha: 0.16).cgColor
+        offset: CGSize(width: 0, height: -s * 0.022),
+        blur: s * 0.042,
+        color: NSColor(calibratedRed: 0.08, green: 0.06, blue: 0.32, alpha: 0.28).cgColor
     )
-    NSColor(calibratedRed: 0.985, green: 0.984, blue: 0.978, alpha: 1.0).setFill()
-    squircle.fill()
+    cg.addPath(squirclePath)
+    cg.setFillColor(NSColor(calibratedRed: 0.28, green: 0.24, blue: 0.90, alpha: 1.0).cgColor)
+    cg.fillPath()
     cg.restoreGState()
 
-    // Subtle warm ivory-to-pearl gradient surface
+    // 2. Clipped Sapphire-Indigo Optical Crystal Body
     cg.saveGState()
-    squircle.addClip()
+    cg.addPath(squirclePath)
+    cg.clip()
+
+    // Diagonal jewel base: Top-Left (#544AEF) -> Mid (#3B31D6) -> Bottom-Right (#1C178A)
     let bgColors = [
-        NSColor(calibratedRed: 0.996, green: 0.995, blue: 0.992, alpha: 1.0).cgColor,
-        NSColor(calibratedRed: 0.945, green: 0.950, blue: 0.968, alpha: 1.0).cgColor
+        NSColor(calibratedRed: 0.33, green: 0.29, blue: 0.94, alpha: 1.0).cgColor,
+        NSColor(calibratedRed: 0.23, green: 0.19, blue: 0.84, alpha: 1.0).cgColor,
+        NSColor(calibratedRed: 0.11, green: 0.09, blue: 0.54, alpha: 1.0).cgColor
     ] as CFArray
-    let colorSpace = CGColorSpaceCreateDeviceRGB()
-    let bgGrad = CGGradient(colorsSpace: colorSpace, colors: bgColors, locations: [0.0, 1.0])!
+    let bgGrad = CGGradient(colorsSpace: colorSpace, colors: bgColors, locations: [0.0, 0.52, 1.0])!
     cg.drawLinearGradient(
         bgGrad,
-        start: CGPoint(x: s * 0.5, y: s - pad),
-        end: CGPoint(x: s * 0.5, y: pad),
+        start: CGPoint(x: cardRect.minX, y: cardRect.maxY),
+        end: CGPoint(x: cardRect.maxX, y: cardRect.minY),
         options: []
     )
 
-    // Soft ambient radial glow behind the Möbius ribbon
-    let glowColors = [
-        NSColor(calibratedRed: 0.35, green: 0.28, blue: 0.95, alpha: 0.10).cgColor,
-        NSColor(calibratedRed: 0.10, green: 0.45, blue: 1.00, alpha: 0.0).cgColor
+    // Subtle bottom-right cyan-sapphire optical crystal refraction
+    let causticColors = [
+        NSColor(calibratedRed: 0.22, green: 0.74, blue: 0.98, alpha: 0.34).cgColor,
+        NSColor(calibratedRed: 0.26, green: 0.56, blue: 1.00, alpha: 0.09).cgColor,
+        NSColor(calibratedRed: 0.26, green: 0.56, blue: 1.00, alpha: 0.00).cgColor
     ] as CFArray
-    let glowGrad = CGGradient(colorsSpace: colorSpace, colors: glowColors, locations: [0.0, 1.0])!
+    let causticGrad = CGGradient(colorsSpace: colorSpace, colors: causticColors, locations: [0.0, 0.55, 1.0])!
+    let causticCenter = CGPoint(x: cardRect.minX + cardSide * 0.86, y: cardRect.minY + cardSide * 0.14)
     cg.drawRadialGradient(
-        glowGrad,
-        startCenter: CGPoint(x: s * 0.5, y: s * 0.5),
+        causticGrad,
+        startCenter: causticCenter,
         startRadius: 0,
-        endCenter: CGPoint(x: s * 0.5, y: s * 0.5),
-        endRadius: s * 0.36,
+        endCenter: causticCenter,
+        endRadius: cardSide * 0.72,
         options: []
     )
 
-    // 2. Render 3D Twisted Sculptural Möbius Strip using layered ribbon segments for true over/under depth
+    // Clean top curved optical-glass specular meniscus
+    let sheenColors = [
+        NSColor(calibratedWhite: 1.0, alpha: 0.28).cgColor,
+        NSColor(calibratedWhite: 1.0, alpha: 0.06).cgColor,
+        NSColor(calibratedWhite: 1.0, alpha: 0.00).cgColor
+    ] as CFArray
+    let sheenGrad = CGGradient(colorsSpace: colorSpace, colors: sheenColors, locations: [0.0, 0.45, 1.0])!
+    cg.drawLinearGradient(
+        sheenGrad,
+        start: CGPoint(x: cardRect.midX, y: cardRect.maxY),
+        end: CGPoint(x: cardRect.midX, y: cardRect.midY - cardSide * 0.02),
+        options: []
+    )
+
+    // 3. Razor-Sharp 3D Woven Pure-White / Ice-Silver Möbius Centerpiece (0.000 pole seam architecture!)
     let cx = s * 0.5
     let cy = s * 0.5
-    let scaleX = s * 0.285
-    let scaleY = s * 0.255
-    let ribbonBaseWidth = s * 0.088
-    let totalSteps = 360
+    let glyphBox = cardSide * 0.76
+    let rx = glyphBox * 0.39
+    let ry = glyphBox * 0.40
+    let strokeW = max(2.2, glyphBox * 0.148)
 
-    // Helper for parametric twisted Möbius-Lemniscate curve rotated slightly (-14 deg) for sculptural elegance
-    let tilt = -14.0 * Double.pi / 180.0
-    func pointAt(_ t: Double) -> (pt: CGPoint, depth: Double, twistWidth: CGFloat) {
-        let denom = 1.0 + 0.72 * pow(sin(t), 2)
-        let rawX = Double(scaleX) * cos(t) / denom
-        let rawY = Double(scaleY) * 1.48 * (sin(t) * cos(t)) / denom
-        let rx = rawX * cos(tilt) - rawY * sin(tilt)
-        let ry = rawX * sin(tilt) + rawY * cos(tilt)
-        // Depth z oscillates across the central crossing so one strand cleanly passes OVER the other
-        let z = sin(t)
-        // Möbius half-twist modulates apparent ribbon thickness smoothly
-        let widthFactor = CGFloat(0.66 + 0.34 * abs(cos(t * 0.5 + 0.4)))
-        return (CGPoint(x: cx + CGFloat(rx), y: cy + CGFloat(ry)), z, ribbonBaseWidth * widthFactor)
+    // CoreGraphics has +Y pointing UP, so negate Y relative to SwiftUI to keep exact same orientation
+    func mobiusPoint(_ t: Double) -> CGPoint {
+        let st = sin(t)
+        let ct = cos(t)
+        let denom = 1.0 + 0.72 * st * st
+        let x = cx + rx * CGFloat(ct / denom)
+        let y = cy - ry * CGFloat((1.65 * st * ct) / denom)
+        return CGPoint(x: x, y: y)
     }
 
-    // Sort segments back-to-front by z-depth so crossing looks genuinely 3D woven
-    struct Segment {
-        let p0: CGPoint
-        let p1: CGPoint
-        let z: Double
-        let t: Double
-        let width: CGFloat
+    func makeArc(from startT: Double, to endT: Double, steps: Int, closed: Bool = false) -> CGPath {
+        let p = CGMutablePath()
+        for i in 0...steps {
+            let t = startT + (endT - startT) * Double(i) / Double(steps)
+            let pt = mobiusPoint(t)
+            if i == 0 {
+                p.move(to: pt)
+            } else {
+                p.addLine(to: pt)
+            }
+        }
+        if closed { p.closeSubpath() }
+        return p
     }
 
-    var segments: [Segment] = []
-    for i in 0..<totalSteps {
-        let t0 = Double(i) / Double(totalSteps) * Double.pi * 2.0
-        let t1 = Double(i + 1) / Double(totalSteps) * Double.pi * 2.0
-        let a = pointAt(t0)
-        let b = pointAt(t1)
-        segments.append(Segment(p0: a.pt, p1: b.pt, z: (a.depth + b.depth) * 0.5, t: t0, width: (a.twistWidth + b.twistWidth) * 0.5))
-    }
+    let fullLoop = makeArc(from: 0, to: Double.pi * 2.0, steps: 200, closed: true)
+    let backCrossArm = makeArc(from: Double.pi * 1.5 - 0.85, to: Double.pi * 1.5 + 0.85, steps: 64)
+    let frontCrossArm = makeArc(from: Double.pi * 0.5 - 0.74, to: Double.pi * 0.5 + 0.74, steps: 60)
+    let crossingShadowBar = makeArc(from: Double.pi * 0.5 - 0.34, to: Double.pi * 0.5 + 0.34, steps: 32)
 
-    // Subtle soft shadow under the entire Möbius sculpture
+    // Unified top-left-lit pearl-white gradient shared IDENTICALLY by fullLoop & frontCrossArm
+    let topY = cy + ry * 0.65 + strokeW * 0.5
+    let botY = cy - ry * 0.65 - strokeW * 0.5
+    let unifiedRibbonColors = [
+        NSColor(calibratedWhite: 1.00, alpha: 1.0).cgColor,
+        NSColor(calibratedRed: 0.965, green: 0.980, blue: 1.00, alpha: 1.0).cgColor,
+        NSColor(calibratedRed: 0.855, green: 0.900, blue: 1.00, alpha: 1.0).cgColor
+    ] as CFArray
+    let unifiedRibbonGrad = CGGradient(colorsSpace: colorSpace, colors: unifiedRibbonColors, locations: [0.0, 0.52, 1.0])!
+    let gradStart = CGPoint(x: cx - rx * 0.25, y: topY)
+    let gradEnd = CGPoint(x: cx + rx * 0.25, y: botY)
+
+    // Soft tight shadow cast by the entire Möbius sculpture onto the sapphire bed
     cg.saveGState()
     cg.setShadow(
-        offset: CGSize(width: 0, height: -s * 0.018),
-        blur: s * 0.028,
-        color: NSColor(calibratedRed: 0.14, green: 0.22, blue: 0.58, alpha: 0.24).cgColor
+        offset: CGSize(width: 0, height: -cardSide * 0.026),
+        blur: cardSide * 0.036,
+        color: NSColor(calibratedRed: 0.04, green: 0.03, blue: 0.24, alpha: 0.46).cgColor
     )
-    let shadowPath = CGMutablePath()
-    for (idx, seg) in segments.enumerated() {
-        if idx == 0 { shadowPath.move(to: seg.p0) }
-        shadowPath.addLine(to: seg.p1)
-    }
-    shadowPath.closeSubpath()
-    cg.addPath(shadowPath)
-    cg.setStrokeColor(NSColor(calibratedRed: 0.20, green: 0.38, blue: 0.95, alpha: 0.25).cgColor)
-    cg.setLineWidth(ribbonBaseWidth * 0.85)
-    cg.setLineCap(.round)
+    cg.addPath(fullLoop)
+    cg.setStrokeColor(NSColor(calibratedRed: 0.92, green: 0.95, blue: 1.00, alpha: 1.0).cgColor)
+    cg.setLineWidth(strokeW * 0.94)
+    cg.setLineJoin(.round)
     cg.strokePath()
     cg.restoreGState()
 
-    // Draw sorted 3D Möbius ribbon segments (underpass darker indigo, overpass luminous cobalt-violet)
-    let sortedSegments = segments.sorted { $0.z < $1.z }
-    for seg in sortedSegments {
-        let phase = (sin(seg.t - 0.6) + 1.0) * 0.5
-        let depthLift = (seg.z + 1.0) * 0.5 // 0 = back strand, 1 = front strand
-
-        // Rich gradient from Electric Cobalt (#1864FF) -> Royal Violet (#5A46E8) -> Sky Cyan (#2294FF)
-        let r = 0.09 + 0.27 * phase + 0.05 * depthLift
-        let g = 0.36 - 0.10 * phase + 0.18 * depthLift
-        let b = 0.94 + 0.05 * depthLift
-
-        // Slight dark ambient occlusion right under the crossing on the back strand
-        let shade = 0.78 + 0.22 * depthLift
-
-        cg.setStrokeColor(NSColor(calibratedRed: r * shade, green: g * shade, blue: min(1.0, b * shade), alpha: 1.0).cgColor)
-        cg.setLineWidth(seg.width)
-        cg.setLineCap(.round)
-        cg.move(to: seg.p0)
-        cg.addLine(to: seg.p1)
-        cg.strokePath()
-    }
-
-    // Specular silk rim highlight on the upper-front overpass curve
-    for seg in sortedSegments where seg.z > 0.25 {
-        let alpha = CGFloat((seg.z - 0.25) / 0.75) * 0.42
-        cg.setStrokeColor(NSColor(calibratedWhite: 1.0, alpha: alpha).cgColor)
-        cg.setLineWidth(seg.width * 0.20)
-        cg.setLineCap(.round)
-        cg.move(to: CGPoint(x: seg.p0.x, y: seg.p0.y + seg.width * 0.22))
-        cg.addLine(to: CGPoint(x: seg.p1.x, y: seg.p1.y + seg.width * 0.22))
-        cg.strokePath()
-    }
-
+    // 3a. Pass 1: Continuous unbroken Möbius base (ZERO seams at 9 & 3 o'clock!)
+    let fullOutline = fullLoop.copy(strokingWithWidth: strokeW, lineCap: .round, lineJoin: .round, miterLimit: 4)
+    cg.saveGState()
+    cg.addPath(fullOutline)
+    cg.clip()
+    cg.drawLinearGradient(unifiedRibbonGrad, start: gradStart, end: gradEnd, options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
     cg.restoreGState()
 
-    // Crisp hairline border on squircle
-    NSColor(calibratedWhite: 0.0, alpha: 0.07).setStroke()
-    squircle.lineWidth = max(1.0, s * 0.004)
-    squircle.stroke()
+    // 3b. Pass 2: Smooth localized 3D underpass shading + cast shadow strictly clipped to backCrossArm
+    // Both fade to 0.000 alpha long before the arm endpoints -> ZERO butt-cap crease!
+    let backOutline = backCrossArm.copy(strokingWithWidth: strokeW, lineCap: .butt, lineJoin: .round, miterLimit: 4)
+    cg.saveGState()
+    cg.addPath(backOutline)
+    cg.clip()
+
+    let recessColors = [
+        NSColor(calibratedRed: 0.22, green: 0.30, blue: 0.74, alpha: 0.46).cgColor,
+        NSColor(calibratedRed: 0.34, green: 0.42, blue: 0.84, alpha: 0.16).cgColor,
+        NSColor(calibratedRed: 0.34, green: 0.42, blue: 0.84, alpha: 0.00).cgColor
+    ] as CFArray
+    let recessGrad = CGGradient(colorsSpace: colorSpace, colors: recessColors, locations: [0.0, 0.50, 1.0])!
+    cg.drawRadialGradient(
+        recessGrad,
+        startCenter: CGPoint(x: cx, y: cy),
+        startRadius: 0,
+        endCenter: CGPoint(x: cx, y: cy),
+        endRadius: strokeW * 1.60,
+        options: []
+    )
+
+    cg.saveGState()
+    cg.setShadow(
+        offset: .zero,
+        blur: max(1.0, strokeW * 0.30),
+        color: NSColor(calibratedRed: 0.05, green: 0.04, blue: 0.34, alpha: 0.74).cgColor
+    )
+    cg.addPath(crossingShadowBar)
+    cg.setStrokeColor(NSColor(calibratedRed: 0.07, green: 0.05, blue: 0.40, alpha: 0.70).cgColor)
+    cg.setLineWidth(strokeW * 1.44)
+    cg.setLineCap(.round)
+    cg.strokePath()
+    cg.restoreGState()
+    cg.restoreGState()
+
+    // 3c. Pass 3: Redraw front overpass arm with the EXACT same unified gradient (zero endpoint seam!)
+    let frontOutline = frontCrossArm.copy(strokingWithWidth: strokeW, lineCap: .butt, lineJoin: .round, miterLimit: 4)
+    cg.saveGState()
+    cg.addPath(frontOutline)
+    cg.clip()
+    cg.drawLinearGradient(unifiedRibbonGrad, start: gradStart, end: gradEnd, options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+
+    // 3d. Whisper-clean luminous crown highlight right on the central front overpass
+    let crownColors = [
+        NSColor(calibratedWhite: 1.0, alpha: 0.55).cgColor,
+        NSColor(calibratedWhite: 1.0, alpha: 0.00).cgColor
+    ] as CFArray
+    let crownGrad = CGGradient(colorsSpace: colorSpace, colors: crownColors, locations: [0.0, 1.0])!
+    let crownCenter = CGPoint(x: cx - strokeW * 0.12, y: cy + strokeW * 0.18)
+    cg.drawRadialGradient(
+        crownGrad,
+        startCenter: crownCenter,
+        startRadius: 0,
+        endCenter: crownCenter,
+        endRadius: strokeW * 1.32,
+        options: []
+    )
+    cg.restoreGState()
+
+    // 4. Precision-cut inner bevel rim
+    let bevelWidth = max(1.0, cardSide * 0.022)
+    let insetRect = cardRect.insetBy(dx: bevelWidth * 0.5, dy: bevelWidth * 0.5)
+    let bevelPath = CGPath(roundedRect: insetRect, cornerWidth: max(2, corner - bevelWidth * 0.5), cornerHeight: max(2, corner - bevelWidth * 0.5), transform: nil)
+    let bevelStroke = bevelPath.copy(strokingWithWidth: bevelWidth, lineCap: .round, lineJoin: .round, miterLimit: 4)
+    cg.saveGState()
+    cg.addPath(bevelStroke)
+    cg.clip()
+    let bevelColors = [
+        NSColor(calibratedWhite: 1.0, alpha: 0.66).cgColor,
+        NSColor(calibratedRed: 0.66, green: 0.74, blue: 1.00, alpha: 0.24).cgColor,
+        NSColor(calibratedRed: 0.07, green: 0.05, blue: 0.34, alpha: 0.48).cgColor
+    ] as CFArray
+    let bevelGrad = CGGradient(colorsSpace: colorSpace, colors: bevelColors, locations: [0.0, 0.48, 1.0])!
+    cg.drawLinearGradient(
+        bevelGrad,
+        start: CGPoint(x: cardRect.minX, y: cardRect.maxY),
+        end: CGPoint(x: cardRect.maxX, y: cardRect.minY),
+        options: []
+    )
+    cg.restoreGState()
+
+    cg.restoreGState() // end squircle clip
+
+    // Crisp outer dark-indigo hairline anchor
+    cg.addPath(squirclePath)
+    cg.setStrokeColor(NSColor(calibratedRed: 0.14, green: 0.11, blue: 0.52, alpha: 0.24).cgColor)
+    cg.setLineWidth(max(1.0, s * 0.004))
+    cg.strokePath()
 
     NSGraphicsContext.restoreGraphicsState()
 
@@ -208,4 +293,4 @@ let specs: [(name: String, px: Int)] = [
 for spec in specs {
     try renderMobiusIcon(pixelSize: spec.px, to: iconsetDir.appendingPathComponent(spec.name))
 }
-print("Generated Möbius iconset at \(iconsetDir.path)")
+print("Generated TypeZero 2.0 Sapphire-Indigo 3D Möbius iconset at \(iconsetDir.path)")

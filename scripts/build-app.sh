@@ -5,8 +5,9 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 APP_NAME="TypeZero"
-VERSION="0.5.8"
-BUILD_DIR="$ROOT_DIR/build"
+VERSION="0.6.0"
+# Use .noindex suffix so macOS Spotlight / Apps Launcher never indexes local build artifacts as duplicate apps
+BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build.noindex}"
 APP_BUNDLE="$BUILD_DIR/${APP_NAME}.app"
 CONTENTS_DIR="$APP_BUNDLE/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
@@ -26,6 +27,7 @@ swift build -c release
 BIN_PATH="$(swift build -c release --show-bin-path)/${APP_NAME}"
 
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
+touch "$BUILD_DIR/.metadata_never_index"
 cp "$BIN_PATH" "$MACOS_DIR/${APP_NAME}"
 chmod +x "$MACOS_DIR/${APP_NAME}"
 
@@ -33,6 +35,12 @@ chmod +x "$MACOS_DIR/${APP_NAME}"
 cp -f "$SHERPA_LIB_DIR/libsherpa-onnx-c-api.dylib" "$FRAMEWORKS_DIR/"
 cp -f "$SHERPA_LIB_DIR/libonnxruntime.dylib" "$FRAMEWORKS_DIR/"
 chmod 755 "$FRAMEWORKS_DIR/libsherpa-onnx-c-api.dylib" "$FRAMEWORKS_DIR/libonnxruntime.dylib"
+
+# Embed TypeZero 2.0 studio UIKitAssets PNG textures inside Contents/Resources/UIKitAssets
+if [ -d "$ROOT_DIR/Resources/UIKitAssets" ]; then
+    mkdir -p "$RESOURCES_DIR/UIKitAssets"
+    cp -f "$ROOT_DIR/Resources/UIKitAssets/"*.png "$RESOURCES_DIR/UIKitAssets/" 2>/dev/null || true
+fi
 
 ICONSET_TMP="$(mktemp -d -t typezero_iconset).iconset"
 mkdir -p "$ICONSET_TMP"
@@ -64,7 +72,7 @@ cat > "$CONTENTS_DIR/Info.plist" <<EOF
     <key>CFBundleShortVersionString</key>
     <string>${VERSION}</string>
     <key>CFBundleVersion</key>
-    <string>22</string>
+    <string>23</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSUIElement</key>
