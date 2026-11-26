@@ -64,6 +64,32 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
         let serverSnap = seedASRClient.currentServerTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         return serverSnap.isEmpty ? latestTranscript.trimmingCharacters(in: .whitespacesAndNewlines) : serverSnap
     }
+
+    /// Latest live streaming transcript across Seed-ASR or local SenseVoice (empty for batch OpenAI Whisper).
+    public var currentLiveStreamingDraft: String {
+        sampleLock.lock()
+        let usingVolc = activeSessionUsesCloudSeedASR
+        let usingOpenAI = activeSessionUsesOpenAIASR
+        sampleLock.unlock()
+        if usingOpenAI { return "" }
+        if usingVolc {
+            let serverSnap = seedASRClient.currentServerTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !serverSnap.isEmpty { return serverSnap }
+        }
+        return latestTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Active ASR backend label captured before `finishStreaming()` resets session flags.
+    public var activeASRSourceLabel: String {
+        sampleLock.lock()
+        let usingVolc = activeSessionUsesCloudSeedASR
+        let usingOpenAI = activeSessionUsesOpenAIASR
+        sampleLock.unlock()
+        if usingVolc { return "volc" }
+        if usingOpenAI { return "openai" }
+        if isUsingSenseVoice { return "sensevoice" }
+        return "apple"
+    }
     public var asrProvider: ASRProviderOption = .volcSeedASR
     public var enableVolcSeedASR: Bool {
         get { asrProvider == .volcSeedASR }

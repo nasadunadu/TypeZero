@@ -398,6 +398,7 @@ public final class AppState: ObservableObject {
         }
         asrEngine.onCloudFailoverNotice = { [weak self] reason in
             guard let self else { return }
+            ContextInjector.appendInjectionTrace("asrFailover reason=\(reason)")
             self.statusBanner = "✈️ 离线满血热备已接管：\(reason)"
             if self.isUsingDoubaoVoucher {
                 Task { [weak self] in
@@ -1639,29 +1640,45 @@ public final class AppState: ObservableObject {
 
         typealias SpecPolishOutcome = (text: String, latencyMs: Int, totalMs: Int, usedFastPath: Bool)
         var specLaunchedDraft: String = ""
+        var specSkipReason: String = "none"
         var specTask: Task<SpecPolishOutcome, Never>? = nil
 
         let launchSpeculativeIfEligible: (String) -> Void = { [weak self] candidateDraft in
             guard let self else { return }
+            if self.asrEngine.activeSessionUsesOpenAIASR {
+                specSkipReason = "skip-openai"
+                return
+            }
             let clean = candidateDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !clean.isEmpty,
-                  self.asrEngine.activeSessionUsesCloudSeedASR,
-                  frozenConfig.formattingStyle != .verbatimLocal,
-                  (!frozenKey.isEmpty || PolishEngine.isKeylessLocalEndpoint(frozenConfig.baseURL)) else {
+            guard !clean.isEmpty else {
+                specSkipReason = "skip-empty"
+                return
+            }
+            guard frozenConfig.formattingStyle != .verbatimLocal else {
+                specSkipReason = "skip-verbatim"
+                return
+            }
+            guard !frozenKey.isEmpty || PolishEngine.isKeylessLocalEndpoint(frozenConfig.baseURL) else {
+                specSkipReason = "skip-nokey"
                 return
             }
             let eligibleForAtomicSpec = clean.count > LiveInputSession.maxDraftCharsForLiveSSE
                 || snapshotContext.prefersAtomicPolishReplacement
                 || !self.llmConfig.enableLiveInlineTyping
                 || snapshotMode == .rewriteSelection
-            guard eligibleForAtomicSpec else { return }
+            guard eligibleForAtomicSpec else {
+                specSkipReason = "skip-short-sse"
+                return
+            }
 
             let specRecalled = self.lexiconStore.recallRelevantTerms(
                 for: clean,
                 activeWindowTitle: snapshotContext.windowTitle,
                 limit: 26
             )
+            let specIsCloudASR = self.asrEngine.activeSessionUsesAnyCloudASR
             specLaunchedDraft = clean
+            specSkipReason = "launched"
             let engine = self.polishEngine
             specTask = Task {
                 let t0 = DispatchTime.now()
@@ -1674,7 +1691,7 @@ public final class AppState: ObservableObject {
                     config: frozenConfig,
                     apiKey: frozenKey,
                     isHighAccuracyLocalASR: localSenseVoiceFlag,
-                    isPunctuatedCloudASR: true,
+                    isPunctuatedCloudASR: specIsCloudASR,
                     onStreamChunk: nil
                 )
                 let tot = Int((DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1_000_000)
@@ -1684,14 +1701,14 @@ public final class AppState: ObservableObject {
 
         // Stage 1 (`t = 0ms`): Launch speculative full-prompt DeepSeek pass immediately on stop trigger!
         let stopTriggeredAt = DispatchTime.now()
-        launchSpeculativeIfEligible(asrEngine.currentCloudStreamingDraft)
+        launchSpeculativeIfEligible(asrEngine.currentLiveStreamingDraft)
 
         // Tail-capture grace window: keep microphone & ASR stream open for 0.1s after stop trigger
         try? await Task.sleep(nanoseconds: 100_000_000)
 
         // Stage 2 (`t = 100ms`): If a trailing syllable arrived during the 100ms grace window, refresh speculative pass
-        // right before `finishStreaming()` waits ~400-700ms for Seed-ASR `enable_nonstream: true` two-pass!
-        let postGraceDraft = asrEngine.currentCloudStreamingDraft
+        // right before `finishStreaming()` waits for Seed-ASR two-pass or SenseVoice tail decode!
+        let postGraceDraft = asrEngine.currentLiveStreamingDraft
         if !postGraceDraft.isEmpty && postGraceDraft != specLaunchedDraft {
             specTask?.cancel()
             specTask = nil
@@ -1701,6 +1718,7 @@ public final class AppState: ObservableObject {
         isSessionActive = false
         // Immediately restore system audio output as soon as mic tail capture finishes (before LLM polishing)!
         audioDucker.restoreIfNeeded()
+        let asrSourceLabel = asrEngine.activeASRSourceLabel
         let sessionUsedPunctuatedCloudASR = asrEngine.activeSessionUsesAnyCloudASR
         if asrEngine.activeSessionUsesOpenAIASR {
             phase = .polishing(rawText: "云端语音转写中…")
@@ -1758,7 +1776,7 @@ public final class AppState: ObservableObject {
         let polishMs: Int
         let llmTotalMs: Int
         let usedFastPath: Bool
-        var specStatus = "none"
+        var specStatus = specSkipReason
 
         if let activeSpec = specTask {
             if !canStreamSSELive && PolishEngine.canReuseSpeculativeResult(speculativeDraft: specLaunchedDraft, finalASRTranscript: rawText) {
@@ -1821,7 +1839,7 @@ public final class AppState: ObservableObject {
                 polishMs = freshRes.latencyMs
                 llmTotalMs = polishEngine.lastPolishTotalMs
                 usedFastPath = freshRes.usedFastPath
-                specStatus = "miss-twopass-fixed"
+                specStatus = canStreamSSELive ? "miss-sse" : "miss-twopass-fixed"
             }
         } else {
             let res = await polishEngine.polish(
@@ -1856,7 +1874,7 @@ public final class AppState: ObservableObject {
         }
 
         let e2eMs = Int((DispatchTime.now().uptimeNanoseconds - stopTriggeredAt.uptimeNanoseconds) / 1_000_000)
-        ContextInjector.appendInjectionTrace("timing provider=\(frozenConfig.selectedProvider.rawValue) model=\(frozenConfig.modelName) spec=\(specStatus) chars=\(rawText.count) asrMs=\(asrFinishMs) ttftMs=\(polishMs) llmTotalMs=\(llmTotalMs) e2ePrePasteMs=\(e2eMs) fastPath=\(usedFastPath)")
+        ContextInjector.appendInjectionTrace("timing provider=\(frozenConfig.selectedProvider.rawValue) model=\(frozenConfig.modelName) asr=\(asrSourceLabel) spec=\(specStatus) chars=\(rawText.count) asrMs=\(asrFinishMs) ttftMs=\(polishMs) llmTotalMs=\(llmTotalMs) e2ePrePasteMs=\(e2eMs) fastPath=\(usedFastPath)")
 
         guard !finalText.isEmpty else {
             liveInputSession = nil
