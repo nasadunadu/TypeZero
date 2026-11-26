@@ -661,6 +661,16 @@ public enum SelfTestSuite {
             "UI 2.0 appearance defaults to system and floating pill defaults to obsidian with clean legacy JSON migration"
         )
 
+        // 55. Accessibility text sanitizer strips NUL padding & C0 control bytes (e.g. iTerm2 AXValue) while keeping newlines/tabs/CJK
+        let iTermRaw = "──────\n  ? for shortcuts" + String(repeating: "\0", count: 80) + "auto · Gemini\u{0007}\u{001B}\u{007F}\t中文"
+        let iTermClean = ContextInjector.sanitizeAccessibilityText(iTermRaw)
+        expect(
+            !iTermClean.unicodeScalars.contains(where: { $0.value == 0 || $0.value == 0x07 || $0.value == 0x1B || $0.value == 0x7F })
+                && iTermClean.contains("? for shortcuts auto · Gemini\t中文")
+                && iTermClean.contains("\n"),
+            "Sanitizes iTerm2 NUL-padded AXValue and C0 control bytes without gluing tokens or stripping newlines/tabs"
+        )
+
         print("==> Summary: \(passed) passed, \(failed) failed.")
         return failed == 0 ? 0 : 1
     }
