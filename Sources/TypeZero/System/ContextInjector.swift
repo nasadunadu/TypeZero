@@ -1152,6 +1152,36 @@ public enum ContextInjector {
         return nil
     }
 
+    /// Strips NUL (`\0`) and non-whitespace ASCII control bytes from macOS Accessibility strings.
+    /// Terminal emulators such as iTerm2 pad empty screen cells in `AXValue` with literal `\0` bytes,
+    /// which can prematurely truncate C-string-backed tokenizers on LLM backends (e.g. Groq).
+    public static func sanitizeAccessibilityText(_ text: String) -> String {
+        guard text.unicodeScalars.contains(where: { s in
+            let v = s.value
+            return (v < 0x20 && v != 0x09 && v != 0x0A && v != 0x0D) || v == 0x7F
+        }) else {
+            return text
+        }
+        var out = String.UnicodeScalarView()
+        out.reserveCapacity(text.unicodeScalars.count)
+        var lastWasNull = false
+        for scalar in text.unicodeScalars {
+            let v = scalar.value
+            if v == 0x00 {
+                if !lastWasNull {
+                    out.append(UnicodeScalar(0x20))
+                    lastWasNull = true
+                }
+            } else if (v < 0x20 && v != 0x09 && v != 0x0A && v != 0x0D) || v == 0x7F {
+                continue
+            } else {
+                out.append(scalar)
+                lastWasNull = false
+            }
+        }
+        return String(out)
+    }
+
     /// Captures frontmost app name, window title, and any highlighted text (for Selected-Text Rewrite mode).
     public static func captureCurrentContext() -> ActiveScreenContext {
         let frontApp = NSWorkspace.shared.frontmostApplication
@@ -1174,7 +1204,7 @@ public enum ContextInjector {
             var titleRef: CFTypeRef?
             if AXUIElementCopyAttributeValue(win, kAXTitleAttribute as CFString, &titleRef) == .success,
                let titleStr = titleRef as? String {
-                windowTitle = String(titleStr.prefix(100))
+                windowTitle = String(sanitizeAccessibilityText(titleStr).prefix(100))
             }
         }
 
@@ -1191,14 +1221,16 @@ public enum ContextInjector {
             var selectedRef: CFTypeRef?
             if AXUIElementCopyAttributeValue(elem, kAXSelectedTextAttribute as CFString, &selectedRef) == .success,
                let selStr = selectedRef as? String {
-                selectedText = String(selStr.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1200))
+                selectedText = String(sanitizeAccessibilityText(selStr).trimmingCharacters(in: .whitespacesAndNewlines).prefix(1200))
             }
             var valRef: CFTypeRef?
             if selectedText.isEmpty,
                AXUIElementCopyAttributeValue(elem, kAXValueAttribute as CFString, &valRef) == .success,
                let fullVal = valRef as? String,
                !fullVal.isEmpty {
-                precedingText = String(fullVal.suffix(140))
+                let sanitizedTail = sanitizeAccessibilityText(String(fullVal.suffix(600)))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                precedingText = String(sanitizedTail.suffix(140))
             }
             var roleRef: CFTypeRef?
             if AXUIElementCopyAttributeValue(elem, kAXRoleAttribute as CFString, &roleRef) == .success,

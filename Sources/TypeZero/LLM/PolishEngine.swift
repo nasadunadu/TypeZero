@@ -275,14 +275,20 @@ public final class PolishEngine {
         let systemPrompt: String
         let userContent: String
 
-        let precedingSnippet = screenContext.precedingText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let precedingSnippet = ContextInjector.sanitizeAccessibilityText(screenContext.precedingText)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let precedingTag = precedingSnippet.isEmpty ? "无" : String(precedingSnippet.suffix(120))
         let recentJoined = recentOutputs
-            .map { $0.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines) }
+            .map {
+                ContextInjector.sanitizeAccessibilityText($0)
+                    .replacingOccurrences(of: "\n", with: " ")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
             .filter { !$0.isEmpty }
             .suffix(2)
             .joined(separator: " ｜ ")
         let recentTag = recentJoined.isEmpty ? "无" : String(recentJoined.suffix(110))
+        let safeSelectedText = ContextInjector.sanitizeAccessibilityText(screenContext.selectedText)
 
         switch mode {
         case .dictate:
@@ -293,7 +299,7 @@ public final class PolishEngine {
 
         case .rewriteSelection:
             systemPrompt = "按 <voice_instruction> 修改 <selected_text>（若指令为「改成XX/这是XX」则直接替换为对应目标词或修改对应词）。除非 <voice_instruction> 明确要求翻译，否则严格保持 <selected_text> 原始语种。参考词库，保留自然人味禁公文腔，直接输出修改后正文。"
-            userContent = "<recent_context>\(recentTag)</recent_context>\n<lexicon>\(glossaryBlock)</lexicon>\n<selected_text>\(screenContext.selectedText)</selected_text>\n<voice_instruction>\(locallyFixed)</voice_instruction>"
+            userContent = "<recent_context>\(recentTag)</recent_context>\n<lexicon>\(glossaryBlock)</lexicon>\n<selected_text>\(safeSelectedText)</selected_text>\n<voice_instruction>\(locallyFixed)</voice_instruction>"
         }
 
         do {
