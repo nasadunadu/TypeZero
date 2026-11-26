@@ -260,24 +260,59 @@ public final class PolishEngine {
         return true
     }
 
+    private static func isASCIIWordScalar(_ s: UnicodeScalar) -> Bool {
+        (s.value >= 0x30 && s.value <= 0x39)
+            || (s.value >= 0x41 && s.value <= 0x5A)
+            || (s.value >= 0x61 && s.value <= 0x7A)
+            || s.value == 0x5F
+    }
+
+    /// Canonicalizes ONLY differences that Rule 6 already ignores (CJK neutral pause punctuation `，。、` and stray spaces around CJK),
+    /// while strictly preserving every CJK/Latin/digit character, English word boundary (`rock boat` != `rockboat`), decimal point (`3.5` != `35`), and `?`/`!` tone.
+    private static func speculativeEquivalenceKey(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+
+        var core = trimmed
+        while let last = core.last, last == "." || last == "," {
+            core.removeLast()
+        }
+
+        let neutralCJKPause: Set<Character> = ["，", "。", "、"]
+        var out = String()
+        out.reserveCapacity(core.count)
+
+        var pendingSpace = false
+        var lastWasASCIIWord = false
+
+        for ch in core {
+            if neutralCJKPause.contains(ch) {
+                continue
+            }
+            if ch == " " || ch == "\t" {
+                pendingSpace = true
+                continue
+            }
+            let curIsASCIIWord = ch.unicodeScalars.first.map(isASCIIWordScalar) ?? false
+            if pendingSpace {
+                if lastWasASCIIWord && curIsASCIIWord {
+                    out.append(" ")
+                }
+                pendingSpace = false
+            }
+            out.append(ch)
+            lastWasASCIIWord = curIsASCIIWord
+        }
+        return out
+    }
+
     /// Strict 0%-compromise equivalence gate for Speculative Parallel Execution:
     /// Allows reusing the `t=0ms` speculative DeepSeek pass ONLY when Seed-ASR's `enable_nonstream: true` acoustic two-pass
-    /// produced the exact same characters, words, digits, internal punctuation, and `?`/`!` tone (ignoring at most a trailing neutral `。`/`，` addition).
+    /// produced the exact same words, characters, digits, English boundaries, and `?`/`!` tone (ignoring only CJK neutral pause punctuation `，。、` & stray spaces around CJK).
     public static func canReuseSpeculativeResult(speculativeDraft: String, finalASRTranscript: String) -> Bool {
-        let a = speculativeDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let b = finalASRTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !a.isEmpty, !b.isEmpty else { return false }
-        if a == b { return true }
-        let neutralTrailing: Set<Character> = ["。", "，", ".", ",", "、"]
-        var aCore = a
-        while let last = aCore.last, neutralTrailing.contains(last) {
-            aCore.removeLast()
-        }
-        var bCore = b
-        while let last = bCore.last, neutralTrailing.contains(last) {
-            bCore.removeLast()
-        }
-        return !aCore.isEmpty && aCore == bCore
+        let aKey = speculativeEquivalenceKey(speculativeDraft)
+        let bKey = speculativeEquivalenceKey(finalASRTranscript)
+        return !aKey.isEmpty && aKey == bKey
     }
 
     private static let commonShortEnglishWords: Set<String> = [

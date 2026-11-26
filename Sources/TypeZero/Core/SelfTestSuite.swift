@@ -487,15 +487,27 @@ public enum SelfTestSuite {
                     speculativeDraft: "试一下半秒出字的体感",
                     finalASRTranscript: "试一下半秒出字的体感。"
                 )
+                && PolishEngine.canReuseSpeculativeResult(
+                    speculativeDraft: "以上就是我用语音进行输入的，明天开两个会",
+                    finalASRTranscript: "以上就 是我用语音进行输入的。明天开两个会。"
+                )
                 && !PolishEngine.canReuseSpeculativeResult(
                     speculativeDraft: "试一下半秒出字的体感",
                     finalASRTranscript: "试一下半秒出字的体感？"
                 )
                 && !PolishEngine.canReuseSpeculativeResult(
+                    speculativeDraft: "版本 3.5 的效果",
+                    finalASRTranscript: "版本 35 的效果"
+                )
+                && !PolishEngine.canReuseSpeculativeResult(
+                    speculativeDraft: "前面我说了 rockboat",
+                    finalASRTranscript: "前面我说了 rock boat"
+                )
+                && !PolishEngine.canReuseSpeculativeResult(
                     speculativeDraft: "前面我说了 Grab boat",
                     finalASRTranscript: "前面我说了 rock boat。"
                 ),
-            "Lossless fixes: speculative equivalence gate enforces 100% word/tone match, fuzzy AX prevents duplicate paste, and KV cache prewarms"
+            "Lossless fixes: speculative equivalence gate enforces 100% word/tone/boundary match while absorbing CJK pause/space jitter"
         )
 
         // 14. Steady Window-Bottom Pill Anchor (Never chases mouse cursor, never flips to window top)

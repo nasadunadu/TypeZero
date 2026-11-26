@@ -1863,7 +1863,7 @@ public final class AppState: ObservableObject {
         }
 
         let e2eMs = Int((DispatchTime.now().uptimeNanoseconds - stopTriggeredAt.uptimeNanoseconds) / 1_000_000)
-        ContextInjector.appendInjectionTrace("timing provider=\(frozenConfig.selectedProvider.rawValue) model=\(frozenConfig.modelName) asr=\(asrSourceLabel) spec=\(specStatus) chars=\(rawText.count) asrMs=\(asrFinishMs) ttftMs=\(polishMs) llmTotalMs=\(llmTotalMs) e2ePrePasteMs=\(e2eMs) fastPath=\(usedFastPath)")
+        ContextInjector.appendInjectionTrace("timing provider=\(frozenConfig.selectedProvider.rawValue) model=\(frozenConfig.modelName) asr=\(asrSourceLabel) spec=\(specStatus) draft=\(specLaunchedDraft.count) chars=\(rawText.count) asrMs=\(asrFinishMs) ttftMs=\(polishMs) llmTotalMs=\(llmTotalMs) e2ePrePasteMs=\(e2eMs) fastPath=\(usedFastPath)")
 
         guard !finalText.isEmpty else {
             liveInputSession = nil
