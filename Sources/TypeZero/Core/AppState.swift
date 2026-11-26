@@ -1639,48 +1639,37 @@ public final class AppState: ObservableObject {
         let localSenseVoiceFlag = asrEngine.isUsingSenseVoice
 
         typealias SpecPolishOutcome = (text: String, latencyMs: Int, totalMs: Int, usedFastPath: Bool)
-        var specLaunchedDraft: String = ""
-        var specSkipReason: String = "none"
-        var specTask: Task<SpecPolishOutcome, Never>? = nil
 
-        let launchSpeculativeIfEligible: (String) -> Void = { [weak self] candidateDraft in
-            guard let self else { return }
-            if self.asrEngine.activeSessionUsesOpenAIASR {
-                specSkipReason = "skip-openai"
-                return
+        func makeSpeculativeTask(for candidateDraft: String) -> (task: Task<SpecPolishOutcome, Never>?, draft: String, reason: String) {
+            if asrEngine.activeSessionUsesOpenAIASR {
+                return (nil, "", "skip-openai")
             }
             let clean = candidateDraft.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !clean.isEmpty else {
-                specSkipReason = "skip-empty"
-                return
+                return (nil, "", "skip-empty")
             }
             guard frozenConfig.formattingStyle != .verbatimLocal else {
-                specSkipReason = "skip-verbatim"
-                return
+                return (nil, "", "skip-verbatim")
             }
             guard !frozenKey.isEmpty || PolishEngine.isKeylessLocalEndpoint(frozenConfig.baseURL) else {
-                specSkipReason = "skip-nokey"
-                return
+                return (nil, "", "skip-nokey")
             }
             let eligibleForAtomicSpec = clean.count > LiveInputSession.maxDraftCharsForLiveSSE
                 || snapshotContext.prefersAtomicPolishReplacement
-                || !self.llmConfig.enableLiveInlineTyping
+                || !llmConfig.enableLiveInlineTyping
                 || snapshotMode == .rewriteSelection
             guard eligibleForAtomicSpec else {
-                specSkipReason = "skip-short-sse"
-                return
+                return (nil, "", "skip-short-sse")
             }
 
-            let specRecalled = self.lexiconStore.recallRelevantTerms(
+            let specRecalled = lexiconStore.recallRelevantTerms(
                 for: clean,
                 activeWindowTitle: snapshotContext.windowTitle,
                 limit: 26
             )
-            let specIsCloudASR = self.asrEngine.activeSessionUsesAnyCloudASR
-            specLaunchedDraft = clean
-            specSkipReason = "launched"
-            let engine = self.polishEngine
-            specTask = Task {
+            let specIsCloudASR = asrEngine.activeSessionUsesAnyCloudASR
+            let engine = polishEngine
+            let task = Task<SpecPolishOutcome, Never> {
                 let t0 = DispatchTime.now()
                 let (txt, ttft, fast) = await engine.polish(
                     rawTranscript: clean,
@@ -1697,11 +1686,12 @@ public final class AppState: ObservableObject {
                 let tot = Int((DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1_000_000)
                 return (txt, ttft, tot, fast)
             }
+            return (task, clean, "launched")
         }
 
         // Stage 1 (`t = 0ms`): Launch speculative full-prompt DeepSeek pass immediately on stop trigger!
         let stopTriggeredAt = DispatchTime.now()
-        launchSpeculativeIfEligible(asrEngine.currentLiveStreamingDraft)
+        var (specTask, specLaunchedDraft, specSkipReason) = makeSpeculativeTask(for: asrEngine.currentLiveStreamingDraft)
 
         // Tail-capture grace window: keep microphone & ASR stream open for 0.1s after stop trigger
         try? await Task.sleep(nanoseconds: 100_000_000)
@@ -1711,8 +1701,7 @@ public final class AppState: ObservableObject {
         let postGraceDraft = asrEngine.currentLiveStreamingDraft
         if !postGraceDraft.isEmpty && postGraceDraft != specLaunchedDraft {
             specTask?.cancel()
-            specTask = nil
-            launchSpeculativeIfEligible(postGraceDraft)
+            (specTask, specLaunchedDraft, specSkipReason) = makeSpeculativeTask(for: postGraceDraft)
         }
 
         isSessionActive = false
