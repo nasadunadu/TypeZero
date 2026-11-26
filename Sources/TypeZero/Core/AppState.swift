@@ -178,6 +178,7 @@ public final class AppState: ObservableObject {
     private var isTypingInsideOwnApp: Bool = false
     private var permissionPollTimer: Timer? = nil
     private var workspaceActivateObserver: NSObjectProtocol? = nil
+    private var llmKeepAliveTask: Task<Void, Never>? = nil
 
     private let historyURL: URL
     private let configURL: URL
@@ -496,6 +497,8 @@ public final class AppState: ObservableObject {
     public func cancelDictationSession() {
         guard isSessionActive else { return }
         isSessionActive = false
+        llmKeepAliveTask?.cancel()
+        llmKeepAliveTask = nil
         audioDucker.restoreIfNeeded()
         hotkeyMonitor.syncRecordingState(false)
         asrEngine.cancel()
@@ -1547,6 +1550,22 @@ public final class AppState: ObservableObject {
             polishEngine.prewarmConnection(baseURL: currentBaseURL, apiKey: currentKey)
         }
 
+        // Mid-recording HTTP/2 TLS keep-alive pulse every 5.5s so gateway idle timeouts never close the warm socket during 10-30s speeches!
+        llmKeepAliveTask?.cancel()
+        if llmConfig.formattingStyle != .verbatimLocal && (!currentKey.isEmpty || isOfficialCloudTrialActive) {
+            let keepAliveURL = isOfficialCloudTrialActive ? CloudAuthClient.cloudLLMBaseURL : currentBaseURL
+            let keepAliveKey = isOfficialCloudTrialActive ? KeychainHelper.loadCloudJWT() : currentKey
+            llmKeepAliveTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 5_500_000_000)
+                    guard !Task.isCancelled else { break }
+                    let stillRecording = await MainActor.run { self?.isSessionActive == true }
+                    guard stillRecording else { break }
+                    self?.polishEngine.prewarmConnection(baseURL: keepAliveURL, apiKey: keepAliveKey)
+                }
+            }
+        }
+
         // Immediate hotword ranking + dialog_ctx from fast in-memory sources -> instant mic open!
         let immediateHint = ([frontName, shortClipboardHint, ownSandboxSnapshot] + recentSnippets).joined(separator: " ")
         var topTerms = PersonalLexiconStore.rankHotwords(from: entriesSnapshot, contextHint: immediateHint, limit: 64)
@@ -1597,11 +1616,87 @@ public final class AppState: ObservableObject {
             audioDucker.restoreIfNeeded()
         }
         hotkeyMonitor.syncRecordingState(false)
+        llmKeepAliveTask?.cancel()
+        llmKeepAliveTask = nil
+
+        // Prepare effective LLM config & context snapshots upfront so Speculative Parallel Polish can fire at `t = 0ms`!
+        let snapshotContext = activeContext
+        let snapshotMode = activeMode
+        let recentTexts = history.prefix(3).map(\.polishedText).reversed() as [String]
+        var effectiveConfig = llmConfig
+        var key = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isOfficialCloudTrialActive {
+            effectiveConfig.selectedProvider = .deepseek
+            effectiveConfig.baseURL = CloudAuthClient.cloudLLMBaseURL
+            effectiveConfig.modelName = "deepseek-flash"
+            key = KeychainHelper.loadCloudJWT().trimmingCharacters(in: .whitespacesAndNewlines)
+        } else if key.isEmpty {
+            key = KeychainHelper.loadAPIKey(for: effectiveConfig.selectedProvider)
+        }
+        let frozenConfig = effectiveConfig
+        let frozenKey = key
+        let localSenseVoiceFlag = asrEngine.isUsingSenseVoice
+
+        typealias SpecPolishOutcome = (text: String, latencyMs: Int, totalMs: Int, usedFastPath: Bool)
+        var specLaunchedDraft: String = ""
+        var specTask: Task<SpecPolishOutcome, Never>? = nil
+
+        let launchSpeculativeIfEligible: (String) -> Void = { [weak self] candidateDraft in
+            guard let self else { return }
+            let clean = candidateDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty,
+                  self.asrEngine.activeSessionUsesCloudSeedASR,
+                  frozenConfig.formattingStyle != .verbatimLocal,
+                  (!frozenKey.isEmpty || PolishEngine.isKeylessLocalEndpoint(frozenConfig.baseURL)) else {
+                return
+            }
+            let eligibleForAtomicSpec = clean.count > LiveInputSession.maxDraftCharsForLiveSSE
+                || snapshotContext.prefersAtomicPolishReplacement
+                || !self.llmConfig.enableLiveInlineTyping
+                || snapshotMode == .rewriteSelection
+            guard eligibleForAtomicSpec else { return }
+
+            let specRecalled = self.lexiconStore.recallRelevantTerms(
+                for: clean,
+                activeWindowTitle: snapshotContext.windowTitle,
+                limit: 26
+            )
+            specLaunchedDraft = clean
+            let engine = self.polishEngine
+            specTask = Task {
+                let t0 = DispatchTime.now()
+                let (txt, ttft, fast) = await engine.polish(
+                    rawTranscript: clean,
+                    mode: snapshotMode,
+                    screenContext: snapshotContext,
+                    recalledTerms: specRecalled,
+                    recentOutputs: recentTexts,
+                    config: frozenConfig,
+                    apiKey: frozenKey,
+                    isHighAccuracyLocalASR: localSenseVoiceFlag,
+                    isPunctuatedCloudASR: true,
+                    onStreamChunk: nil
+                )
+                let tot = Int((DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1_000_000)
+                return (txt, ttft, tot, fast)
+            }
+        }
+
+        // Stage 1 (`t = 0ms`): Launch speculative full-prompt DeepSeek pass immediately on stop trigger!
+        let stopTriggeredAt = DispatchTime.now()
+        launchSpeculativeIfEligible(asrEngine.currentCloudStreamingDraft)
 
         // Tail-capture grace window: keep microphone & ASR stream open for 0.1s after stop trigger
-        // so trailing syllables finish cleanly while keeping stop-to-paste feeling snappy.
-        let stopTriggeredAt = DispatchTime.now()
         try? await Task.sleep(nanoseconds: 100_000_000)
+
+        // Stage 2 (`t = 100ms`): If a trailing syllable arrived during the 100ms grace window, refresh speculative pass
+        // right before `finishStreaming()` waits ~400-700ms for Seed-ASR `enable_nonstream: true` two-pass!
+        let postGraceDraft = asrEngine.currentCloudStreamingDraft
+        if !postGraceDraft.isEmpty && postGraceDraft != specLaunchedDraft {
+            specTask?.cancel()
+            specTask = nil
+            launchSpeculativeIfEligible(postGraceDraft)
+        }
 
         isSessionActive = false
         // Immediately restore system audio output as soon as mic tail capture finishes (before LLM polishing)!
@@ -1614,6 +1709,7 @@ public final class AppState: ObservableObject {
         let (rawText, duration) = await asrEngine.finishStreaming()
         let asrFinishMs = Int((DispatchTime.now().uptimeNanoseconds - asrFinishStart.uptimeNanoseconds) / 1_000_000)
         guard !rawText.isEmpty else {
+            specTask?.cancel()
             if isTypingInsideOwnApp {
                 sandboxText = sandboxBaseBeforeSession
             } else {
@@ -1644,21 +1740,10 @@ public final class AppState: ObservableObject {
             activeWindowTitle: activeContext.windowTitle,
             limit: 26
         )
-        let recentTexts = history.prefix(3).map(\.polishedText).reversed() as [String]
-        var effectiveConfig = llmConfig
-        var key = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        if isOfficialCloudTrialActive {
-            effectiveConfig.selectedProvider = .deepseek
-            effectiveConfig.baseURL = CloudAuthClient.cloudLLMBaseURL
-            effectiveConfig.modelName = "deepseek-flash"
-            key = KeychainHelper.loadCloudJWT().trimmingCharacters(in: .whitespacesAndNewlines)
-        } else if key.isEmpty {
-            key = KeychainHelper.loadAPIKey(for: effectiveConfig.selectedProvider)
-        }
-        if key.isEmpty
-            && !PolishEngine.isKeylessLocalEndpoint(effectiveConfig.baseURL)
-            && effectiveConfig.formattingStyle != .verbatimLocal {
-            statusBanner = "⚠️ 当前生效的「\(effectiveConfig.selectedProvider.shortName)」尚未填入 API Key，本次仅执行本地词库纠偏"
+        if frozenKey.isEmpty
+            && !PolishEngine.isKeylessLocalEndpoint(frozenConfig.baseURL)
+            && frozenConfig.formattingStyle != .verbatimLocal {
+            statusBanner = "⚠️ 当前生效的「\(frozenConfig.selectedProvider.shortName)」尚未填入 API Key，本次仅执行本地词库纠偏"
         }
 
         phase = .polishing(rawText: tailFixed)
@@ -1669,34 +1754,109 @@ public final class AppState: ObservableObject {
             && (liveInputSession?.prepareForSSEPolishStream() == true)
         var didStreamViaSSE = false
 
-        let (finalText, polishMs, usedFastPath) = await polishEngine.polish(
-            rawTranscript: rawText,
-            mode: activeMode,
-            screenContext: activeContext,
-            recalledTerms: recalled,
-            recentOutputs: recentTexts,
-            config: effectiveConfig,
-            apiKey: key,
-            isHighAccuracyLocalASR: asrEngine.isUsingSenseVoice,
-            isPunctuatedCloudASR: sessionUsedPunctuatedCloudASR,
-            onStreamChunk: { [weak self] chunk, isFirst in
-                guard let self else { return }
-                if self.isTypingInsideOwnApp && self.llmConfig.enableLiveInlineTyping {
-                    if isFirst {
-                        self.sandboxText = self.sandboxBaseBeforeSession + chunk
-                    } else {
-                        self.sandboxText += chunk
-                    }
-                    didStreamViaSSE = true
-                } else if canStreamSSELive {
-                    self.liveInputSession?.consumeSSEChunk(chunk)
-                    didStreamViaSSE = true
+        let finalText: String
+        let polishMs: Int
+        let llmTotalMs: Int
+        let usedFastPath: Bool
+        var specStatus = "none"
+
+        if let activeSpec = specTask {
+            if !canStreamSSELive && PolishEngine.canReuseSpeculativeResult(speculativeDraft: specLaunchedDraft, finalASRTranscript: rawText) {
+                let specRes = await activeSpec.value
+                if !specRes.text.isEmpty {
+                    finalText = specRes.text
+                    polishMs = specRes.latencyMs
+                    llmTotalMs = specRes.totalMs
+                    usedFastPath = specRes.usedFastPath
+                    specStatus = "hit"
+                } else {
+                    let fallbackRes = await polishEngine.polish(
+                        rawTranscript: rawText,
+                        mode: activeMode,
+                        screenContext: activeContext,
+                        recalledTerms: recalled,
+                        recentOutputs: recentTexts,
+                        config: frozenConfig,
+                        apiKey: frozenKey,
+                        isHighAccuracyLocalASR: localSenseVoiceFlag,
+                        isPunctuatedCloudASR: sessionUsedPunctuatedCloudASR,
+                        onStreamChunk: nil
+                    )
+                    finalText = fallbackRes.text
+                    polishMs = fallbackRes.latencyMs
+                    llmTotalMs = polishEngine.lastPolishTotalMs
+                    usedFastPath = fallbackRes.usedFastPath
+                    specStatus = "empty-retry"
                 }
+            } else {
+                // Two-pass ASR corrected one or more characters (e.g. fixed English term or homophone)!
+                // Discard speculative draft immediately and run full polish on the authoritative two-pass transcript!
+                activeSpec.cancel()
+                let freshRes = await polishEngine.polish(
+                    rawTranscript: rawText,
+                    mode: activeMode,
+                    screenContext: activeContext,
+                    recalledTerms: recalled,
+                    recentOutputs: recentTexts,
+                    config: frozenConfig,
+                    apiKey: frozenKey,
+                    isHighAccuracyLocalASR: localSenseVoiceFlag,
+                    isPunctuatedCloudASR: sessionUsedPunctuatedCloudASR,
+                    onStreamChunk: { [weak self] chunk, isFirst in
+                        guard let self else { return }
+                        if self.isTypingInsideOwnApp && self.llmConfig.enableLiveInlineTyping {
+                            if isFirst {
+                                self.sandboxText = self.sandboxBaseBeforeSession + chunk
+                            } else {
+                                self.sandboxText += chunk
+                            }
+                            didStreamViaSSE = true
+                        } else if canStreamSSELive {
+                            self.liveInputSession?.consumeSSEChunk(chunk)
+                            didStreamViaSSE = true
+                        }
+                    }
+                )
+                finalText = freshRes.text
+                polishMs = freshRes.latencyMs
+                llmTotalMs = polishEngine.lastPolishTotalMs
+                usedFastPath = freshRes.usedFastPath
+                specStatus = "miss-twopass-fixed"
             }
-        )
-        let llmTotalMs = polishEngine.lastPolishTotalMs
+        } else {
+            let res = await polishEngine.polish(
+                rawTranscript: rawText,
+                mode: activeMode,
+                screenContext: activeContext,
+                recalledTerms: recalled,
+                recentOutputs: recentTexts,
+                config: frozenConfig,
+                apiKey: frozenKey,
+                isHighAccuracyLocalASR: localSenseVoiceFlag,
+                isPunctuatedCloudASR: sessionUsedPunctuatedCloudASR,
+                onStreamChunk: { [weak self] chunk, isFirst in
+                    guard let self else { return }
+                    if self.isTypingInsideOwnApp && self.llmConfig.enableLiveInlineTyping {
+                        if isFirst {
+                            self.sandboxText = self.sandboxBaseBeforeSession + chunk
+                        } else {
+                            self.sandboxText += chunk
+                        }
+                        didStreamViaSSE = true
+                    } else if canStreamSSELive {
+                        self.liveInputSession?.consumeSSEChunk(chunk)
+                        didStreamViaSSE = true
+                    }
+                }
+            )
+            finalText = res.text
+            polishMs = res.latencyMs
+            llmTotalMs = polishEngine.lastPolishTotalMs
+            usedFastPath = res.usedFastPath
+        }
+
         let e2eMs = Int((DispatchTime.now().uptimeNanoseconds - stopTriggeredAt.uptimeNanoseconds) / 1_000_000)
-        ContextInjector.appendInjectionTrace("timing provider=\(effectiveConfig.selectedProvider.rawValue) model=\(effectiveConfig.modelName) chars=\(rawText.count) asrMs=\(asrFinishMs) ttftMs=\(polishMs) llmTotalMs=\(llmTotalMs) e2ePrePasteMs=\(e2eMs) fastPath=\(usedFastPath)")
+        ContextInjector.appendInjectionTrace("timing provider=\(frozenConfig.selectedProvider.rawValue) model=\(frozenConfig.modelName) spec=\(specStatus) chars=\(rawText.count) asrMs=\(asrFinishMs) ttftMs=\(polishMs) llmTotalMs=\(llmTotalMs) e2ePrePasteMs=\(e2eMs) fastPath=\(usedFastPath)")
 
         guard !finalText.isEmpty else {
             liveInputSession = nil

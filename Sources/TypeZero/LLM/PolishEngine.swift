@@ -260,6 +260,26 @@ public final class PolishEngine {
         return true
     }
 
+    /// Strict 0%-compromise equivalence gate for Speculative Parallel Execution:
+    /// Allows reusing the `t=0ms` speculative DeepSeek pass ONLY when Seed-ASR's `enable_nonstream: true` acoustic two-pass
+    /// produced the exact same characters, words, digits, internal punctuation, and `?`/`!` tone (ignoring at most a trailing neutral `。`/`，` addition).
+    public static func canReuseSpeculativeResult(speculativeDraft: String, finalASRTranscript: String) -> Bool {
+        let a = speculativeDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let b = finalASRTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !a.isEmpty, !b.isEmpty else { return false }
+        if a == b { return true }
+        let neutralTrailing: Set<Character> = ["。", "，", ".", ",", "、"]
+        var aCore = a
+        while let last = aCore.last, neutralTrailing.contains(last) {
+            aCore.removeLast()
+        }
+        var bCore = b
+        while let last = bCore.last, neutralTrailing.contains(last) {
+            bCore.removeLast()
+        }
+        return !aCore.isEmpty && aCore == bCore
+    }
+
     private static let commonShortEnglishWords: Set<String> = [
         "in", "on", "at", "to", "of", "for", "by", "or", "and", "the", "is", "it", "be",
         "as", "do", "go", "no", "so", "up", "us", "we", "my", "me", "he", "hi", "ok", "ai", "ui"
@@ -434,6 +454,9 @@ public final class PolishEngine {
             recordLastPolishTotalMs(totalMs)
             return (formatted.isEmpty ? locallyFixed : formatted, firstTokenMs > 0 ? firstTokenMs : totalMs, false)
         } catch {
+            if Task.isCancelled {
+                return ("", 0, true)
+            }
             let ms = Int((DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000)
             recordLastPolishTotalMs(ms)
             return (Self.applyPostFormattingRules(locallyFixed, context: screenContext, config: config), ms, true)

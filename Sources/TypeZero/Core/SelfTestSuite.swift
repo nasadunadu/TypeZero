@@ -482,8 +482,20 @@ public enum SelfTestSuite {
                     isCloudTrialRelay: false,
                     lastWarmKey: "",
                     lastWarmAgeSeconds: 200
+                )
+                && PolishEngine.canReuseSpeculativeResult(
+                    speculativeDraft: "试一下半秒出字的体感",
+                    finalASRTranscript: "试一下半秒出字的体感。"
+                )
+                && !PolishEngine.canReuseSpeculativeResult(
+                    speculativeDraft: "试一下半秒出字的体感",
+                    finalASRTranscript: "试一下半秒出字的体感？"
+                )
+                && !PolishEngine.canReuseSpeculativeResult(
+                    speculativeDraft: "前面我说了 Grab boat",
+                    finalASRTranscript: "前面我说了 rock boat。"
                 ),
-            "Lossless fixes: fuzzy AX draft matcher prevents duplicate pasting and KV prefix cache prewarms cold DeepSeek sessions"
+            "Lossless fixes: speculative equivalence gate enforces 100% word/tone match, fuzzy AX prevents duplicate paste, and KV cache prewarms"
         )
 
         // 14. Steady Window-Bottom Pill Anchor (Never chases mouse cursor, never flips to window top)

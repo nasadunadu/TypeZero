@@ -55,6 +55,15 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
     public var activeSessionUsesAnyCloudASR: Bool {
         activeSessionUsesCloudSeedASR || activeSessionUsesOpenAIASR
     }
+    /// Latest live streaming transcript from Seed-ASR (available at `t=0ms` on stop trigger before `enable_nonstream` two-pass finishes).
+    public var currentCloudStreamingDraft: String {
+        sampleLock.lock()
+        let usingVolc = activeSessionUsesCloudSeedASR
+        sampleLock.unlock()
+        guard usingVolc else { return "" }
+        let serverSnap = seedASRClient.currentServerTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        return serverSnap.isEmpty ? latestTranscript.trimmingCharacters(in: .whitespacesAndNewlines) : serverSnap
+    }
     public var asrProvider: ASRProviderOption = .volcSeedASR
     public var enableVolcSeedASR: Bool {
         get { asrProvider == .volcSeedASR }

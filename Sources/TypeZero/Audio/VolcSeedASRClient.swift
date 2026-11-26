@@ -41,6 +41,13 @@ public final class VolcSeedASRClient: @unchecked Sendable {
         return receivedServerFrameCount > 0
     }
 
+    /// Thread-safe snapshot of the latest streaming transcript received from Seed-ASR before two-pass finalization.
+    public var currentServerTranscript: String {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return latestServerText
+    }
+
     public init() {
         let cfg = URLSessionConfiguration.ephemeral
         // CRITICAL: Bypass system VPN/proxy so domestic WebSocket RTT stays ~25ms instead of ~300ms overseas detour!
