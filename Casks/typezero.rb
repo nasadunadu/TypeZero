@@ -1,6 +1,6 @@
 cask "typezero" do
-  version "0.6.1"
-  sha256 "e176a963d0a289982ba094cfe450f0395107e4a968f39a4319b319f3c344ff52"
+  version "0.6.2"
+  sha256 "82c32ac248751853a1c70c70fcc5f8f81c77e98188de86742d5ea4b76a898003"
 
   url "https://github.com/nasadunadu/TypeZero/releases/download/v#{version}/TypeZero-v#{version}-macOS-arm64.dmg"
   name "TypeZero"
