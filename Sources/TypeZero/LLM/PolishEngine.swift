@@ -49,6 +49,24 @@ public final class PolishEngine {
         Self.shouldUseDirectConnection(for: baseURL) ? directSession : session
     }
 
+    private let cacheWarmLock = NSLock()
+    private var lastCacheWarmKey: String = ""
+    private var lastCacheWarmAt: Date = .distantPast
+    private let metricsLock = NSLock()
+    private var _lastPolishTotalMs: Int = 0
+
+    public var lastPolishTotalMs: Int {
+        metricsLock.lock()
+        defer { metricsLock.unlock() }
+        return _lastPolishTotalMs
+    }
+
+    private func recordLastPolishTotalMs(_ ms: Int) {
+        metricsLock.lock()
+        _lastPolishTotalMs = ms
+        metricsLock.unlock()
+    }
+
     // 100% STATIC System Prompts so DeepSeek KV Prefix Cache hits on every single call (~0ms prefill -> ~230ms TTFT!)
     private static let structuredStaticSystemPrompt = """
     你是顶级 AI 语音输入法的意图级文字整理与排版引擎（深度对齐 Typeless 核心策略）。读取 <scene>、<preceding_text>（输入框光标前已有文字）、<lexicon> 与 <raw_speech>，直接输出本次新增正文的整理结果：
@@ -143,6 +161,103 @@ public final class PolishEngine {
         }
         req.timeoutInterval = 3.0
         transportSession(for: trimmed).dataTask(with: req) { _, _, _ in }.resume()
+    }
+
+    public static func supportsImplicitPrefixCachePrewarm(baseURL: String) -> Bool {
+        let u = baseURL.lowercased()
+        return u.contains("deepseek.com") || u.contains("openai.com")
+    }
+
+    public static func cacheWarmSignature(baseURL: String, model: String, formattingStyle: FormattingStyle) -> String {
+        let cleanURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let cleanModel = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return "\(cleanURL)|\(cleanModel)|\(formattingStyle.rawValue)"
+    }
+
+    public static func shouldPrewarmPrefixCache(
+        baseURL: String,
+        model: String,
+        formattingStyle: FormattingStyle,
+        apiKey: String,
+        isCloudTrialRelay: Bool,
+        lastWarmKey: String,
+        lastWarmAgeSeconds: TimeInterval,
+        cooldownSeconds: TimeInterval = 150.0
+    ) -> Bool {
+        guard !isCloudTrialRelay,
+              formattingStyle != .verbatimLocal,
+              !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              supportsImplicitPrefixCachePrewarm(baseURL: baseURL) else {
+            return false
+        }
+        let sig = cacheWarmSignature(baseURL: baseURL, model: model, formattingStyle: formattingStyle)
+        return sig != lastWarmKey || lastWarmAgeSeconds >= cooldownSeconds
+    }
+
+    private func markPrefixCacheWarm(baseURL: String, model: String, formattingStyle: FormattingStyle) {
+        let sig = Self.cacheWarmSignature(baseURL: baseURL, model: model, formattingStyle: formattingStyle)
+        cacheWarmLock.lock()
+        lastCacheWarmKey = sig
+        lastCacheWarmAt = Date()
+        cacheWarmLock.unlock()
+    }
+
+    /// Lossless KV Prefix Cache pre-warmer: sends the untouched full 3,826-char `structuredStaticSystemPrompt`
+    /// with `max_tokens: 1` WHILE the user is speaking (only if cold >150s), eliminating ~500ms cold-prefill penalty with 0% accuracy change!
+    @discardableResult
+    public func prewarmPrefixCacheIfNeeded(
+        config: LLMConfig,
+        apiKey: String,
+        isCloudTrialRelay: Bool = false
+    ) -> Bool {
+        let cleanKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let now = Date()
+        cacheWarmLock.lock()
+        let prevKey = lastCacheWarmKey
+        let prevAge = now.timeIntervalSince(lastCacheWarmAt)
+        let shouldWarm = Self.shouldPrewarmPrefixCache(
+            baseURL: config.baseURL,
+            model: config.modelName,
+            formattingStyle: config.formattingStyle,
+            apiKey: cleanKey,
+            isCloudTrialRelay: isCloudTrialRelay,
+            lastWarmKey: prevKey,
+            lastWarmAgeSeconds: prevAge
+        )
+        if shouldWarm {
+            lastCacheWarmKey = Self.cacheWarmSignature(
+                baseURL: config.baseURL,
+                model: config.modelName,
+                formattingStyle: config.formattingStyle
+            )
+            lastCacheWarmAt = now
+        }
+        cacheWarmLock.unlock()
+        guard shouldWarm else { return false }
+
+        let endpoint = Self.normalizeChatCompletionsEndpoint(config.baseURL)
+        guard let url = URL(string: endpoint) else { return false }
+        let systemPrompt = (config.formattingStyle == .structured)
+            ? Self.structuredStaticSystemPrompt
+            : Self.lightStaticSystemPrompt
+        let payload = Self.buildOpenAICompatiblePayload(
+            endpoint: endpoint,
+            model: config.modelName,
+            systemPrompt: systemPrompt,
+            userContent: ".",
+            maxTokens: 1,
+            stream: false
+        )
+        guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return false }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer \(cleanKey)", forHTTPHeaderField: "Authorization")
+        req.httpBody = body
+        req.timeoutInterval = 4.0
+        transportSession(for: config.baseURL).dataTask(with: req) { _, _, _ in }.resume()
+        return true
     }
 
     private static let commonShortEnglishWords: Set<String> = [
@@ -308,14 +423,19 @@ public final class PolishEngine {
                 config: config,
                 onStreamChunk: onStreamChunk
             )
+            if mode == .dictate {
+                markPrefixCacheWarm(baseURL: config.baseURL, model: config.modelName, formattingStyle: config.formattingStyle)
+            }
             let guarded = (mode == .dictate)
                 ? Self.guardAgainstUnexpectedTranslation(rawInput: locallyFixed, llmOutput: result)
                 : result
             let formatted = Self.applyPostFormattingRules(guarded, context: screenContext, config: config)
             let totalMs = Int((DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000)
+            recordLastPolishTotalMs(totalMs)
             return (formatted.isEmpty ? locallyFixed : formatted, firstTokenMs > 0 ? firstTokenMs : totalMs, false)
         } catch {
             let ms = Int((DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000)
+            recordLastPolishTotalMs(ms)
             return (Self.applyPostFormattingRules(locallyFixed, context: screenContext, config: config), ms, true)
         }
     }

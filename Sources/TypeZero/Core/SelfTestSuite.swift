@@ -469,6 +469,22 @@ public enum SelfTestSuite {
                 && ContextInjector.pasteboardContainsNonTextRichObject(typeNames: ["public.utf8-plain-text", "public.tiff"]),
             "Cmd+A/Cmd+C zero-rewind merge preserves user-typed prefixes and guards against flattening rich media/images"
         )
+        let droppedDraftInBox = "我在试用了最新版的软件以后，我发现最终停止了那个二次还原，就是往云端送了识别以后出来的，完成的那个字还是有点慢，你查一下通道现在是多快，还是我们人为设置的0.2秒以后再加上传输到云端再回来的时间变长了些"
+        let fullEmittedDraft = "我在试用了最新版的软件以后，我发现最终停止了那个二次还原，就是往云端送了识别以后，出来的完成的那个字还是有点慢。你查一下通道现在是多快？还是我们人为设置的0.2秒以后，再加上传输到云端再回来的时间变长了？为什么比之前显得体感要差一些。"
+        expect(
+            LiveInputSession.isApproximateDraftInBox(boxText: droppedDraftInBox, alreadyEmitted: fullEmittedDraft)
+                && !LiveInputSession.isApproximateDraftInBox(boxText: "今天天气真不错，准备出门散步", alreadyEmitted: fullEmittedDraft)
+                && PolishEngine.shouldPrewarmPrefixCache(
+                    baseURL: "https://api.deepseek.com/v1",
+                    model: "deepseek-flash",
+                    formattingStyle: .structured,
+                    apiKey: "sk-test",
+                    isCloudTrialRelay: false,
+                    lastWarmKey: "",
+                    lastWarmAgeSeconds: 200
+                ),
+            "Lossless fixes: fuzzy AX draft matcher prevents duplicate pasting and KV prefix cache prewarms cold DeepSeek sessions"
+        )
 
         // 14. Steady Window-Bottom Pill Anchor (Never chases mouse cursor, never flips to window top)
         let vf = CGRect(x: 0, y: 60, width: 1920, height: 990)

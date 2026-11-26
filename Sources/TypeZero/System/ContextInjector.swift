@@ -214,15 +214,95 @@ public final class LiveInputSession: @unchecked Sendable {
         return nil
     }
 
+    private static func coreBigramOverlapRatio(_ aCore: String, _ bCore: String) -> Double {
+        let aChars = Array(aCore)
+        let bChars = Array(bCore)
+        guard aChars.count >= 2, bChars.count >= 2 else {
+            return aCore == bCore && !aCore.isEmpty ? 1.0 : 0.0
+        }
+        var bCounts: [String: Int] = [:]
+        for i in 0..<(bChars.count - 1) {
+            let bg = String([bChars[i], bChars[i + 1]])
+            bCounts[bg, default: 0] += 1
+        }
+        var matched = 0
+        for i in 0..<(aChars.count - 1) {
+            let bg = String([aChars[i], aChars[i + 1]])
+            if let cnt = bCounts[bg], cnt > 0 {
+                matched += 1
+                bCounts[bg] = cnt - 1
+            }
+        }
+        let denom = min(aChars.count - 1, bChars.count - 1)
+        return denom > 0 ? Double(matched) / Double(denom) : 0.0
+    }
+
+    public static func isApproximateDraftInBox(boxText: String, alreadyEmitted: String) -> Bool {
+        let boxCore = alphanumericOnly(boxText)
+        let emittedCore = alphanumericOnly(alreadyEmitted)
+        guard emittedCore.count >= 6, boxCore.count >= max(4, emittedCore.count / 2) else { return false }
+        let maxExpectedBoxLen = Int(Double(emittedCore.count) * 1.18) + 6
+        guard boxCore.count <= maxExpectedBoxLen else { return false }
+        return coreBigramOverlapRatio(boxCore, emittedCore) >= 0.55
+    }
+
+    public static func buildFuzzyTailMergedReplacement(
+        boxText: String,
+        alreadyEmitted: String,
+        finalText: String
+    ) -> String? {
+        let emittedCore = alphanumericOnly(alreadyEmitted)
+        let boxCore = alphanumericOnly(boxText)
+        guard emittedCore.count >= 8, boxCore.count > emittedCore.count else { return nil }
+
+        let eChars = Array(emittedCore)
+        var coreWithIndices: [(char: Character, rawIndex: String.Index)] = []
+        var idx = boxText.startIndex
+        while idx < boxText.endIndex {
+            let ch = boxText[idx]
+            if isCoreChar(ch) {
+                coreWithIndices.append((Character(String(ch).lowercased()), idx))
+            }
+            idx = boxText.index(after: idx)
+        }
+        let boxCoreLower = coreWithIndices.map(\.char)
+
+        let anchorSpecs: [(offset: Int, len: Int)] = [(0, 8), (0, 6), (2, 6), (0, 5)]
+        for spec in anchorSpecs {
+            guard spec.offset + spec.len <= eChars.count else { continue }
+            let anchor = Array(eChars[spec.offset..<(spec.offset + spec.len)].map { Character(String($0).lowercased()) })
+            guard boxCoreLower.count >= anchor.count else { continue }
+            let minStart = max(0, boxCoreLower.count - Int(Double(emittedCore.count) * 1.25) - 12)
+            for pos in stride(from: boxCoreLower.count - anchor.count, through: minStart, by: -1) {
+                if Array(boxCoreLower[pos..<(pos + anchor.count)]) == anchor {
+                    let tailCore = String(boxCoreLower[pos...])
+                    if coreBigramOverlapRatio(tailCore, emittedCore.lowercased()) >= 0.55 {
+                        let startRawIdx = coreWithIndices[max(0, pos - spec.offset)].rawIndex
+                        let prefix = String(boxText[..<startRawIdx])
+                        return prefix + finalText
+                    }
+                }
+            }
+        }
+        return nil
+    }
+
     /// P3 Prefix-Preserving SSE Streaming Polish:
-    /// Flushes any pending 1–2 characters in the typewriter queue, snapshots `draftBeforeSSE`,
-    /// and decides whether to stream SSE inline (short drafts in fast editors) or keep the draft steady
-    /// for a zero-rewind atomic swap in `finalizeAfterKeyRelease` (long drafts & WeChat/QQ rich editors).
     @discardableResult
     public func prepareForSSEPolishStream() -> Bool {
-        stopPacer(drainQueue: true)
         stateLock.lock()
         let ctx = self.context
+        let projectedDraft = targetConfirmedText.count >= emittedText.count ? targetConfirmedText : emittedText
+        stateLock.unlock()
+
+        // For >24-char drafts or WeChat/QQ atomic editors, stop pacer immediately (0ms, no 77ms queue drain stall!)
+        guard Self.shouldUseLiveSSEStream(draft: projectedDraft, context: ctx) else {
+            stopPacer(drainQueue: false)
+            return false
+        }
+
+        stopPacer(drainQueue: true)
+        stateLock.lock()
         if targetConfirmedText.count > emittedText.count && targetConfirmedText.hasPrefix(emittedText) {
             let rem = String(targetConfirmedText.dropFirst(emittedText.count))
             emittedText = targetConfirmedText
@@ -231,7 +311,6 @@ public final class LiveInputSession: @unchecked Sendable {
             stateLock.lock()
         }
         draftBeforeSSE = emittedText
-        let currentDraft = draftBeforeSSE
         sseAccumulated = ""
         sseHasDiverged = false
         postNewlineGuardBuffer = nil
@@ -244,7 +323,7 @@ public final class LiveInputSession: @unchecked Sendable {
         if !ctx.hasFocusedTextInput && !ContextInjector.isLikelyEditableFocusNow() {
             return false
         }
-        return Self.shouldUseLiveSSEStream(draft: currentDraft, context: ctx)
+        return true
     }
 
     public func consumeSSEChunk(_ delta: String) {
@@ -683,12 +762,36 @@ public final class LiveInputSession: @unchecked Sendable {
         if let actualValue = currentBoxText,
            !actualValue.isEmpty,
            !actualValue.contains(alreadyEmitted) {
-            ContextInjector.pasteViaClipboardPreservingSnapshot(
-                finalText,
-                prePasteDelayUs: prePasteUs,
-                restoreDelaySeconds: baseRestoreSec
-            )
-            ContextInjector.appendInjectionTrace("finalize app=\(ctx.bundleID) branch=axMismatchPaste emitted=\(alreadyEmitted.count) boxLen=\(boxLen) final=\(finalText.count)")
+            if Self.isApproximateDraftInBox(boxText: actualValue, alreadyEmitted: alreadyEmitted) {
+                ContextInjector.sendSelectAllEvent()
+                usleep(isRichSlowEditor ? 55_000 : 20_000)
+                ContextInjector.pasteViaClipboardPreservingSnapshot(
+                    finalText,
+                    prePasteDelayUs: prePasteUs,
+                    restoreDelaySeconds: baseRestoreSec
+                )
+                ContextInjector.appendInjectionTrace("finalize app=\(ctx.bundleID) branch=axFuzzyCmdA emitted=\(alreadyEmitted.count) boxLen=\(boxLen) final=\(finalText.count)")
+            } else if let fuzzyMerged = Self.buildFuzzyTailMergedReplacement(
+                boxText: actualValue,
+                alreadyEmitted: alreadyEmitted,
+                finalText: finalText
+            ) {
+                ContextInjector.sendSelectAllEvent()
+                usleep(isRichSlowEditor ? 55_000 : 20_000)
+                ContextInjector.pasteViaClipboardPreservingSnapshot(
+                    fuzzyMerged,
+                    prePasteDelayUs: prePasteUs,
+                    restoreDelaySeconds: baseRestoreSec
+                )
+                ContextInjector.appendInjectionTrace("finalize app=\(ctx.bundleID) branch=axFuzzyMergeCmdA emitted=\(alreadyEmitted.count) boxLen=\(boxLen) final=\(finalText.count)")
+            } else {
+                ContextInjector.pasteViaClipboardPreservingSnapshot(
+                    finalText,
+                    prePasteDelayUs: prePasteUs,
+                    restoreDelaySeconds: baseRestoreSec
+                )
+                ContextInjector.appendInjectionTrace("finalize app=\(ctx.bundleID) branch=axMismatchPaste emitted=\(alreadyEmitted.count) boxLen=\(boxLen) final=\(finalText.count)")
+            }
             stateLock.lock()
             emittedText = finalText
             targetConfirmedText = finalText

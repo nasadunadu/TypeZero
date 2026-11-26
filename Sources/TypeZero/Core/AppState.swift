@@ -236,7 +236,7 @@ public final class AppState: ObservableObject {
             self.applyDockVisibilityPolicy()
             self.pillController.attach(appState: self)
             self.asrEngine.warmUp(localeIdentifier: self.llmConfig.speechLocale)
-            self.polishEngine.prewarmConnection(baseURL: self.llmConfig.baseURL)
+            self.polishEngine.prewarmConnection(baseURL: self.llmConfig.baseURL, apiKey: self.apiKeyInput)
             self.hotkeyMonitor.start()
             self.startPermissionWatcher()
             Task { [weak self] in
@@ -1538,7 +1538,14 @@ public final class AppState: ObservableObject {
 
         let currentBaseURL = llmConfig.baseURL
         let currentKey = KeychainHelper.loadAPIKey(for: llmConfig.selectedProvider)
-        polishEngine.prewarmConnection(baseURL: currentBaseURL, apiKey: currentKey)
+        let didDispatchKVPrewarm = polishEngine.prewarmPrefixCacheIfNeeded(
+            config: llmConfig,
+            apiKey: currentKey,
+            isCloudTrialRelay: isOfficialCloudTrialActive
+        )
+        if !didDispatchKVPrewarm {
+            polishEngine.prewarmConnection(baseURL: currentBaseURL, apiKey: currentKey)
+        }
 
         // Immediate hotword ranking + dialog_ctx from fast in-memory sources -> instant mic open!
         let immediateHint = ([frontName, shortClipboardHint, ownSandboxSnapshot] + recentSnippets).joined(separator: " ")
@@ -1593,6 +1600,7 @@ public final class AppState: ObservableObject {
 
         // Tail-capture grace window: keep microphone & ASR stream open for 0.1s after stop trigger
         // so trailing syllables finish cleanly while keeping stop-to-paste feeling snappy.
+        let stopTriggeredAt = DispatchTime.now()
         try? await Task.sleep(nanoseconds: 100_000_000)
 
         isSessionActive = false
@@ -1602,7 +1610,9 @@ public final class AppState: ObservableObject {
         if asrEngine.activeSessionUsesOpenAIASR {
             phase = .polishing(rawText: "云端语音转写中…")
         }
+        let asrFinishStart = DispatchTime.now()
         let (rawText, duration) = await asrEngine.finishStreaming()
+        let asrFinishMs = Int((DispatchTime.now().uptimeNanoseconds - asrFinishStart.uptimeNanoseconds) / 1_000_000)
         guard !rawText.isEmpty else {
             if isTypingInsideOwnApp {
                 sandboxText = sandboxBaseBeforeSession
@@ -1659,7 +1669,7 @@ public final class AppState: ObservableObject {
             && (liveInputSession?.prepareForSSEPolishStream() == true)
         var didStreamViaSSE = false
 
-        let (finalText, polishMs, _) = await polishEngine.polish(
+        let (finalText, polishMs, usedFastPath) = await polishEngine.polish(
             rawTranscript: rawText,
             mode: activeMode,
             screenContext: activeContext,
@@ -1684,6 +1694,9 @@ public final class AppState: ObservableObject {
                 }
             }
         )
+        let llmTotalMs = polishEngine.lastPolishTotalMs
+        let e2eMs = Int((DispatchTime.now().uptimeNanoseconds - stopTriggeredAt.uptimeNanoseconds) / 1_000_000)
+        ContextInjector.appendInjectionTrace("timing provider=\(effectiveConfig.selectedProvider.rawValue) model=\(effectiveConfig.modelName) chars=\(rawText.count) asrMs=\(asrFinishMs) ttftMs=\(polishMs) llmTotalMs=\(llmTotalMs) e2ePrePasteMs=\(e2eMs) fastPath=\(usedFastPath)")
 
         guard !finalText.isEmpty else {
             liveInputSession = nil
