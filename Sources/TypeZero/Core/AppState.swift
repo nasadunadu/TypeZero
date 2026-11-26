@@ -262,7 +262,8 @@ public final class AppState: ObservableObject {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                self?.audioDucker.restoreIfNeeded()
+                self?.asrEngine.shutdownHardwareImmediately()
+                self?.audioDucker.restoreIfNeeded(scheduleBluetoothRecheck: false)
             }
 
             if !self.micAuthorized || !self.speechAuthorized {
@@ -479,9 +480,9 @@ public final class AppState: ObservableObject {
         }
         userSubmittedViaEnter = true
         isSessionActive = false
-        audioDucker.restoreIfNeeded()
         hotkeyMonitor.syncRecordingState(false)
         asrEngine.cancel()
+        audioDucker.restoreIfNeeded()
         AudioLevelBus.shared.reset()
         liveInputSession?.abortBecauseUserSubmitted()
         liveInputSession = nil
@@ -500,9 +501,9 @@ public final class AppState: ObservableObject {
         isSessionActive = false
         llmKeepAliveTask?.cancel()
         llmKeepAliveTask = nil
-        audioDucker.restoreIfNeeded()
         hotkeyMonitor.syncRecordingState(false)
         asrEngine.cancel()
+        audioDucker.restoreIfNeeded()
         AudioLevelBus.shared.reset()
         if isTypingInsideOwnApp {
             sandboxText = sandboxBaseBeforeSession
@@ -1705,15 +1706,16 @@ public final class AppState: ObservableObject {
         }
 
         isSessionActive = false
-        // Immediately restore system audio output as soon as mic tail capture finishes (before LLM polishing)!
-        audioDucker.restoreIfNeeded()
         let asrSourceLabel = asrEngine.activeASRSourceLabel
         let sessionUsedPunctuatedCloudASR = asrEngine.activeSessionUsesAnyCloudASR
         if asrEngine.activeSessionUsesOpenAIASR {
             phase = .polishing(rawText: "云端语音转写中…")
         }
         let asrFinishStart = DispatchTime.now()
+        // Release microphone hardware inside `finishStreaming()` first (0s teardown on Bluetooth/USB),
+        // then restore system output audio immediately after ASR finishes (+450ms Bluetooth A2DP re-check)!
         let (rawText, duration) = await asrEngine.finishStreaming()
+        audioDucker.restoreIfNeeded()
         let asrFinishMs = Int((DispatchTime.now().uptimeNanoseconds - asrFinishStart.uptimeNanoseconds) / 1_000_000)
         guard !rawText.isEmpty else {
             specTask?.cancel()

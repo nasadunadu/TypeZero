@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import CoreAudio
 import Speech
 import CSherpaOnnx
 
@@ -118,7 +119,8 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
     private var isTapInstalled: Bool = false
     private var activeMaxBackupSamples: Int = 48_000 * 90
     private var idleHardwareShutdownWorkItem: DispatchWorkItem?
-    private let hotMicKeepAliveSeconds: Double = 15.0
+    /// Short warm-standby window used ONLY when both input & output are Built-In Mac hardware (never Bluetooth/USB headsets).
+    private let builtInHotMicKeepAliveSeconds: Double = 4.0
     private let modelInitLock = NSLock()
 
     public override init() {
@@ -280,6 +282,54 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
         }
     }
 
+    /// Queries macOS CoreAudio for the transport type of the current default input or output device.
+    public static func defaultDeviceTransportType(isInput: Bool) -> UInt32 {
+        var deviceID = AudioDeviceID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        var addr = AudioObjectPropertyAddress(
+            mSelector: isInput ? kAudioHardwarePropertyDefaultInputDevice : kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &deviceID) == noErr,
+              deviceID != kAudioObjectUnknown else {
+            return 0
+        }
+        var transport: UInt32 = 0
+        var tSize = UInt32(MemoryLayout<UInt32>.size)
+        var tAddr = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        guard AudioObjectGetPropertyData(deviceID, &tAddr, 0, nil, &tSize, &transport) == noErr else {
+            return 0
+        }
+        return transport
+    }
+
+    /// Pure hot-mic eligibility policy:
+    /// - Built-in Mac mic with non-Bluetooth output: safe to prewarm on KeyDown and hold brief 4s standby.
+    /// - Bluetooth headphones (AirPods/Sony/Bose), USB headsets, or virtual/aggregate routes: MUST NOT hold
+    ///   idle `AVAudioEngine` / AUHAL clients (0s immediate teardown on stop) so macOS switches Bluetooth back to A2DP music/YouTube!
+    public static func shouldAllowHotMicStandby(inputTransport: UInt32, outputTransport: UInt32) -> Bool {
+        let isBuiltInInput = (inputTransport == kAudioDeviceTransportTypeBuiltIn)
+        let isWirelessOrVirtualOutput = (outputTransport == kAudioDeviceTransportTypeBluetooth)
+            || (outputTransport == kAudioDeviceTransportTypeBluetoothLE)
+            || (outputTransport == kAudioDeviceTransportTypeAirPlay)
+            || (outputTransport == kAudioDeviceTransportTypeAggregate)
+            || (outputTransport == kAudioDeviceTransportTypeAutoAggregate)
+            || (outputTransport == kAudioDeviceTransportTypeVirtual)
+        return isBuiltInInput && !isWirelessOrVirtualOutput
+    }
+
+    private static var currentAudioRouteAllowsHotStandby: Bool {
+        shouldAllowHotMicStandby(
+            inputTransport: defaultDeviceTransportType(isInput: true),
+            outputTransport: defaultDeviceTransportType(isInput: false)
+        )
+    }
+
     public func warmUp(localeIdentifier: String = "auto") {
         speechLocale = localeIdentifier
         prewarmCloudSocketIfReady()
@@ -288,13 +338,9 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
             if self.senseVoiceHandle == nil {
                 self.loadSenseVoiceIfAvailable()
             }
-            // Pre-initialize CoreAudio input graph once so first Fn press starts in ~12ms instead of ~320ms!
-            if Self.isMicrophoneAuthorized && self.audioEngine == nil {
-                let engine = AVAudioEngine()
-                _ = engine.inputNode.outputFormat(forBus: 0)
-                engine.prepare()
-                self.audioEngine = engine
-            }
+            // IMPORTANT: Never create/prepare AVAudioEngine at launch!
+            // Initializing AUHAL input at startup hijacks Bluetooth headsets (AirPods/Sony/Bose)
+            // out of A2DP music/YouTube playback into 16kHz HFP call mode before the user even speaks.
         }
     }
 
@@ -321,12 +367,13 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
         }
     }
 
-    /// Wakes hardware microphone immediately on KeyDown (before key release) and keeps a rolling
-    /// ~220ms pre-roll buffer in memory so zero opening syllables are ever clipped.
+    /// Wakes hardware microphone immediately on KeyDown (before key release) ONLY on Built-In Mac audio routes.
+    /// Skipped when Bluetooth/USB headsets are active so accidental key taps never interrupt music/YouTube A2DP audio.
     public func prewarmHotMicAsync() {
         guard Self.isMicrophoneAuthorized else { return }
         audioControlQueue.async { [weak self] in
             guard let self else { return }
+            guard Self.currentAudioRouteAllowsHotStandby else { return }
             self.idleHardwareShutdownWorkItem?.cancel()
             self.idleHardwareShutdownWorkItem = nil
             do {
@@ -335,6 +382,13 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
             } catch {
                 // Non-fatal during prewarm; startStreamingAsync will surface any real permission error.
             }
+        }
+    }
+
+    /// Immediately tears down AVAudioEngine hardware handle (used on app termination).
+    public func shutdownHardwareImmediately() {
+        audioControlQueue.sync {
+            self.shutdownAudioHardwareCompletely()
         }
     }
 
@@ -1194,9 +1248,15 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
         fallbackRequest = nil
         fallbackTask = nil
 
-        // Keep CoreAudio mic warm for 15s for instant 0ms back-to-back dictation;
-        // auto-shutdown after 15s of inactivity so the macOS orange mic indicator turns off cleanly.
-        scheduleIdleHardwareShutdown()
+        // Critical Bluetooth / External Audio fix:
+        // Only keep CoreAudio mic warm (brief 4s window) on Built-In Mac audio;
+        // for Bluetooth (AirPods/Sony/Bose), USB headsets, or virtual routes, tear down AVAudioEngine IMMEDIATELY
+        // so macOS releases the AUHAL input unit and restores A2DP stereo music/YouTube playback right away!
+        if Self.currentAudioRouteAllowsHotStandby {
+            scheduleIdleHardwareShutdown()
+        } else {
+            shutdownAudioHardwareCompletely()
+        }
     }
 
     private func scheduleIdleHardwareShutdown() {
@@ -1210,7 +1270,7 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
             self.shutdownAudioHardwareCompletely()
         }
         idleHardwareShutdownWorkItem = work
-        audioControlQueue.asyncAfter(deadline: .now() + hotMicKeepAliveSeconds, execute: work)
+        audioControlQueue.asyncAfter(deadline: .now() + builtInHotMicKeepAliveSeconds, execute: work)
     }
 
     private func shutdownAudioHardwareCompletely() {
@@ -1225,10 +1285,14 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
                 engine.stop()
             }
             engine.inputNode.removeTap(onBus: 0)
-            engine.prepare()
+            // CRITICAL: Call `reset()` and nil out `audioEngine` (NEVER `engine.prepare()`!) so CoreAudio
+            // fully deinitializes and releases the AUHAL input AudioUnit back to macOS & Bluetooth A2DP!
+            engine.reset()
+            self.audioEngine = nil
         }
         isTapInstalled = false
         pcm16Converter = nil
+        pcm16SourceFormat = nil
     }
 
     private func clearSessionBuffers() {

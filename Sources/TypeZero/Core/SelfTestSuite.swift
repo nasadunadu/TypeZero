@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import AVFoundation
+import CoreAudio
 import Carbon.HIToolbox
 import CSherpaOnnx
 
@@ -508,6 +509,35 @@ public enum SelfTestSuite {
                     finalASRTranscript: "前面我说了 rock boat。"
                 ),
             "Lossless fixes: speculative equivalence gate enforces 100% word/tone/boundary match while absorbing CJK pause/space jitter"
+        )
+
+        // 13b. Bluetooth / External Audio Routing & Multi-Channel SystemAudioDucker Guard
+        expect(
+            StreamingASREngine.shouldAllowHotMicStandby(
+                inputTransport: kAudioDeviceTransportTypeBuiltIn,
+                outputTransport: kAudioDeviceTransportTypeBuiltIn
+            )
+                && !StreamingASREngine.shouldAllowHotMicStandby(
+                    inputTransport: kAudioDeviceTransportTypeBluetooth,
+                    outputTransport: kAudioDeviceTransportTypeBluetooth
+                )
+                && !StreamingASREngine.shouldAllowHotMicStandby(
+                    inputTransport: kAudioDeviceTransportTypeBuiltIn,
+                    outputTransport: kAudioDeviceTransportTypeBluetooth
+                )
+                && !StreamingASREngine.shouldAllowHotMicStandby(
+                    inputTransport: kAudioDeviceTransportTypeBuiltIn,
+                    outputTransport: kAudioDeviceTransportTypeBluetoothLE
+                )
+                && !StreamingASREngine.shouldAllowHotMicStandby(
+                    inputTransport: kAudioDeviceTransportTypeUSB,
+                    outputTransport: kAudioDeviceTransportTypeUSB
+                )
+                && SystemAudioDucker.muteElementsToUpdate(hasMainSettable: true, settableChannels: [1, 2]) == [kAudioObjectPropertyElementMain]
+                && SystemAudioDucker.muteElementsToUpdate(hasMainSettable: false, settableChannels: [1, 2]) == [1, 2]
+                && SystemAudioDucker.devicesToRestore(mutedDeviceID: 42, currentDefaultDeviceID: 42) == [42]
+                && SystemAudioDucker.devicesToRestore(mutedDeviceID: 42, currentDefaultDeviceID: 99) == [42, 99],
+            "Bluetooth/USB audio routes disable idle hot-mic standby for instant A2DP recovery, and SystemAudioDucker restores all stereo channels and switched output devices"
         )
 
         // 14. Steady Window-Bottom Pill Anchor (Never chases mouse cursor, never flips to window top)
