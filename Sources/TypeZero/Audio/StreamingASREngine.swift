@@ -309,18 +309,13 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
     }
 
     /// Pure hot-mic eligibility policy:
-    /// - Built-in Mac mic with non-Bluetooth output: safe to prewarm on KeyDown and hold brief 4s standby.
-    /// - Bluetooth headphones (AirPods/Sony/Bose), USB headsets, or virtual/aggregate routes: MUST NOT hold
-    ///   idle `AVAudioEngine` / AUHAL clients (0s immediate teardown on stop) so macOS switches Bluetooth back to A2DP music/YouTube!
+    /// - ONLY pure Built-In Mac mic + Built-In Mac speakers keep a brief 4s warm standby.
+    /// - ANY Bluetooth headset (AirPods / generic BT chips), USB/Type-C headset/DAC, HDMI, AirPlay,
+    ///   or virtual/aggregate audio route tears down `AVAudioEngine` IMMEDIATELY (`0s`) and skips KeyDown prewarm
+    ///   so `coreaudiod`/`bluetoothaudiod` releases the AUHAL input unit and restores music/YouTube playback right away!
     public static func shouldAllowHotMicStandby(inputTransport: UInt32, outputTransport: UInt32) -> Bool {
-        let isBuiltInInput = (inputTransport == kAudioDeviceTransportTypeBuiltIn)
-        let isWirelessOrVirtualOutput = (outputTransport == kAudioDeviceTransportTypeBluetooth)
-            || (outputTransport == kAudioDeviceTransportTypeBluetoothLE)
-            || (outputTransport == kAudioDeviceTransportTypeAirPlay)
-            || (outputTransport == kAudioDeviceTransportTypeAggregate)
-            || (outputTransport == kAudioDeviceTransportTypeAutoAggregate)
-            || (outputTransport == kAudioDeviceTransportTypeVirtual)
-        return isBuiltInInput && !isWirelessOrVirtualOutput
+        return inputTransport == kAudioDeviceTransportTypeBuiltIn
+            && outputTransport == kAudioDeviceTransportTypeBuiltIn
     }
 
     private static var currentAudioRouteAllowsHotStandby: Bool {

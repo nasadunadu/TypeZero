@@ -530,6 +530,10 @@ public enum SelfTestSuite {
                     outputTransport: kAudioDeviceTransportTypeBluetoothLE
                 )
                 && !StreamingASREngine.shouldAllowHotMicStandby(
+                    inputTransport: kAudioDeviceTransportTypeBuiltIn,
+                    outputTransport: kAudioDeviceTransportTypeUSB
+                )
+                && !StreamingASREngine.shouldAllowHotMicStandby(
                     inputTransport: kAudioDeviceTransportTypeUSB,
                     outputTransport: kAudioDeviceTransportTypeUSB
                 )

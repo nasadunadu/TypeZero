@@ -98,17 +98,20 @@ public final class SystemAudioDucker: @unchecked Sendable {
 
         applyRestore(mutedDeviceID: devID, usedVolumeFallback: fallback, savedVolume: prevVol)
 
-        // When Bluetooth headphones (AirPods/Sony/Bose) transition from HFP call profile back to A2DP stereo
-        // ~250–450ms after AVAudioEngine teardown, CoreAudio can transiently drop an early unmute or switch device ID.
-        // Re-verify once after +450ms ONLY if no new dictation session has started (`sessionGeneration == gen`).
+        // When Bluetooth headphones (especially generic BT chips with slower HFP -> A2DP handback)
+        // switch back to stereo playback ~300–1100ms after AVAudioEngine teardown, CoreAudio can transiently
+        // drop an early unmute or re-mount the A2DP output device. Re-verify at +450ms and +1200ms
+        // ONLY if no new dictation session has started (`sessionGeneration == gen`).
         if scheduleBluetoothRecheck {
-            DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + .milliseconds(450)) { [weak self] in
-                guard let self else { return }
-                self.lock.lock()
-                let stillSameSession = (!self.didAutoMute && self.sessionGeneration == gen)
-                self.lock.unlock()
-                guard stillSameSession else { return }
-                self.applyRestoreIfStillSilenced(mutedDeviceID: devID, usedVolumeFallback: fallback, savedVolume: prevVol)
+            for delayMs in [450, 1200] {
+                DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + .milliseconds(delayMs)) { [weak self] in
+                    guard let self else { return }
+                    self.lock.lock()
+                    let stillSameSession = (!self.didAutoMute && self.sessionGeneration == gen)
+                    self.lock.unlock()
+                    guard stillSameSession else { return }
+                    self.applyRestoreIfStillSilenced(mutedDeviceID: devID, usedVolumeFallback: fallback, savedVolume: prevVol)
+                }
             }
         }
     }
