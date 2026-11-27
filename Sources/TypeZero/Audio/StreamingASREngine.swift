@@ -1,6 +1,8 @@
 import Foundation
 import AVFoundation
 import CoreAudio
+import AudioToolbox
+import IOKit
 import Speech
 import CSherpaOnnx
 
@@ -318,6 +320,116 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
             && outputTransport == kAudioDeviceTransportTypeBuiltIn
     }
 
+    /// Pure Bluetooth-HFP avoidance policy:
+    /// Opening ANY Bluetooth headset microphone forces Bluetooth Classic out of 48kHz stereo A2DP into
+    /// 8kHz/16kHz mono HFP/eSCO telephony ("channel shifts & music turns hollow/ethereal").
+    /// Whenever macOS auto-selected a Bluetooth input device AND the Mac has a live Built-In Microphone
+    /// with the MacBook lid open (`!isClamshellClosed`), bind TypeZero's private AUHAL input directly to
+    /// the Built-In Microphone—preserving 100% untouched stereo A2DP on the headphones AND 48kHz studio speech capture!
+    /// Leaves explicit USB studio mics and closed-clamshell / Mac mini setups completely untouched.
+    public static func shouldBypassBluetoothInputToBuiltIn(
+        defaultInputTransport: UInt32,
+        builtInInputDeviceID: AudioDeviceID?,
+        isClamshellClosed: Bool
+    ) -> AudioDeviceID? {
+        let isBluetoothInput = (defaultInputTransport == kAudioDeviceTransportTypeBluetooth)
+            || (defaultInputTransport == kAudioDeviceTransportTypeBluetoothLE)
+        guard isBluetoothInput,
+              !isClamshellClosed,
+              let builtInID = builtInInputDeviceID,
+              builtInID != kAudioObjectUnknown else {
+            return nil
+        }
+        return builtInID
+    }
+
+    /// Checks IOKit `IOPMrootDomain` -> `AppleClamshellState` (~20µs, zero permissions) so we never route
+    /// to an internal MacBook microphone whose hardware disconnect switch is engaged while docked lid-closed.
+    public static func isMacBookClamshellClosed() -> Bool {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
+        guard service != IO_OBJECT_NULL else { return false }
+        defer { IOObjectRelease(service) }
+        if let prop = IORegistryEntryCreateCFProperty(
+            service,
+            "AppleClamshellState" as CFString,
+            kCFAllocatorDefault,
+            0
+        )?.takeRetainedValue() as? Bool {
+            return prop
+        }
+        return false
+    }
+
+    /// Finds the Mac's alive Built-In Microphone `AudioDeviceID` (`kAudioDeviceTransportTypeBuiltIn`), if present.
+    public static func findLiveBuiltInInputDeviceID() -> AudioDeviceID? {
+        var propSize: UInt32 = 0
+        var devicesAddr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &devicesAddr, 0, nil, &propSize) == noErr,
+              propSize >= UInt32(MemoryLayout<AudioDeviceID>.size) else {
+            return nil
+        }
+        let count = Int(propSize) / MemoryLayout<AudioDeviceID>.size
+        var devices = [AudioDeviceID](repeating: kAudioObjectUnknown, count: count)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &devicesAddr, 0, nil, &propSize, &devices) == noErr else {
+            return nil
+        }
+
+        for dev in devices where dev != kAudioObjectUnknown {
+            var streamAddr = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyStreams,
+                mScope: kAudioDevicePropertyScopeInput,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            var streamSize: UInt32 = 0
+            guard AudioObjectGetPropertyDataSize(dev, &streamAddr, 0, nil, &streamSize) == noErr,
+                  streamSize > 0 else {
+                continue
+            }
+
+            var alive: UInt32 = 1
+            var aliveSize = UInt32(MemoryLayout<UInt32>.size)
+            var aliveAddr = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyDeviceIsAlive,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            if AudioObjectGetPropertyData(dev, &aliveAddr, 0, nil, &aliveSize, &alive) == noErr, alive == 0 {
+                continue
+            }
+
+            var transport: UInt32 = 0
+            var tSize = UInt32(MemoryLayout<UInt32>.size)
+            var tAddr = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyTransportType,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            guard AudioObjectGetPropertyData(dev, &tAddr, 0, nil, &tSize, &transport) == noErr else {
+                continue
+            }
+            if transport == kAudioDeviceTransportTypeBuiltIn {
+                return dev
+            }
+        }
+        return nil
+    }
+
+    private static func preferredBuiltInInputOverrideForBluetooth() -> AudioDeviceID? {
+        let inTransport = defaultDeviceTransportType(isInput: true)
+        guard inTransport == kAudioDeviceTransportTypeBluetooth || inTransport == kAudioDeviceTransportTypeBluetoothLE else {
+            return nil
+        }
+        return shouldBypassBluetoothInputToBuiltIn(
+            defaultInputTransport: inTransport,
+            builtInInputDeviceID: findLiveBuiltInInputDeviceID(),
+            isClamshellClosed: isMacBookClamshellClosed()
+        )
+    }
+
     private static var currentAudioRouteAllowsHotStandby: Bool {
         shouldAllowHotMicStandby(
             inputTransport: defaultDeviceTransportType(isInput: true),
@@ -387,20 +499,50 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
         }
     }
 
-    private func ensureHotMicRunning() throws -> AVAudioFormat {
+    private func ensureHotMicRunning(allowBuiltInBluetoothBypass: Bool = true) throws -> AVAudioFormat {
         let engine: AVAudioEngine
+        var didApplyBuiltInBypass = false
         if let existing = self.audioEngine {
             engine = existing
         } else {
             let fresh = AVAudioEngine()
+            let inputNode = fresh.inputNode
+            if allowBuiltInBluetoothBypass, let builtInID = Self.preferredBuiltInInputOverrideForBluetooth() {
+                // Bind TypeZero's private AUHAL input node to the Built-In MacBook mic BEFORE reading bus formats!
+                // Prevents Bluetooth headphones (AirPods / Rose Technics / Sony / Bose) from dropping out of stereo A2DP into mono HFP!
+                if (try? inputNode.auAudioUnit.setDeviceID(builtInID)) != nil {
+                    didApplyBuiltInBypass = true
+                }
+            }
             self.audioEngine = fresh
             engine = fresh
             self.isTapInstalled = false
         }
 
         let inputNode = engine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        let hwInputFmt = inputNode.inputFormat(forBus: 0)
+        let busOutputFmt = inputNode.outputFormat(forBus: 0)
+        let recordingFormat: AVAudioFormat = {
+            if didApplyBuiltInBypass, hwInputFmt.sampleRate > 0, hwInputFmt.channelCount > 0 {
+                if busOutputFmt.sampleRate == hwInputFmt.sampleRate,
+                   busOutputFmt.commonFormat == .pcmFormatFloat32,
+                   !busOutputFmt.isInterleaved {
+                    return busOutputFmt
+                }
+                if let stdFloatFmt = AVAudioFormat(
+                    standardFormatWithSampleRate: hwInputFmt.sampleRate,
+                    channels: hwInputFmt.channelCount
+                ) {
+                    return stdFloatFmt
+                }
+            }
+            return busOutputFmt
+        }()
         guard recordingFormat.sampleRate > 0, recordingFormat.channelCount > 0 else {
+            if didApplyBuiltInBypass {
+                shutdownAudioHardwareCompletely()
+                return try ensureHotMicRunning(allowBuiltInBluetoothBypass: false)
+            }
             throw NSError(domain: "TypeZero.ASR", code: -2, userInfo: [NSLocalizedDescriptionKey: "麦克风输入不可用，请检查麦克风权限"])
         }
 
@@ -422,7 +564,15 @@ public final class StreamingASREngine: NSObject, @unchecked Sendable {
 
         if !engine.isRunning {
             engine.prepare()
-            try engine.start()
+            do {
+                try engine.start()
+            } catch {
+                if didApplyBuiltInBypass {
+                    shutdownAudioHardwareCompletely()
+                    return try ensureHotMicRunning(allowBuiltInBluetoothBypass: false)
+                }
+                throw error
+            }
         }
         return recordingFormat
     }

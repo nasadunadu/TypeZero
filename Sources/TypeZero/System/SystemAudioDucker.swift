@@ -10,11 +10,17 @@ import AudioToolbox
 /// - Supports both hardware `kAudioDevicePropertyMute` and fallback volume ducking for USB DACs
 ///   that omit a master mute property.
 public final class SystemAudioDucker: @unchecked Sendable {
+    private struct MutedDeviceSnapshot {
+        let deviceID: AudioDeviceID
+        let didSetHardwareMute: Bool
+        let savedVirtualMainVolume: Float32?
+        let savedChannelVolumes: [AudioObjectPropertyElement: Float32]
+    }
+
     private let lock = NSLock()
     private var didAutoMute: Bool = false
-    private var mutedDeviceID: AudioDeviceID = kAudioObjectUnknown
-    private var usedVolumeFallback: Bool = false
-    private var savedVolumeScalar: Float32 = 0.0
+    private var primarySnapshot: MutedDeviceSnapshot?
+    private var secondarySnapshot: MutedDeviceSnapshot?
     private var sessionGeneration: UInt64 = 0
 
     public init() {}
@@ -32,6 +38,13 @@ public final class SystemAudioDucker: @unchecked Sendable {
         return settableChannels
     }
 
+    /// Pure helper: Bluetooth AVRCP / USB / external audio devices frequently accept `kAudioDevicePropertyMute = 1`
+    /// in CoreAudio HAL metadata while their firmware continues playing full-volume A2DP audio unless volume scalar
+    /// (`VirtualMainVolume` / `kAudioDevicePropertyVolumeScalar`) is ALSO ducked to `0.0`!
+    public static func shouldAlsoDuckVolumeScalar(outputTransport: UInt32, didSetHardwareMute: Bool) -> Bool {
+        return !didSetHardwareMute || outputTransport != kAudioDeviceTransportTypeBuiltIn
+    }
+
     /// Pure helper: returns deduplicated output devices to unmute (both the originally muted device AND the
     /// current default output device in case Bluetooth HFP<->A2DP or output routing changed during dictation).
     public static func devicesToRestore(mutedDeviceID: AudioDeviceID, currentDefaultDeviceID: AudioDeviceID) -> [AudioDeviceID] {
@@ -47,36 +60,41 @@ public final class SystemAudioDucker: @unchecked Sendable {
 
     public func muteIfNeeded() {
         lock.lock()
-        defer { lock.unlock() }
-        guard !didAutoMute else { return }
-
-        let deviceID = Self.defaultOutputDeviceID()
-        guard deviceID != kAudioObjectUnknown else { return }
-
-        // Path 1: Standard hardware mute property (works on built-in speakers, AirPods, Bluetooth, most USB audio)
-        if let currentMute = Self.getMuteState(deviceID: deviceID) {
-            if currentMute != 0 {
-                // Already muted by user — do nothing and never unmute later!
-                return
-            }
-            if Self.setMuteState(deviceID: deviceID, muted: true) {
-                sessionGeneration &+= 1
-                didAutoMute = true
-                mutedDeviceID = deviceID
-                usedVolumeFallback = false
-                return
-            }
+        guard !didAutoMute else {
+            lock.unlock()
+            return
         }
 
-        // Path 2: Fallback for rare USB DACs / HDMI monitors without a mute property — duck virtual main volume to 0
-        if let currentVol = Self.getVirtualMainVolume(deviceID: deviceID), currentVol > 0.001 {
-            if Self.setVirtualMainVolume(deviceID: deviceID, volume: 0.0) {
-                sessionGeneration &+= 1
-                didAutoMute = true
-                mutedDeviceID = deviceID
-                usedVolumeFallback = true
-                savedVolumeScalar = currentVol
+        let deviceID = Self.defaultOutputDeviceID()
+        guard deviceID != kAudioObjectUnknown,
+              let snap = Self.silenceDevice(deviceID) else {
+            lock.unlock()
+            return
+        }
+
+        sessionGeneration &+= 1
+        let gen = sessionGeneration
+        didAutoMute = true
+        primarySnapshot = snap
+        secondarySnapshot = nil
+        lock.unlock()
+
+        // Closed-clamshell / Mac mini Bluetooth fallback guard:
+        // If no Built-In mic exists and Bluetooth switches from A2DP (`deviceID`) to a separate HFP output
+        // `AudioDeviceID` ~150–250ms into dictation, silence that newly activated HFP output device too!
+        DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + .milliseconds(240)) { [weak self] in
+            guard let self else { return }
+            let curID = Self.defaultOutputDeviceID()
+            guard curID != kAudioObjectUnknown, curID != deviceID else { return }
+            self.lock.lock()
+            guard self.didAutoMute, self.sessionGeneration == gen, self.secondarySnapshot == nil else {
+                self.lock.unlock()
+                return
             }
+            if let secondSnap = Self.silenceDevice(curID) {
+                self.secondarySnapshot = secondSnap
+            }
+            self.lock.unlock()
         }
     }
 
@@ -86,22 +104,18 @@ public final class SystemAudioDucker: @unchecked Sendable {
             lock.unlock()
             return
         }
-        let devID = mutedDeviceID
-        let fallback = usedVolumeFallback
-        let prevVol = savedVolumeScalar
+        let primary = primarySnapshot
+        let secondary = secondarySnapshot
         let gen = sessionGeneration
         didAutoMute = false
-        mutedDeviceID = kAudioObjectUnknown
-        usedVolumeFallback = false
-        savedVolumeScalar = 0.0
+        primarySnapshot = nil
+        secondarySnapshot = nil
         lock.unlock()
 
-        applyRestore(mutedDeviceID: devID, usedVolumeFallback: fallback, savedVolume: prevVol)
+        Self.applyRestore(primary: primary, secondary: secondary)
 
-        // When Bluetooth headphones (especially generic BT chips with slower HFP -> A2DP handback)
-        // switch back to stereo playback ~300–1100ms after AVAudioEngine teardown, CoreAudio can transiently
-        // drop an early unmute or re-mount the A2DP output device. Re-verify at +450ms and +1200ms
-        // ONLY if no new dictation session has started (`sessionGeneration == gen`).
+        // When Bluetooth headphones switch back ~300–1100ms after teardown, CoreAudio can transiently drop
+        // an early unmute/volume restore. Re-verify at +450ms and +1200ms ONLY if no new session started.
         if scheduleBluetoothRecheck {
             for delayMs in [450, 1200] {
                 DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + .milliseconds(delayMs)) { [weak self] in
@@ -110,38 +124,98 @@ public final class SystemAudioDucker: @unchecked Sendable {
                     let stillSameSession = (!self.didAutoMute && self.sessionGeneration == gen)
                     self.lock.unlock()
                     guard stillSameSession else { return }
-                    self.applyRestoreIfStillSilenced(mutedDeviceID: devID, usedVolumeFallback: fallback, savedVolume: prevVol)
+                    Self.applyRestoreIfStillSilenced(primary: primary, secondary: secondary)
                 }
             }
         }
     }
 
-    private func applyRestore(mutedDeviceID: AudioDeviceID, usedVolumeFallback: Bool, savedVolume: Float32) {
-        let targets = Self.devicesToRestore(
-            mutedDeviceID: mutedDeviceID,
-            currentDefaultDeviceID: Self.defaultOutputDeviceID()
-        )
-        for targetID in targets {
-            if usedVolumeFallback {
-                _ = Self.setVirtualMainVolume(deviceID: targetID, volume: savedVolume)
-            } else {
-                _ = Self.setMuteState(deviceID: targetID, muted: false)
+    private static func silenceDevice(_ deviceID: AudioDeviceID) -> MutedDeviceSnapshot? {
+        if let currentMute = getMuteState(deviceID: deviceID), currentMute != 0 {
+            // Already muted by user — do nothing and never unmute later!
+            return nil
+        }
+
+        let origVirtualVol = getVirtualMainVolume(deviceID: deviceID)
+        let origChannelVols = getSettableChannelVolumes(deviceID: deviceID)
+
+        if getMuteState(deviceID: deviceID) == nil {
+            let maxVol = max(origVirtualVol ?? 0.0, origChannelVols.values.max() ?? 0.0)
+            if maxVol <= 0.001 {
+                // Already at 0 volume by user — do nothing and never raise volume later!
+                return nil
             }
+        }
+
+        let didMute = setMuteState(deviceID: deviceID, muted: true)
+        let transport = outputTransportType(deviceID: deviceID)
+
+        var savedVirtual: Float32? = nil
+        var savedChannels: [AudioObjectPropertyElement: Float32] = [:]
+
+        if shouldAlsoDuckVolumeScalar(outputTransport: transport, didSetHardwareMute: didMute) {
+            if let v = origVirtualVol, v > 0.001, setVirtualMainVolume(deviceID: deviceID, volume: 0.0) {
+                savedVirtual = v
+            }
+            for (elem, vol) in origChannelVols where vol > 0.001 {
+                if setChannelVolumeScalar(deviceID: deviceID, element: elem, volume: 0.0) {
+                    savedChannels[elem] = vol
+                }
+            }
+        }
+
+        guard didMute || savedVirtual != nil || !savedChannels.isEmpty else {
+            return nil
+        }
+        return MutedDeviceSnapshot(
+            deviceID: deviceID,
+            didSetHardwareMute: didMute,
+            savedVirtualMainVolume: savedVirtual,
+            savedChannelVolumes: savedChannels
+        )
+    }
+
+    private static func restoreSingleSnapshot(_ snap: MutedDeviceSnapshot, on targetID: AudioDeviceID) {
+        for (elem, vol) in snap.savedChannelVolumes {
+            _ = setChannelVolumeScalar(deviceID: targetID, element: elem, volume: vol)
+        }
+        if let v = snap.savedVirtualMainVolume {
+            _ = setVirtualMainVolume(deviceID: targetID, volume: v)
+        }
+        if snap.didSetHardwareMute {
+            _ = setMuteState(deviceID: targetID, muted: false)
         }
     }
 
-    private func applyRestoreIfStillSilenced(mutedDeviceID: AudioDeviceID, usedVolumeFallback: Bool, savedVolume: Float32) {
-        let targets = Self.devicesToRestore(
-            mutedDeviceID: mutedDeviceID,
-            currentDefaultDeviceID: Self.defaultOutputDeviceID()
-        )
-        for targetID in targets {
-            if usedVolumeFallback {
-                if let cur = Self.getVirtualMainVolume(deviceID: targetID), cur < 0.005 {
-                    _ = Self.setVirtualMainVolume(deviceID: targetID, volume: savedVolume)
+    private static func applyRestore(primary: MutedDeviceSnapshot?, secondary: MutedDeviceSnapshot?) {
+        let currentDefault = defaultOutputDeviceID()
+        if let p = primary {
+            for target in devicesToRestore(mutedDeviceID: p.deviceID, currentDefaultDeviceID: currentDefault) {
+                restoreSingleSnapshot(p, on: target)
+            }
+        }
+        if let s = secondary, s.deviceID != primary?.deviceID {
+            restoreSingleSnapshot(s, on: s.deviceID)
+        }
+    }
+
+    private static func applyRestoreIfStillSilenced(primary: MutedDeviceSnapshot?, secondary: MutedDeviceSnapshot?) {
+        let currentDefault = defaultOutputDeviceID()
+        let snapshots = [primary, secondary].compactMap { $0 }
+        for snap in snapshots {
+            for target in devicesToRestore(mutedDeviceID: snap.deviceID, currentDefaultDeviceID: currentDefault) {
+                for (elem, savedVol) in snap.savedChannelVolumes {
+                    if let cur = getChannelVolumeScalar(deviceID: target, element: elem), cur < 0.005 {
+                        _ = setChannelVolumeScalar(deviceID: target, element: elem, volume: savedVol)
+                    }
                 }
-            } else if let curMute = Self.getMuteState(deviceID: targetID), curMute != 0 {
-                _ = Self.setMuteState(deviceID: targetID, muted: false)
+                if let savedVol = snap.savedVirtualMainVolume,
+                   let cur = getVirtualMainVolume(deviceID: target), cur < 0.005 {
+                    _ = setVirtualMainVolume(deviceID: target, volume: savedVol)
+                }
+                if snap.didSetHardwareMute, let curMute = getMuteState(deviceID: target), curMute != 0 {
+                    _ = setMuteState(deviceID: target, muted: false)
+                }
             }
         }
     }
@@ -167,9 +241,31 @@ public final class SystemAudioDucker: @unchecked Sendable {
         return status == noErr ? deviceID : AudioDeviceID(kAudioObjectUnknown)
     }
 
+    private static func outputTransportType(deviceID: AudioDeviceID) -> UInt32 {
+        var transport: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        guard AudioObjectGetPropertyData(deviceID, &addr, 0, nil, &size, &transport) == noErr else {
+            return 0
+        }
+        return transport
+    }
+
     private static func mutePropertyAddress(element: AudioObjectPropertyElement) -> AudioObjectPropertyAddress {
         AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyMute,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: element
+        )
+    }
+
+    private static func volumeScalarAddress(element: AudioObjectPropertyElement) -> AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyVolumeScalar,
             mScope: kAudioDevicePropertyScopeOutput,
             mElement: element
         )
@@ -225,6 +321,41 @@ public final class SystemAudioDucker: @unchecked Sendable {
             }
         }
         return anySucceeded
+    }
+
+    private static func getChannelVolumeScalar(deviceID: AudioDeviceID, element: AudioObjectPropertyElement) -> Float32? {
+        var addr = volumeScalarAddress(element: element)
+        guard AudioObjectHasProperty(deviceID, &addr) else { return nil }
+        var vol: Float32 = 0.0
+        var size = UInt32(MemoryLayout<Float32>.size)
+        return AudioObjectGetPropertyData(deviceID, &addr, 0, nil, &size, &vol) == noErr ? vol : nil
+    }
+
+    private static func getSettableChannelVolumes(deviceID: AudioDeviceID) -> [AudioObjectPropertyElement: Float32] {
+        var result: [AudioObjectPropertyElement: Float32] = [:]
+        for elem: AudioObjectPropertyElement in [kAudioObjectPropertyElementMain, 1, 2] {
+            var addr = volumeScalarAddress(element: elem)
+            guard AudioObjectHasProperty(deviceID, &addr) else { continue }
+            var settable: DarwinBoolean = false
+            guard AudioObjectIsPropertySettable(deviceID, &addr, &settable) == noErr, settable.boolValue else { continue }
+            if let v = getChannelVolumeScalar(deviceID: deviceID, element: elem) {
+                result[elem] = v
+                if elem == kAudioObjectPropertyElementMain {
+                    break
+                }
+            }
+        }
+        return result
+    }
+
+    private static func setChannelVolumeScalar(deviceID: AudioDeviceID, element: AudioObjectPropertyElement, volume: Float32) -> Bool {
+        var addr = volumeScalarAddress(element: element)
+        guard AudioObjectHasProperty(deviceID, &addr) else { return false }
+        var settable: DarwinBoolean = false
+        guard AudioObjectIsPropertySettable(deviceID, &addr, &settable) == noErr, settable.boolValue else { return false }
+        var v = max(0.0, min(1.0, volume))
+        let size = UInt32(MemoryLayout<Float32>.size)
+        return AudioObjectSetPropertyData(deviceID, &addr, 0, nil, size, &v) == noErr
     }
 
     private static func getVirtualMainVolume(deviceID: AudioDeviceID) -> Float32? {

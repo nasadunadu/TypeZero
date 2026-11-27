@@ -539,9 +539,32 @@ public enum SelfTestSuite {
                 )
                 && SystemAudioDucker.muteElementsToUpdate(hasMainSettable: true, settableChannels: [1, 2]) == [kAudioObjectPropertyElementMain]
                 && SystemAudioDucker.muteElementsToUpdate(hasMainSettable: false, settableChannels: [1, 2]) == [1, 2]
+                && !SystemAudioDucker.shouldAlsoDuckVolumeScalar(outputTransport: kAudioDeviceTransportTypeBuiltIn, didSetHardwareMute: true)
+                && SystemAudioDucker.shouldAlsoDuckVolumeScalar(outputTransport: kAudioDeviceTransportTypeBluetooth, didSetHardwareMute: true)
+                && SystemAudioDucker.shouldAlsoDuckVolumeScalar(outputTransport: kAudioDeviceTransportTypeUSB, didSetHardwareMute: false)
+                && StreamingASREngine.shouldBypassBluetoothInputToBuiltIn(
+                    defaultInputTransport: kAudioDeviceTransportTypeBluetooth,
+                    builtInInputDeviceID: 78,
+                    isClamshellClosed: false
+                ) == 78
+                && StreamingASREngine.shouldBypassBluetoothInputToBuiltIn(
+                    defaultInputTransport: kAudioDeviceTransportTypeBluetoothLE,
+                    builtInInputDeviceID: 78,
+                    isClamshellClosed: false
+                ) == 78
+                && StreamingASREngine.shouldBypassBluetoothInputToBuiltIn(
+                    defaultInputTransport: kAudioDeviceTransportTypeBluetooth,
+                    builtInInputDeviceID: 78,
+                    isClamshellClosed: true
+                ) == nil
+                && StreamingASREngine.shouldBypassBluetoothInputToBuiltIn(
+                    defaultInputTransport: kAudioDeviceTransportTypeUSB,
+                    builtInInputDeviceID: 78,
+                    isClamshellClosed: false
+                ) == nil
                 && SystemAudioDucker.devicesToRestore(mutedDeviceID: 42, currentDefaultDeviceID: 42) == [42]
                 && SystemAudioDucker.devicesToRestore(mutedDeviceID: 42, currentDefaultDeviceID: 99) == [42, 99],
-            "Bluetooth/USB audio routes disable idle hot-mic standby for instant A2DP recovery, and SystemAudioDucker restores all stereo channels and switched output devices"
+            "Bluetooth mic auto-bypasses to MacBook Built-In mic (preserving stereo A2DP), AVRCP Bluetooth volume ducks to 0.0, and all channels/devices restore"
         )
 
         // 14. Steady Window-Bottom Pill Anchor (Never chases mouse cursor, never flips to window top)
