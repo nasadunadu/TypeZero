@@ -4,6 +4,7 @@ public enum SidebarTab: String, CaseIterable, Identifiable, Sendable {
     case home = "主页"
     case history = "历史"
     case dictionary = "词库"
+    case style = "风格"
     case settings = "设置"
 
     public var id: String { rawValue }
@@ -13,6 +14,7 @@ public enum SidebarTab: String, CaseIterable, Identifiable, Sendable {
         case .home: return "house"
         case .history: return "clock"
         case .dictionary: return "book.closed"
+        case .style: return "paintbrush"
         case .settings: return "gearshape"
         }
     }
@@ -22,6 +24,7 @@ public enum SidebarTab: String, CaseIterable, Identifiable, Sendable {
         case .home: return "house.fill"
         case .history: return "clock.fill"
         case .dictionary: return "book.closed.fill"
+        case .style: return "paintbrush.fill"
         case .settings: return "gearshape.fill"
         }
     }
@@ -447,8 +450,19 @@ public struct LLMConfig: Codable, Equatable {
     public var useOfficialCloudTrial: Bool
     public var appearance: AppAppearanceOption
     public var floatingPillStyle: FloatingPillStyleOption
+    public var customStylePrompt: String
 
+    public static let maxCustomStylePromptLength = 600
     public static let `default` = LLMConfig()
+
+    public var normalizedCustomStylePrompt: String {
+        let trimmed = customStylePrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        if trimmed.count <= Self.maxCustomStylePromptLength {
+            return trimmed
+        }
+        return String(trimmed.prefix(Self.maxCustomStylePromptLength))
+    }
 
     /// Maps `speechLocale` (`"auto"`, `"zh-CN"`, `"en-US"`, etc.) to sherpa-onnx SenseVoice language token.
     public static func senseVoiceLanguageCode(for speechLocale: String) -> String {
@@ -491,7 +505,8 @@ public struct LLMConfig: Codable, Equatable {
         speechLocaleExplicitlySet: Bool = false,
         useOfficialCloudTrial: Bool = false,
         appearance: AppAppearanceOption = .system,
-        floatingPillStyle: FloatingPillStyleOption = .obsidian
+        floatingPillStyle: FloatingPillStyleOption = .obsidian,
+        customStylePrompt: String = ""
     ) {
         let resolvedProvider = selectedProvider ?? LLMProviderOption.infer(from: baseURL)
         self.selectedProvider = resolvedProvider
@@ -520,6 +535,7 @@ public struct LLMConfig: Codable, Equatable {
         self.useOfficialCloudTrial = useOfficialCloudTrial
         self.appearance = appearance
         self.floatingPillStyle = floatingPillStyle
+        self.customStylePrompt = customStylePrompt
     }
 
     public mutating func selectASRProvider(_ provider: ASRProviderOption) {
@@ -606,5 +622,6 @@ public struct LLMConfig: Codable, Equatable {
         self.useOfficialCloudTrial = (try? c.decode(Bool.self, forKey: .useOfficialCloudTrial)) ?? false
         self.appearance = (try? c.decode(AppAppearanceOption.self, forKey: .appearance)) ?? .system
         self.floatingPillStyle = (try? c.decode(FloatingPillStyleOption.self, forKey: .floatingPillStyle)) ?? .obsidian
+        self.customStylePrompt = (try? c.decode(String.self, forKey: .customStylePrompt)) ?? ""
     }
 }

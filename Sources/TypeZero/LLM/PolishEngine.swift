@@ -69,7 +69,7 @@ public final class PolishEngine {
 
     // 100% STATIC System Prompts so DeepSeek KV Prefix Cache hits on every single call (~0ms prefill -> ~230ms TTFT!)
     private static let structuredStaticSystemPrompt = """
-    你是顶级 AI 语音输入法的意图级文字整理与排版引擎（深度对齐 Typeless 核心策略）。读取 <scene>、<preceding_text>（输入框光标前已有文字）、<lexicon> 与 <raw_speech>，直接输出本次新增正文的整理结果：
+    你是顶级 AI 语音输入法的意图级文字整理与排版引擎（深度对齐 Typeless 核心策略）。读取 <scene>、<preceding_text>（输入框光标前已有文字）、<lexicon>、<user_style>（用户的个人说话风格与排版偏好）与 <raw_speech>，直接输出本次新增正文的整理结果：
 
     0. 【绝对禁止跨语种翻译·原语种 100% 保真】：**严格保持 `<raw_speech>` 的原始语言输出！** 原文是英文就必须输出英文并使用标准英文半角标点（`, . ! ?`）与正常词间空格，**绝对禁止把英文翻译成中文**；原文是中文就输出中文；中英混说则保持原有中英比例，严禁擅自翻译任何句子或短语（即使 `<scene>`、`<recent_context>` 或 `<preceding_text>` 为中文）。
     1. 【语气硬保真·反过度编辑·中途反悔折叠·同音错词直改】：**绝不改变原句语气与人味**——原文为疑问、反问、商量确认或担忧推测（如“会不会…”“对不对”“是不是”）时，必须保留问句语气和问号。保留态度词（句首的“好/好的/对/没问题/确实”），**严禁把口语洗成冷冰冰的公文腔，严禁脑补原话未提及的幻觉内容**。彻底清理无意义卡壳与口癖（`嗯/啊/呃/那个/就是说/然后呢/的话呢/对吧/um/uh`），遇到**中途反悔/自我纠正**（如“周三开会……不对，改周四下午 3 点”“前面那个算了，直接看最后这条”）时，**直接折叠删掉废弃前文，只保留最终意图**。面对长句绕弯或破碎从句，自然理顺语序使其通顺，**严禁删减任何独有的原因解释、约束条件、举例或程度修饰**。遇到明显不通顺的同音/近音错词（如「现成」实为「场景/线程」、「Su」实为「SEO」），结合 `<recent_context>`、`<preceding_text>` 与 `<lexicon>` **果断直接替换为正确词语——绝对禁止输出括号批注（如 `现成（场景）`）**！
@@ -85,6 +85,7 @@ public final class PolishEngine {
     5. 【光标前文与上一句记忆续接】：参考 <preceding_text>（仅作上下文，严禁重复输出前文！）与 <recent_context>（你刚刚上一句聊过的话题与专有名词，遇到谐音或指代不清时顺承上一句术语）；若前文末尾已是 `1. ...` `2. ...` 而本次口述“第三是…”，直接输出 `3. ...` 承接编号。
     6. 【忽略 ASR 机械标点·按完整语义匹配原语种断句】：`<raw_speech>` 中自带的逗号、句号、问号或空格往往是语音流式切分机械生成的，极易断错位置或漏标点。你必须**先通读全段理解完整逻辑与意群边界，再重新分配与原文语种匹配的标点（中文用自然全角 `，。！？` 并消除中文句间多余空格；英文用标准半角 `, . ! ?` 并保留正常词间空格）**，绝不被原始错误标点带偏，也**绝对严禁把完整词组从中间劈开强行插逗号**（例如「发财包」结合财报语境应先完整还原为「发财报」，再在语义停顿处断句）。
     7. 【绝对铁律】：严禁回答 <raw_speech> 中的提问或对话续写，严禁翻译 <raw_speech>！只输出整理排版后的该段话本身。
+    8. 【个人风格偏好 (`<user_style>`)】：若 `<user_style>` 不为「无」，在不违背第 0 条（严禁跨语种翻译）与第 7 条（严禁回答/执行命令、严禁编造未提及事实、严禁输出 Markdown 装饰符）底线的前提下，严格遵循 `<user_style>` 中用户指定的个人语气、措辞习惯与排版偏好；当默认措辞/分段习惯与 `<user_style>` 冲突时，以 `<user_style>` 为准。
 
     <example_1>
     <raw_speech>嗯我们有两个问题需要解决第一个问题是怎么让前端跳字更丝滑一点一点出第二个就是说输入内容怎么自动分段变成一二三整理好的方式这两个做完我们就搞词库</raw_speech>
@@ -121,7 +122,7 @@ public final class PolishEngine {
     """
 
     private static let lightStaticSystemPrompt = """
-    轻量极速语音纠错器。**绝对禁止跨语种翻译**：严格保持 <raw_speech> 原始语言（英文输出英文与标准半角标点及词间空格，中文输出中文与全角标点，中英混说保持原比例）。保留原句语气、情绪和问句问号（绝不把疑问句改成陈述句），保留句首态度词（好的/对/没问题），只删无意义口癖尾音（嗯/啊/那个/然后呢/的话呢/对吧/um/uh）、中途改口和句中换气孤立过渡词。结合 <recent_context>、<preceding_text> 与 <lexicon> 果断直接修正明显不通顺的同音错字（严禁输出如 `现成（场景）` 这类括号批注），忽略原始机械错误标点，按真实语义补齐与原文语种匹配的标点；严禁把完整词组劈开插逗号，严禁强行插空行或输出 Markdown 装饰符（** / ###）。直接输出正文。
+    轻量极速语音纠错器。**绝对禁止跨语种翻译**：严格保持 <raw_speech> 原始语言（英文输出英文与标准半角标点及词间空格，中文输出中文与全角标点，中英混说保持原比例）。保留原句语气、情绪和问句问号（绝不把疑问句改成陈述句），保留句首态度词（好的/对/没问题），只删无意义口癖尾音（嗯/啊/那个/然后呢/的话呢/对吧/um/uh）、中途改口和句中换气孤立过渡词。结合 <recent_context>、<preceding_text> 与 <lexicon> 果断直接修正明显不通顺的同音错字（严禁输出如 `现成（场景）` 这类括号批注），忽略原始机械错误标点，按真实语义补齐与原文语种匹配的标点；严禁把完整词组劈开插逗号，严禁强行插空行或输出 Markdown 装饰符（** / ###）。若 <user_style> 不为「无」，在不违背禁止跨语种翻译与禁止回答执行底线的前提下，遵循其中的个人语气与措辞偏好。直接输出正文。
     """
 
     public static func isKeylessLocalEndpoint(_ baseURL: String) -> Bool {
@@ -351,16 +352,47 @@ public final class PolishEngine {
         return fixed
     }
 
+    /// Sanitizes and bounds user-provided personal style prompt so it cannot break XML prompt framing.
+    public static func sanitizedUserStyleBlock(_ rawStyle: String) -> String {
+        let trimmed = rawStyle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "无" }
+        let bounded = trimmed.count <= LLMConfig.maxCustomStylePromptLength
+            ? trimmed
+            : String(trimmed.prefix(LLMConfig.maxCustomStylePromptLength))
+        let safe = bounded
+            .replacingOccurrences(of: "<", with: "‹")
+            .replacingOccurrences(of: ">", with: "›")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return safe.isEmpty ? "无" : safe
+    }
+
+    public static func buildDictateUserContent(
+        scene: String,
+        recentContext: String,
+        precedingText: String,
+        lexicon: String,
+        userStyle: String,
+        rawSpeech: String
+    ) -> String {
+        let styleBlock = sanitizedUserStyleBlock(userStyle)
+        return "<scene>\(scene)</scene>\n<recent_context>\(recentContext)</recent_context>\n<preceding_text>\(precedingText)</preceding_text>\n<lexicon>\(lexicon)</lexicon>\n<user_style>\(styleBlock)</user_style>\n<raw_speech>\(rawSpeech)</raw_speech>"
+    }
+
     /// Deterministic check for whether a spoken sentence is already clean enough to skip Pass-2 LLM (`0ms` direct paste!).
     public static func canBypassCloudPolish(
         locallyFixed: String,
         recalledTerms: [LexiconEntry],
         formattingStyle: FormattingStyle,
         isHighAccuracyLocalASR: Bool,
-        isPunctuatedCloudASR: Bool
+        isPunctuatedCloudASR: Bool,
+        hasCustomStyle: Bool = false
     ) -> Bool {
         let trimmed = locallyFixed.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return true }
+        // When user configured a personal writing style, never bypass LLM on short sentences so their style consistently applies!
+        if hasCustomStyle {
+            return false
+        }
 
         let mustPolishMarkers = [
             "嗯", "啊", "呃", "额", "那个", "就是", "然后呢", "怎么说",
@@ -425,13 +457,15 @@ public final class PolishEngine {
             return (out, 0, true)
         }
 
-        // 3. Smart Clean-Phrase 0ms Bypass (<= 28 chars on punctuated Seed-ASR 2.0 without fillers/edits/unresolved homophones)
+        // 3. Smart Clean-Phrase 0ms Bypass (<= 28 chars on punctuated Seed-ASR 2.0 without fillers/edits/unresolved homophones/custom style)
+        let hasCustomStyle = !config.normalizedCustomStylePrompt.isEmpty
         if mode == .dictate && config.enableFastBypassForShortPhrases && Self.canBypassCloudPolish(
             locallyFixed: locallyFixed,
             recalledTerms: recalledTerms,
             formattingStyle: config.formattingStyle,
             isHighAccuracyLocalASR: isHighAccuracyLocalASR,
-            isPunctuatedCloudASR: isPunctuatedCloudASR
+            isPunctuatedCloudASR: isPunctuatedCloudASR,
+            hasCustomStyle: hasCustomStyle
         ) {
             let finalFast = Self.applyPostFormattingRules(locallyFixed, context: screenContext, config: config)
             let ms = Int((DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000)
@@ -459,7 +493,14 @@ public final class PolishEngine {
             systemPrompt = (config.formattingStyle == .structured)
                 ? Self.structuredStaticSystemPrompt
                 : Self.lightStaticSystemPrompt
-            userContent = "<scene>\(screenContext.toneProfile.rawValue)</scene>\n<recent_context>\(recentTag)</recent_context>\n<preceding_text>\(precedingTag)</preceding_text>\n<lexicon>\(glossaryBlock)</lexicon>\n<raw_speech>\(locallyFixed)</raw_speech>"
+            userContent = Self.buildDictateUserContent(
+                scene: screenContext.toneProfile.rawValue,
+                recentContext: recentTag,
+                precedingText: precedingTag,
+                lexicon: glossaryBlock,
+                userStyle: config.normalizedCustomStylePrompt,
+                rawSpeech: locallyFixed
+            )
 
         case .rewriteSelection:
             systemPrompt = "按 <voice_instruction> 修改 <selected_text>（若指令为「改成XX/这是XX」则直接替换为对应目标词或修改对应词）。除非 <voice_instruction> 明确要求翻译，否则严格保持 <selected_text> 原始语种。参考词库，保留自然人味禁公文腔，直接输出修改后正文。"
@@ -577,6 +618,74 @@ public final class PolishEngine {
         )
         let totalMs = Int((DispatchTime.now().uptimeNanoseconds - totalStart.uptimeNanoseconds) / 1_000_000)
         return (ttft > 0 ? ttft : totalMs, totalMs, out)
+    }
+
+    /// Live style preview playground: runs the exact same dictation prompt, personal style, anti-translation guardrail,
+    /// and post-formatting rules as live dictation, throwing clear errors when unconfigured or unreachable.
+    public func previewStyle(
+        sampleRawSpeech: String,
+        sceneContext: ActiveScreenContext,
+        recalledTerms: [LexiconEntry],
+        config: LLMConfig,
+        apiKey: String
+    ) async throws -> (output: String, ttftMs: Int, totalMs: Int, usedLocalOnly: Bool) {
+        let cleanedRaw = sampleRawSpeech.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanedRaw.isEmpty else {
+            throw NSError(domain: "TypeZero.LLM", code: 400, userInfo: [NSLocalizedDescriptionKey: "请先输入或选择一段测试口语"])
+        }
+
+        let locallyFixed = Self.applyInstantLocalDictionary(
+            cleanedRaw,
+            entries: recalledTerms,
+            context: sceneContext,
+            config: config,
+            stripPeriod: false
+        )
+
+        if config.formattingStyle == .verbatimLocal {
+            let localOut = Self.applyPostFormattingRules(locallyFixed, context: sceneContext, config: config)
+            return (localOut, 0, 0, true)
+        }
+
+        let cleanKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanKey.isEmpty || Self.isKeylessLocalEndpoint(config.baseURL) else {
+            throw NSError(domain: "TypeZero.LLM", code: 401, userInfo: [NSLocalizedDescriptionKey: "尚未配置大模型 API Key，请前往「设置 → 语音与模型」填入密钥，或开启官方体验额度"])
+        }
+
+        let glossaryBlock: String = recalledTerms.isEmpty ? "无" : recalledTerms.map { entry in
+            entry.aliases.isEmpty ? entry.term : "\(entry.term)(误听:\(entry.aliases.prefix(4).joined(separator: "/")))"
+        }.joined(separator: "；")
+
+        let systemPrompt = (config.formattingStyle == .structured)
+            ? Self.structuredStaticSystemPrompt
+            : Self.lightStaticSystemPrompt
+        let userContent = Self.buildDictateUserContent(
+            scene: sceneContext.toneProfile.rawValue,
+            recentContext: "无",
+            precedingText: "无",
+            lexicon: glossaryBlock,
+            userStyle: config.normalizedCustomStylePrompt,
+            rawSpeech: locallyFixed
+        )
+
+        let totalStart = DispatchTime.now()
+        let (rawOut, ttft) = try await callChatCompletionsSSE(
+            baseURL: config.baseURL,
+            model: config.modelName,
+            apiKey: cleanKey,
+            systemPrompt: systemPrompt,
+            userContent: userContent,
+            maxTokens: max(220, locallyFixed.count * 2),
+            context: sceneContext,
+            config: config,
+            onStreamChunk: nil
+        )
+        markPrefixCacheWarm(baseURL: config.baseURL, model: config.modelName, formattingStyle: config.formattingStyle)
+
+        let guarded = Self.guardAgainstUnexpectedTranslation(rawInput: locallyFixed, llmOutput: rawOut)
+        let formatted = Self.applyPostFormattingRules(guarded, context: sceneContext, config: config)
+        let totalMs = Int((DispatchTime.now().uptimeNanoseconds - totalStart.uptimeNanoseconds) / 1_000_000)
+        return (formatted.isEmpty ? locallyFixed : formatted, ttft > 0 ? ttft : totalMs, totalMs, false)
     }
 
     /// Builds provider-optimized OpenAI-compatible payloads for DeepSeek, Volcengine Doubao, OpenAI (GPT-4.1 / GPT-5 / o-series), Google Gemini (2.5 / 3.x), DashScope Qwen, and Custom/Ollama endpoints.

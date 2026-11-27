@@ -125,6 +125,14 @@ public struct MainDashboardView: View {
                     Text("\(appState.history.count)")
                         .font(TZFont.mono(10.5, weight: .medium))
                         .foregroundStyle(isSelected ? TZTheme.accent : TZTheme.inkMuted)
+                } else if tab == .style && !appState.llmConfig.normalizedCustomStylePrompt.isEmpty {
+                    Text("已自定义")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .foregroundStyle(isSelected ? TZTheme.accent : TZTheme.inkMuted)
+                        .padding(.horizontal, 5.5)
+                        .padding(.vertical, 2)
+                        .background(isSelected ? TZTheme.accentSoft : TZTheme.recessedWell.opacity(0.8))
+                        .clipShape(Capsule())
                 }
             }
             .padding(.leading, 14)
@@ -309,6 +317,8 @@ public struct MainDashboardView: View {
                     HistoryView(appState: appState)
                 case .dictionary:
                     DictionaryView(appState: appState, lexiconStore: lexiconStore)
+                case .style:
+                    StyleView(appState: appState)
                 case .settings:
                     SettingsView(appState: appState)
                 }

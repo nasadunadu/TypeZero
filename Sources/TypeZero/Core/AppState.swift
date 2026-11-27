@@ -1465,6 +1465,44 @@ public final class AppState: ObservableObject {
         }
     }
 
+    public func runStylePreview(
+        sampleText: String,
+        toneProfile: AppToneProfile
+    ) async throws -> (output: String, ttftMs: Int, totalMs: Int, usedLocalOnly: Bool) {
+        var effectiveConfig = llmConfig
+        var key = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isOfficialCloudTrialActive {
+            effectiveConfig.selectedProvider = .deepseek
+            effectiveConfig.baseURL = CloudAuthClient.cloudLLMBaseURL
+            effectiveConfig.modelName = "deepseek-flash"
+            key = KeychainHelper.loadCloudJWT().trimmingCharacters(in: .whitespacesAndNewlines)
+        } else if key.isEmpty {
+            key = KeychainHelper.loadAPIKey(for: effectiveConfig.selectedProvider)
+        }
+
+        let syntheticContext: ActiveScreenContext = {
+            switch toneProfile {
+            case .instantMessaging:
+                return ActiveScreenContext(appName: "Feishu", bundleID: "com.electron.lark", windowTitle: "", selectedText: "", precedingText: "", hasFocusedTextInput: true)
+            case .emailAndFormalDoc:
+                return ActiveScreenContext(appName: "Mail", bundleID: "com.apple.mail", windowTitle: "", selectedText: "", precedingText: "", hasFocusedTextInput: true)
+            case .shellTerminal:
+                return ActiveScreenContext(appName: "Terminal", bundleID: "com.apple.Terminal", windowTitle: "", selectedText: "", precedingText: "", hasFocusedTextInput: true)
+            case .aiPromptAndNotes:
+                return ActiveScreenContext(appName: "Notes", bundleID: "com.apple.Notes", windowTitle: "", selectedText: "", precedingText: "", hasFocusedTextInput: true)
+            }
+        }()
+
+        let recalled = lexiconStore.recallRelevantTerms(for: sampleText, activeWindowTitle: "", limit: 26)
+        return try await polishEngine.previewStyle(
+            sampleRawSpeech: sampleText,
+            sceneContext: syntheticContext,
+            recalledTerms: recalled,
+            config: effectiveConfig,
+            apiKey: key
+        )
+    }
+
     public func beginDictationSession() {
         guard !isSessionActive, !isFinalizingSession else {
             hotkeyMonitor.syncRecordingState(isSessionActive)

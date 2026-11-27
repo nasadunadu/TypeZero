@@ -48,7 +48,7 @@ public enum AppUpdaterError: LocalizedError {
 }
 
 public enum AppUpdater {
-    public static let compiledVersion = "0.6.3"
+    public static let compiledVersion = "0.6.4"
     public static let versionEndpoint = "\(CloudAuthClient.baseURL)/api/version"
 
     public static var currentAppVersion: String {
