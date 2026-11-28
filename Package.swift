@@ -40,7 +40,10 @@ let package = Package(
                 .linkedFramework("Speech"),
                 .linkedFramework("ApplicationServices"),
                 .linkedFramework("Carbon"),
-                .linkedFramework("Security")
+                .linkedFramework("Security"),
+                .linkedFramework("Vision"),
+                .linkedFramework("CoreImage"),
+                .linkedFramework("ImageIO")
             ]
         )
     ]

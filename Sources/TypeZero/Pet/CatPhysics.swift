@@ -334,6 +334,34 @@ final class CatSettings {
     var hourlyAnnouncement: Bool {
         didSet { UserDefaults.standard.set(hourlyAnnouncement, forKey: "TypeZero.Pet.HourlyAnnouncement") }
     }
+    /// Show the cat's personal name occasionally floating above its head
+    var showOccasionalNameBubble: Bool {
+        didSet { UserDefaults.standard.set(showOccasionalNameBubble, forKey: "TypeZero.Pet.ShowOccasionalNameBubble") }
+    }
+    /// Average minutes between occasional head-top name bubbles (2, 4, or 8)
+    var nameBubbleIntervalMinutes: Int {
+        didSet { UserDefaults.standard.set(nameBubbleIntervalMinutes, forKey: "TypeZero.Pet.NameBubbleIntervalMinutes") }
+    }
+    /// Optional custom nicknames for built-in coats (key = coatTheme.rawValue)
+    var builtInNicknames: [String: String] {
+        didSet { UserDefaults.standard.set(builtInNicknames, forKey: "TypeZero.Pet.BuiltInNicknames") }
+    }
+    var activeCatDisplayName: String {
+        if !customSkin.isEmpty, let sk = SkinLibrary.shared.skin(id: customSkin) {
+            return sk.name
+        }
+        if let nick = builtInNicknames[coatTheme.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines), !nick.isEmpty {
+            return nick
+        }
+        return coatTheme.shortTitle
+    }
+    var hasCustomCatIdentity: Bool {
+        if !customSkin.isEmpty, SkinLibrary.shared.skin(id: customSkin) != nil { return true }
+        if let nick = builtInNicknames[coatTheme.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines), !nick.isEmpty {
+            return true
+        }
+        return false
+    }
     var scale: CGFloat {
         didSet { UserDefaults.standard.set(Double(scale), forKey: "TypeZero.Pet.Scale") }
     }
@@ -357,12 +385,17 @@ final class CatSettings {
     private var cachedSkinKey: String = ""
     private var cachedSkinRev: Int = -1
     private var cachedSkinValue: SkinSpec?
+    /// Synchronous main-thread preview skin override used only while rendering `CustomCatStudioSheet` preview stage.
+    var previewSkinOverride: SkinSpec? = nil
     private var cachedKBKey: String = ""
     private var cachedKBRev: Int = -1
     private var cachedKBValue: KeyboardSkinSpec?
 
     /// The skin the renderer draws: the imported one while its file still exists, else the built-in coat.
     var activeSkin: SkinSpec {
+        if let override = previewSkinOverride {
+            return override
+        }
         let lib = SkinLibrary.shared
         let key = customSkin.isEmpty ? "coat:\(coatTheme.rawValue)" : "custom:\(customSkin)"
         if key == cachedSkinKey && lib.revision == cachedSkinRev, let cached = cachedSkinValue {
@@ -443,6 +476,10 @@ final class CatSettings {
         fullClickThrough = d.object(forKey: "TypeZero.Pet.FullClickThrough") as? Bool ?? false
         fullScreenOverlay = d.object(forKey: "TypeZero.Pet.FullScreenOverlay") as? Bool ?? true
         hourlyAnnouncement = d.object(forKey: "TypeZero.Pet.HourlyAnnouncement") as? Bool ?? false
+        showOccasionalNameBubble = d.object(forKey: "TypeZero.Pet.ShowOccasionalNameBubble") as? Bool ?? true
+        let savedNameInterval = d.object(forKey: "TypeZero.Pet.NameBubbleIntervalMinutes") as? Int ?? 4
+        nameBubbleIntervalMinutes = max(1, min(15, savedNameInterval))
+        builtInNicknames = (d.dictionary(forKey: "TypeZero.Pet.BuiltInNicknames") as? [String: String]) ?? [:]
         let savedScale = d.double(forKey: "TypeZero.Pet.Scale")
         scale = savedScale > 0.3 ? CGFloat(savedScale) : 0.92
         coatTheme = CatCoatTheme(rawValue: d.string(forKey: "TypeZero.Pet.CoatTheme") ?? "") ?? .classicBlack
@@ -2069,6 +2106,8 @@ struct SkinSpec {
     var idleLegsTinted = true
     var decorations: [SkinDecoration] = []
     var preview: Data?
+    var species: String = "cat"
+    var photoDNA: CatPhotoDNA? = nil
 
     static let maxFileBytes = 2 * 1024 * 1024
     // formatVersion 2 = same fields as 1, written by the workshop when the skin needs an app newer than 1.5.2
@@ -2447,6 +2486,17 @@ struct SkinSpec {
             }
             spec.preview = png
         }
+        if let spStr = root["species"] as? String, !spStr.isEmpty {
+            spec.species = spStr
+        }
+        if let dnaDict = root["typezeroCatDNA"] as? [String: Any],
+           var parsedDNA = PhotoCatAnalyzer.parseVisionJSONDict(dnaDict) {
+            parsedDNA.name = spec.name
+            if let seedNum = (dnaDict["patchSeed"] as? NSNumber)?.intValue {
+                parsedDNA.patchSeed = seedNum
+            }
+            spec.photoDNA = parsedDNA
+        }
 
         spec.id = contentId(data)
         return spec
@@ -2599,7 +2649,11 @@ final class SkinLibrary {
             throw SkinError(message: "皮肤 JSON 解析失败")
         }
         obj["name"] = cleaned
-        guard let newData = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted]) else {
+        if var dnaObj = obj["typezeroCatDNA"] as? [String: Any] {
+            dnaObj["name"] = cleaned
+            obj["typezeroCatDNA"] = dnaObj
+        }
+        guard let newData = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) else {
             throw SkinError(message: "写入皮肤 JSON 失败")
         }
         let newSpec = try SkinSpec.parse(newData)
@@ -2615,6 +2669,25 @@ final class SkinLibrary {
         }
         reload()
         return newSpec.id
+    }
+
+    /// Saves compiled `.kurocat` JSON data directly into the skins directory, moving any replaced skin file to Trash.
+    func saveCompiledData(_ data: Data, replacingId oldId: String? = nil) throws -> String {
+        let spec = try SkinSpec.parse(data)
+        let newURL = Self.directory.appendingPathComponent("\(spec.id).kurocat")
+        do {
+            try FileManager.default.createDirectory(at: Self.directory, withIntermediateDirectories: true)
+            try data.write(to: newURL, options: .atomic)
+            if let old = oldId, old.count == 16, old != spec.id,
+               old.allSatisfy({ "0123456789abcdef".contains($0) }) {
+                let oldURL = Self.directory.appendingPathComponent("\(old).kurocat")
+                try? FileManager.default.trashItem(at: oldURL, resultingItemURL: nil)
+            }
+        } catch {
+            throw SkinError(message: "保存专属猫咪皮肤失败：无法写入 \(Self.directory.path)")
+        }
+        reload()
+        return spec.id
     }
 }
 

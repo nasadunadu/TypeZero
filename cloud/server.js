@@ -686,6 +686,7 @@ async function createApp(customDbPath, options = {}) {
   const mailer = buildMailer();
   const app = express();
   app.set("trust proxy", 1);
+  app.use("/api/pet/analyze-photo", express.json({ limit: "1536kb" }));
   app.use(express.json({ limit: "256kb" }));
 
   function resolveFeishuConfig() {
@@ -1277,6 +1278,105 @@ async function createApp(customDbPath, options = {}) {
       const cur = activeLlmConcurrency.get(req.user.id) || 1;
       if (cur <= 1) activeLlmConcurrency.delete(req.user.id);
       else activeLlmConcurrency.set(req.user.id, cur - 1);
+    }
+  });
+
+  // ---------- 5b. Custom Pet Photo Vision DNA Extraction (`/api/pet/analyze-photo`) ----------
+  const PET_PHOTO_SYSTEM_PROMPT = [
+    "你是顶级猫咪品种、毛色遗传学与 2D 矢量角色美术总监。",
+    "请观察用户上传的猫咪照片，剥离室内黄光/阴影色偏（白毛保持纯净奶白 #F5F1E8，纯黑毛保持绒黑 #1C1B20），仅输出一个纯 JSON 对象：",
+    '{"breedBadge":"如 海双布偶/三花小猫/奶牛警长/金渐层英短/狸花白手套/橘白起司","patternFamily":"solid|tuxedo_bicolor|tabby|tabby_bicolor|calico|tortoiseshell|colorpoint|ragdoll_bicolor|shaded|van","faceBlaze":"none|inverted_v|skew_left|skew_right|helmet_cap|split_half|eye_patch_left|eye_patch_right|white_muzzle|seal_mask","blazeWidth":0.56,"foreheadM":false,"cheekStripes":false,"chinSpot":false,"chestBib":"none|locket|full_bib","frontLeftSock":"none|mitten|high_sock","frontRightSock":"none|mitten|high_sock","hindSocks":false,"tailRings":false,"tailTipDip":false,"heterochromia":false,"primaryFurHex":"#RRGGBB","secondaryFurHex":"#RRGGBB","tertiaryFurHex":"#RRGGBB","irisLeftHex":"#RRGGBB","irisRightHex":"#RRGGBB","noseHex":"#RRGGBB","earInnerHex":"#RRGGBB","isSleekBuild":false,"cheekFullness":1.06,"earSize":1.0}'
+  ].join("\n");
+
+  app.post("/api/pet/analyze-photo", requireUser, async (req, res) => {
+    const budget = db.getBudgetSnapshot();
+    if (!budget.withinBudget) {
+      return res.status(503).json({ error: { code: "GLOBAL_BUDGET_CAP", message: "云端配额已满，客户端将自动使用本机 Vision 提取" } });
+    }
+    const trial = evaluateUserTrial(req.user);
+    if (!trial.canUseLlm) {
+      return res.status(402).json({ error: { code: "TRIAL_ENDED", message: "云端体验已结束，客户端将自动使用本机 Vision 提取" } });
+    }
+    if (!checkRateLimit(`pet_photo:${req.user.id}`, 6, 60_000)) {
+      return res.status(429).json({ error: { code: "RATE_LIMITED", message: "猫咪照片分析过于频繁，请稍候再试" } });
+    }
+
+    const imageDataUrl = String(req.body?.imageDataUrl || "").trim();
+    if (
+      !imageDataUrl.startsWith("data:image/") ||
+      !imageDataUrl.includes(";base64,") ||
+      imageDataUrl.length < 64 ||
+      imageDataUrl.length > 1_400_000
+    ) {
+      return res.status(400).json({ error: { code: "INVALID_IMAGE", message: "请上传有效的 base64 压缩猫咪图片" } });
+    }
+
+    if (typeof options.mockPetVisionHandler === "function") {
+      const mockDna = await options.mockPetVisionHandler(imageDataUrl, req.user);
+      db.deductUsage({
+        userId: req.user.id,
+        email: req.user.email,
+        service: "llm",
+        model: "deepseek-flash",
+        units: 650,
+        costMicroCny: 60,
+      });
+      return res.json({ ok: true, dna: mockDna });
+    }
+
+    if (!DEEPSEEK_API_KEY) {
+      return res.status(503).json({ error: { code: "ENGINE_UNAVAILABLE", message: "云端视觉模型未就绪" } });
+    }
+
+    try {
+      const upstreamResp = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "deepseek-flash",
+          stream: false,
+          max_tokens: 520,
+          thinking: { type: "disabled" },
+          messages: [
+            { role: "system", content: PET_PHOTO_SYSTEM_PROMPT },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "请分析这张猫咪照片的花色、开脸、五官与毛色 JSON。" },
+                { type: "image_url", image_url: { url: imageDataUrl } },
+              ],
+            },
+          ],
+        }),
+      });
+      if (!upstreamResp.ok) {
+        return res.status(502).json({ error: { code: "UPSTREAM_ERROR", message: "云端视觉识别响应异常" } });
+      }
+      const json = await upstreamResp.json();
+      const content = String(json?.choices?.[0]?.message?.content || "").trim();
+      const firstBrace = content.indexOf("{");
+      const lastBrace = content.lastIndexOf("}");
+      if (firstBrace < 0 || lastBrace <= firstBrace) {
+        return res.status(502).json({ error: { code: "PARSE_ERROR", message: "视觉特征解析失败" } });
+      }
+      const dna = JSON.parse(content.slice(firstBrace, lastBrace + 1));
+      const totalToks = Number(json?.usage?.total_tokens || 850);
+      const costMicro = Math.max(LLM_MIN_MICRO_CNY_PER_REQ, Math.round(totalToks * 0.06));
+      db.deductUsage({
+        userId: req.user.id,
+        email: req.user.email,
+        service: "llm",
+        model: "deepseek-flash",
+        units: totalToks,
+        costMicroCny: costMicro,
+      });
+      checkAndDispatchBudgetAlerts();
+      return res.json({ ok: true, dna });
+    } catch (_err) {
+      return res.status(502).json({ error: { code: "RELAY_ERROR", message: "云端视觉连接异常" } });
     }
   });
 

@@ -73,12 +73,16 @@ private struct RenderedPose {
     let tabletPress: CGFloat
     let toastActive: Bool
     let toastProgress: CGFloat
+    let nameBubbleActive: Bool
+    let nameBubbleProgress: CGFloat
+    let nameBubbleBobBucket: Int
     let showPermissionPill: Bool
     let permissionPillText: String
 
     init(physics: CatPhysics, settings: CatSettings, skin: SkinSpec, size: CGSize,
          showPermissionPill: Bool, permissionPillText: String,
-         toastActive: Bool = false, toastProgress: CGFloat = 0) {
+         toastActive: Bool = false, toastProgress: CGFloat = 0,
+         nameBubbleActive: Bool = false, nameBubbleProgress: CGFloat = 0, nameBubbleBobBucket: Int = 0) {
         let coat = settings.coatTheme
         let tabletActive = physics.isTabletActive
         let kbTheme = settings.keyboardTheme
@@ -139,6 +143,7 @@ private struct RenderedPose {
             || abs(physics.kbImpactY.value) > 0.01 || abs(physics.kbImpactTilt.value) > 0.01
             || pet > 0.02
             || toastActive
+            || nameBubbleActive
 
         head = CatRenderer.headPosition(physics, skin: skin)
         let tailCurve = CatRenderer.tailCurve(physics)
@@ -185,6 +190,9 @@ private struct RenderedPose {
         tabletPress = physics.tabletPenPress.value
         self.toastActive = toastActive
         self.toastProgress = toastProgress
+        self.nameBubbleActive = nameBubbleActive
+        self.nameBubbleProgress = nameBubbleProgress
+        self.nameBubbleBobBucket = nameBubbleBobBucket
         self.showPermissionPill = showPermissionPill
         self.permissionPillText = showPermissionPill ? permissionPillText : ""
     }
@@ -237,6 +245,9 @@ private struct RenderedPose {
             || appearance != previous.appearance
             || toastActive != previous.toastActive
             || abs(toastProgress - previous.toastProgress) > 0.004
+            || nameBubbleActive != previous.nameBubbleActive
+            || abs(nameBubbleProgress - previous.nameBubbleProgress) > 0.004
+            || nameBubbleBobBucket != previous.nameBubbleBobBucket
             || showPermissionPill != previous.showPermissionPill
             || permissionPillText != previous.permissionPillText {
             return true
@@ -263,6 +274,8 @@ final class CatCanvasView: NSView {
     var onUserInteraction: (() -> Void)?
     var onScaleChanged: ((CGFloat) -> Void)?
     var onDropSkinFiles: (([URL]) -> Void)?
+    var onDropPhotoURL: ((URL) -> Void)?
+    var onHeadPetMilestone: (() -> Void)?
 
     /// Transparent horizontal stage runway (`102pt` on each side -> `564pt` total width) so Clack-Clack's
     /// 10.58s 2-cat walking entrance, forehead-butting arched-back duel, and walking exit never clip!
@@ -302,6 +315,16 @@ final class CatCanvasView: NSView {
     private let toastHold: Double = 3.2
     private let toastFadeOut: Double = 0.40
     var toastActive: Bool { toastText != nil }
+
+    private var nameBubbleText: String? = nil
+    private var nameBubbleMood: String = ""
+    private var nameBubbleProgress: CGFloat = 0
+    private var nameBubblePhase: Double = 0
+    private let nameBubbleFadeIn: Double = 0.38
+    private let nameBubbleHold: Double = 3.10
+    private let nameBubbleFadeOut: Double = 0.52
+    var nameBubbleActive: Bool { nameBubbleText != nil }
+    private var lastPetMilestoneTime: CFTimeInterval = -100
     var forceClickThroughForModal = false
 
     var isDraggingOrResizing: Bool { isDragging || isRotating || activeResizeCorner >= 0 }
@@ -387,6 +410,8 @@ final class CatCanvasView: NSView {
             }
             if toastActive, let text = toastText {
                 drawToastPill(in: ctx, text: text, alpha: toastProgress)
+            } else if nameBubbleActive, let nameText = nameBubbleText, !physics.isHandoverActive, physics.scruffDrag.value < 0.18 {
+                drawFloatingCatName(in: ctx, name: nameText, mood: nameBubbleMood, alpha: nameBubbleProgress, phase: CGFloat(nameBubblePhase))
             }
             ctx.restoreGState()
             cachedForegroundImage = nil
@@ -400,6 +425,7 @@ final class CatCanvasView: NSView {
         ctx.translateBy(x: Self.stagePadX, y: Self.contentTopInset)
 
         let skin = settings.activeSkin
+        let bobBucket = nameBubbleActive ? Int((nameBubblePhase * 24.0).rounded()) : 0
         let currentPose = RenderedPose(
             physics: physics,
             settings: settings,
@@ -408,7 +434,10 @@ final class CatCanvasView: NSView {
             showPermissionPill: showPill,
             permissionPillText: pillText,
             toastActive: toastActive,
-            toastProgress: toastProgress
+            toastProgress: toastProgress,
+            nameBubbleActive: nameBubbleActive,
+            nameBubbleProgress: nameBubbleProgress,
+            nameBubbleBobBucket: bobBucket
         )
 
         if physics.sleepiness >= 0.95,
@@ -440,6 +469,8 @@ final class CatCanvasView: NSView {
                 CatRenderer.drawOverlays(in: ctx, showPermissionPill: showPill, permissionPillText: pillText)
                 if toastActive, let text = toastText {
                     drawToastPill(in: ctx, text: text, alpha: toastProgress)
+                } else if nameBubbleActive, let nameText = nameBubbleText, !physics.isHandoverActive, physics.scruffDrag.value < 0.18 {
+                    drawFloatingCatName(in: ctx, name: nameText, mood: nameBubbleMood, alpha: nameBubbleProgress, phase: CGFloat(nameBubblePhase))
                 }
                 lastDrawnPose = currentPose
                 ctx.restoreGState()
@@ -452,6 +483,8 @@ final class CatCanvasView: NSView {
         CatRenderer.draw(in: ctx, physics: physics, showPermissionPill: showPill, permissionPillText: pillText)
         if toastActive, let text = toastText {
             drawToastPill(in: ctx, text: text, alpha: toastProgress)
+        } else if nameBubbleActive, let nameText = nameBubbleText, !physics.isHandoverActive, physics.scruffDrag.value < 0.18 {
+            drawFloatingCatName(in: ctx, name: nameText, mood: nameBubbleMood, alpha: nameBubbleProgress, phase: CGFloat(nameBubblePhase))
         }
         lastDrawnPose = currentPose
         ctx.restoreGState()
@@ -493,7 +526,10 @@ final class CatCanvasView: NSView {
             showPermissionPill: showPill,
             permissionPillText: status.permissionPillText,
             toastActive: toastActive,
-            toastProgress: toastProgress
+            toastProgress: toastProgress,
+            nameBubbleActive: nameBubbleActive,
+            nameBubbleProgress: nameBubbleProgress,
+            nameBubbleBobBucket: nameBubbleActive ? Int((nameBubblePhase * 24.0).rounded()) : 0
         )
         return current.visiblyDiffers(from: previous)
     }
@@ -884,11 +920,13 @@ final class CatCanvasView: NSView {
 
     // MARK: Drag & drop of .kurocat & .kurokb / .json skins onto the cat
 
+    private static let photoExtensions: Set<String> = ["png", "jpg", "jpeg", "heic", "webp", "bmp", "tiff"]
+
     private static func droppedSkinURLs(from sender: NSDraggingInfo) -> [URL] {
         let urls = (sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
         return urls.filter {
             let ext = $0.pathExtension.lowercased()
-            return ext == "kurocat" || ext == "kurokb" || ext == "json"
+            return ext == "kurocat" || ext == "kurokb" || ext == "json" || photoExtensions.contains(ext)
         }
     }
 
@@ -917,6 +955,10 @@ final class CatCanvasView: NSView {
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         let urls = Self.droppedSkinURLs(from: sender)
         guard !urls.isEmpty else { return false }
+        if let firstPhoto = urls.first(where: { Self.photoExtensions.contains($0.pathExtension.lowercased()) }) {
+            DispatchQueue.main.async { [weak self] in self?.onDropPhotoURL?(firstPhoto) }
+            return true
+        }
         DispatchQueue.main.async { [weak self] in self?.onDropSkinFiles?(urls) }
         return true
     }
@@ -949,6 +991,179 @@ final class CatCanvasView: NSView {
             return false
         }
         return true
+    }
+
+    // MARK: - Subtle Head-Tracking Cat Name Bubble ("偶尔出现在脑袋上")
+
+    func showNameBubble(name: String, mood: String? = nil) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let resolvedMood: String = {
+            if let m = mood, !m.isEmpty { return m }
+            let isAsleep = CatSettings.shared.visualStyle == .clackOriginal
+                ? physics.clackSim.pose.sleeping
+                : (physics.sleepiness >= 0.85)
+            if isAsleep { return "💤" }
+            if physics.isMusicPlaying { return "🎵" }
+            if physics.petHeadIntensity > 0.35 { return "💛" }
+            return "🐾"
+        }()
+        nameBubbleText = trimmed
+        nameBubbleMood = resolvedMood
+        nameBubblePhase = 0
+        nameBubbleProgress = 0
+        needsDisplay = true
+    }
+
+    @discardableResult
+    func tickNameBubble(dt: CGFloat) -> Bool {
+        if physics.petHeadIntensity > 0.68 {
+            let now = CACurrentMediaTime()
+            if now - lastPetMilestoneTime > 55.0 {
+                lastPetMilestoneTime = now
+                onHeadPetMilestone?()
+            }
+        }
+        guard nameBubbleActive else { return false }
+        nameBubblePhase += Double(dt)
+        if nameBubblePhase < nameBubbleFadeIn {
+            let t = CGFloat(nameBubblePhase / nameBubbleFadeIn)
+            nameBubbleProgress = 1.0 - pow(1.0 - t, 3.0)
+        } else if nameBubblePhase < nameBubbleFadeIn + nameBubbleHold {
+            nameBubbleProgress = 1.0
+        } else if nameBubblePhase < nameBubbleFadeIn + nameBubbleHold + nameBubbleFadeOut {
+            let elapsed = nameBubblePhase - (nameBubbleFadeIn + nameBubbleHold)
+            let t = CGFloat(elapsed / nameBubbleFadeOut)
+            nameBubbleProgress = max(0, 1.0 - t * t)
+        } else {
+            nameBubbleText = nil
+            nameBubbleMood = ""
+            nameBubbleProgress = 0
+            nameBubblePhase = 0
+            return false
+        }
+        return true
+    }
+
+    private func drawFloatingCatName(in ctx: CGContext, name: String, mood: String, alpha: CGFloat, phase: CGFloat) {
+        let skin = CatSettings.shared.activeSkin
+        let isClack = (CatSettings.shared.visualStyle == .clackOriginal)
+        let headCenter: CGPoint = isClack
+            ? CGPoint(x: 180 + physics.clackSim.pose.headLean.x * 0.78, y: 78 + physics.clackSim.pose.headLean.y * 0.78)
+            : CatRenderer.headPosition(physics, skin: skin)
+        let headTopY = headCenter.y - (isClack ? 36.0 : (38.0 * skin.shape.headScale))
+        let accent: NSColor = {
+            if let iris = skin.palette.irisLeft ?? skin.palette.iris {
+                return NSColor(srgbRed: iris.r, green: iris.g, blue: iris.b, alpha: 1.0)
+            }
+            return CatSettings.shared.eyeTheme.primaryColor
+        }()
+        Self.drawCatNameBadgeStatic(
+            in: ctx,
+            headCenterX: headCenter.x,
+            headTopY: headTopY,
+            minX: -Self.stagePadX + 10,
+            maxX: CatPhysics.canvasSize.width + Self.stagePadX - 10,
+            minY: -Self.contentTopInset + 6,
+            name: name,
+            mood: mood,
+            accentColor: accent,
+            alpha: alpha,
+            phase: phase
+        )
+    }
+
+    static func drawCatNameBadgeStatic(
+        in ctx: CGContext,
+        headCenterX: CGFloat,
+        headTopY: CGFloat,
+        minX: CGFloat,
+        maxX: CGFloat,
+        minY: CGFloat,
+        name: String,
+        mood: String,
+        accentColor: NSColor,
+        alpha: CGFloat,
+        phase: CGFloat
+    ) {
+        guard alpha > 0.01 else { return }
+        let font = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
+        let moodTag: String = {
+            if mood == "💤" { return " zZ" }
+            if mood == "🎵" { return " ♪" }
+            return ""
+        }()
+        let displayStr = name + moodTag
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor(calibratedWhite: 0.98, alpha: 1.0)
+        ]
+        let attrStr = NSAttributedString(string: displayStr, attributes: attrs)
+        let sz = attrStr.size()
+
+        let iconW: CGFloat = 11.0
+        let iconGap: CGFloat = 6.0
+        let padX: CGFloat = 11.5
+        let padY: CGFloat = 5.0
+        let pillW = padX * 2 + iconW + iconGap + sz.width
+        let pillH = max(23.0, sz.height + padY * 2)
+
+        let bobY = sin(phase * 2.5) * 2.4
+        let popLift = (1.0 - alpha) * 4.5
+        let pillX = max(minX, min(maxX - pillW, headCenterX - pillW * 0.5))
+        let pillY = max(minY, headTopY - pillH - 28.0 + bobY + popLift)
+        let rect = CGRect(x: pillX, y: pillY, width: pillW, height: pillH)
+        let radius = pillH * 0.5
+        let pointerX = max(rect.minX + radius + 3, min(rect.maxX - radius - 3, headCenterX))
+
+        ctx.saveGState()
+        let scalePop: CGFloat = 0.90 + 0.10 * alpha
+        if abs(scalePop - 1.0) > 0.002 {
+            let anchor = CGPoint(x: pointerX, y: rect.maxY + 4.0)
+            ctx.translateBy(x: anchor.x, y: anchor.y)
+            ctx.scaleBy(x: scalePop, y: scalePop)
+            ctx.translateBy(x: -anchor.x, y: -anchor.y)
+        }
+
+        ctx.setAlpha(max(0, min(1, alpha)))
+        ctx.setShadow(offset: CGSize(width: 0, height: 2), blur: 7.0, color: NSColor.black.withAlphaComponent(0.28).cgColor)
+
+        let bubble = CGMutablePath()
+        bubble.addRoundedRect(in: rect, cornerWidth: radius, cornerHeight: radius)
+        bubble.move(to: CGPoint(x: pointerX - 4.0, y: rect.maxY - 0.8))
+        bubble.addQuadCurve(
+            to: CGPoint(x: pointerX + 4.0, y: rect.maxY - 0.8),
+            control: CGPoint(x: pointerX, y: rect.maxY + 4.8)
+        )
+        bubble.closeSubpath()
+
+        ctx.setFillColor(NSColor(calibratedRed: 0.10, green: 0.11, blue: 0.15, alpha: 0.90).cgColor)
+        ctx.addPath(bubble)
+        ctx.fillPath()
+
+        ctx.setShadow(offset: .zero, blur: 0)
+        ctx.setStrokeColor(NSColor(calibratedWhite: 1.0, alpha: 0.34).cgColor)
+        ctx.setLineWidth(1.0)
+        let inner = rect.insetBy(dx: 0.5, dy: 0.5)
+        ctx.addPath(CGPath(roundedRect: inner, cornerWidth: radius - 0.5, cornerHeight: radius - 0.5, transform: nil))
+        ctx.strokePath()
+
+        let pawCX = rect.minX + padX + iconW * 0.5
+        let pawCY = rect.midY + 1.4
+        ctx.setFillColor(accentColor.cgColor)
+        ctx.fillEllipse(in: CGRect(x: pawCX - 3.3, y: pawCY - 2.2, width: 6.6, height: 4.8))
+        for (tx, ty) in [(-3.6, -4.2), (0.0, -5.2), (3.6, -4.2)] as [(CGFloat, CGFloat)] {
+            ctx.fillEllipse(in: CGRect(x: pawCX + tx - 1.45, y: pawCY + ty - 1.55, width: 2.9, height: 3.1))
+        }
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
+        let textX = rect.minX + padX + iconW + iconGap
+        let textY = rect.midY - sz.height * 0.5
+        attrStr.draw(at: CGPoint(x: textX, y: textY))
+        NSGraphicsContext.restoreGraphicsState()
+
+        ctx.restoreGState()
     }
 
     private func drawToastPill(in ctx: CGContext, text: String, alpha: CGFloat) {
