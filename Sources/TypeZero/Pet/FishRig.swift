@@ -210,16 +210,23 @@ final class FishSwimPhysics {
     private var recentKeyTimestamps: [CFTimeInterval] = []
     private var lastPuffFromFrenzy: Bool = false
 
-    // MARK: - Calm Infrequent Idle Side-Swim Showcase + Tail-Tap Keyboard Trick
-    var sideBlend = Spring1D(0)        // 0 = front-facing steady desk posture, 1 = full side-profile swimming fish!
-    var turnCos = Spring1D(1.0)        // +1 facing right, -1 facing left (smooth 3D foreshortened pivot!)
+    // MARK: - Calm Infrequent Idle Volumetric 3D Swim Showcase + Tail-Tap Keyboard Trick
+    var sideBlend = Spring1D(0)        // 0 = front-facing steady desk posture, 1 = free-swimming 3D fish!
+    var bodyYaw = Spring1D(0)          // true 3D yaw angle in radians: 0 = facing viewer, +π/2 = right, -π/2 = left (ZERO paper-flip!)
+    var tailYaw = Spring1D(0)          // lagging tail yaw angle for realistic underwater S-curve follow-through!
     var swimPitch = Spring1D(0)        // buoyant swim pitch; lifts nose up during tail-tap trick!
     var tailTapFlex = Spring1D(0)      // 0..1 downward broom-fan tail flex to kiss a keycap!
+
+    var facingSign: CGFloat {
+        let s = sin(bodyYaw.value)
+        if abs(s) < 0.02 { return showcaseDir >= 0 ? 1.0 : -1.0 }
+        return s >= 0 ? 1.0 : -1.0
+    }
 
     private(set) var isShowcaseActive: Bool = false
     private var showcaseForced: Bool = false
     private var showcaseElapsed: CGFloat = 0
-    private let showcaseDuration: CGFloat = 7.2
+    private let showcaseDuration: CGFloat = 7.6
     private var showcaseDir: CGFloat = 1.0          // alternates +1 / -1 each patrol
     private var showcaseTapKey: PhysicalKey = .n
     private var showcaseDidTriggerTap: Bool = false
@@ -250,6 +257,8 @@ final class FishSwimPhysics {
             showcaseForced = false
             showcaseElapsed = 0
             sideBlend.target = 0
+            bodyYaw.target = 0
+            tailYaw.target = 0
             swimPitch.target = 0
             tailTapFlex.target = 0
         }
@@ -257,7 +266,7 @@ final class FishSwimPhysics {
         nextShowcaseCooldown = CGFloat.random(in: cooldownRange)
     }
 
-    /// Triggers one graceful left/right full-fish swim showcase + playful broom-fan tail keycap tap!
+    /// Triggers one graceful volumetric left/right 3D swim showcase + playful broom-fan tail keycap tap!
     func triggerIdleShowcaseNow(direction: CGFloat? = nil, forced: Bool = true) {
         guard puff.value < 0.25 else { return }
         isShowcaseActive = true
@@ -273,9 +282,11 @@ final class FishSwimPhysics {
         let leftTailKeys: [PhysicalKey] = [.n, .m, .b, .k, .j]
         let rightTailKeys: [PhysicalKey] = [.v, .c, .x, .f, .d]
         showcaseTapKey = (showcaseDir > 0 ? leftTailKeys : rightTailKeys).randomElement() ?? .space
-        turnCos.value = showcaseDir
-        turnCos.target = showcaseDir
-        spawnMouthBubbles(count: 2)
+        // Start from front-facing 0° so takeoff smoothly turns into side profile with zero snap!
+        bodyYaw.value = 0
+        tailYaw.value = 0
+        bodyYaw.target = showcaseDir * (.pi * 0.5)
+        tailYaw.target = showcaseDir * (.pi * 0.5)
     }
 
     /// Deterministic snapshot helper for Visual QA verification sheets.
@@ -286,13 +297,25 @@ final class FishSwimPhysics {
         showcaseTapKey = tapKey
         showcaseElapsed = elapsed
         showcaseDidTriggerTap = elapsed > 2.95
-        turnCos.value = showcaseDir
-        turnCos.target = showcaseDir
-        sideBlend.value = 1.0
-        sideBlend.target = 1.0
+        let yawVal = showcaseDir * (.pi * 0.5)
+        bodyYaw = Spring1D(yawVal)
+        tailYaw = Spring1D(yawVal)
+        sideBlend = Spring1D(1.0)
         let tapPt = KeyboardLayout.canvasPoint(for: tapKey)
         let preX = max(116, min(260, tapPt.x + showcaseDir * 70.0))
         pos = Spring2D(CGPoint(x: preX, y: 148))
+    }
+
+    /// Deterministic 3D yaw snapshot helper for verifying continuous volumetric U-turn frames!
+    func setTurnAngleSnapshot(bodyYawDeg: CGFloat, tailYawDeg: CGFloat, center: CGPoint = CGPoint(x: 184, y: 146)) {
+        isShowcaseActive = true
+        showcaseForced = true
+        sideBlend = Spring1D(1.0)
+        bodyYaw = Spring1D(bodyYawDeg * .pi / 180.0)
+        tailYaw = Spring1D(tailYawDeg * .pi / 180.0)
+        swimPitch = Spring1D(0)
+        tailTapFlex = Spring1D(0)
+        pos = Spring2D(center)
     }
 
     func setTypingFrenzySnapshot(_ level: CGFloat) {
@@ -362,14 +385,15 @@ final class FishSwimPhysics {
     }
 
     func spawnMouthBubbles(count: Int) {
-        // Spawn clearly outside & above the snout/head contour so bubbles NEVER overlap eyeballs or float over the tail!
+        // Spawn clearly outside & above the snout/head contour using true 3D yaw so bubbles ALWAYS rise in front of the snout!
         let sb = max(0, min(1, sideBlend.value))
-        let faceSign: CGFloat = turnCos.value >= 0 ? 1.0 : -1.0
+        let yawSin = sin(bodyYaw.value)
+        let faceSign: CGFloat = abs(yawSin) > 0.12 ? (yawSin >= 0 ? 1.0 : -1.0) : showcaseDir
         let baseX: CGFloat
         let baseY: CGFloat
         if isShowcaseActive || sb > 0.30 {
-            baseX = pos.point.x + faceSign * 56.0
-            baseY = pos.point.y - 12.0
+            baseX = pos.point.x + yawSin * 56.0 + (abs(yawSin) < 0.35 ? faceSign * 26.0 : 0.0)
+            baseY = pos.point.y - 12.0 - cos(bodyYaw.value) * 14.0
         } else {
             baseX = pos.point.x + 58.0 + puff.value * 18.0
             baseY = pos.point.y - 46.0 - puff.value * 14.0
@@ -485,21 +509,24 @@ final class FishSwimPhysics {
                 return u * u * (3 - 2 * u)
             }
 
-            if t < 0.75 {
-                // Phase 1: Lift gracefully above desk & morph into full aquarium fish profile
-                let k = smoothstep(0.0, 0.75, t)
+            let halfPi = CGFloat.pi * 0.5
+            if t < 0.80 {
+                // Phase 1: Lift gracefully above desk while turning head 0° -> ±90° into full fish profile!
+                let k = smoothstep(0.0, 0.80, t)
                 sideBlend.target = 1.0
-                turnCos.target = dir
-                pos.target = CGPoint(x: Self.bodyCenterAnchor.x + dir * 10 * k, y: 170 - 24 * k)
-                swimPitch.target = -0.06 * k
+                bodyYaw.target = dir * halfPi * k
+                tailYaw.target = dir * halfPi * max(0, k - 0.16) / 0.84
+                pos.target = CGPoint(x: Self.bodyCenterAnchor.x + dir * 12 * k, y: 170 - 24 * k)
+                swimPitch.target = -0.05 * k
                 tailTapFlex.target = 0
             } else if t < 2.25 {
                 // Phase 2: Leisurely glide across the keyboard showing full fish body & flank ocelli
-                let k = smoothstep(0.75, 2.25, t)
-                let targetX = Self.bodyCenterAnchor.x + dir * (10 + 48 * roamScale * k)
+                let k = smoothstep(0.80, 2.25, t)
+                let targetX = Self.bodyCenterAnchor.x + dir * (12 + 46 * roamScale * k)
                 let waveY = sin(swimPhase * 0.75) * 5.0 * motionMul
                 sideBlend.target = 1.0
-                turnCos.target = dir
+                bodyYaw.target = dir * halfPi
+                tailYaw.target = dir * halfPi
                 pos.target = CGPoint(x: targetX, y: 146 + waveY)
                 swimPitch.target = cos(swimPhase * 0.75) * 0.05
                 tailTapFlex.target = 0
@@ -512,7 +539,6 @@ final class FishSwimPhysics {
                 let exitK = 1.0 - smoothstep(3.04, 3.60, t)
                 let tapArc = min(enterK, exitK)
 
-                // Exact rotated tail-tip offset at pitch=-0.25, flex=1.0 is ~(-69*dir, +76) -> anchor so broom-fan tip kisses `tapPt`!
                 let anchorX = max(116, min(260, tapPt.x + dir * 70.0))
                 let anchorY = max(144, min(182, tapPt.y - 76.0))
                 let restX = Self.bodyCenterAnchor.x + dir * (58 * roamScale)
@@ -521,7 +547,8 @@ final class FishSwimPhysics {
                     y: 146 + (anchorY - 146) * tapArc
                 )
                 sideBlend.target = 1.0
-                turnCos.target = dir
+                bodyYaw.target = dir * halfPi
+                tailYaw.target = dir * halfPi
                 swimPitch.target = -0.25 * tapArc
                 tailTapFlex.target = tapArc
 
@@ -533,29 +560,46 @@ final class FishSwimPhysics {
                     spawnKeyDroplets(at: tapPt, count: 4)
                     spawnMouthBubbles(count: 2)
                 }
-            } else if t < 6.15 {
-                // Phase 4: Smooth 3D mid-water turn + calm cruise across the opposite side & back to center!
-                let k = smoothstep(3.60, 6.15, t)
+            } else if t < 4.85 {
+                // Phase 4a: TRUE VOLUMETRIC 3D U-TURN! Head curves smoothly +90° -> 0° (chubby front face toward glass!) -> -90°, tail lags in a real S-curve!
+                let uK = smoothstep(3.60, 4.85, t)
+                let turnAngle = dir * halfPi * (1.0 - 2.0 * uK) // +90° -> 0° -> -90° smoothly!
                 let startX = max(116, min(260, tapPt.x + dir * 70.0))
-                let oppX = Self.bodyCenterAnchor.x - dir * (48 * roamScale)
-                let midK = smoothstep(3.60, 5.15, t)
-                let backK = smoothstep(5.15, 6.15, t)
+                // Gentle U-arc forward dip toward the viewer at the midpoint of the turn (`sin(uK * π)` peaks at 0°)
+                let arcForwardDip = sin(uK * .pi) * 10.0
+                let driftX = startX - dir * (22.0 * uK)
+                sideBlend.target = 1.0
+                bodyYaw.target = turnAngle
+                // Tail lags behind the head turn for natural curved aquatic follow-through!
+                let lagK = smoothstep(3.84, 5.10, t)
+                tailYaw.target = dir * halfPi * (1.0 - 2.0 * lagK)
+                pos.target = CGPoint(x: driftX, y: 146 + arcForwardDip)
+                swimPitch.target = 0
+                tailTapFlex.target = 0
+                if abs(t - 4.22) < dt * 1.1 {
+                    spawnMouthBubbles(count: 2)
+                }
+            } else if t < 6.45 {
+                // Phase 4b: Calm opposite-direction cruise showing the other flank, then curving back to center!
+                let startX = max(116, min(260, tapPt.x + dir * 70.0)) - dir * 22.0
+                let oppX = Self.bodyCenterAnchor.x - dir * (50 * roamScale)
+                let midK = smoothstep(4.85, 5.75, t)
+                let backK = smoothstep(5.75, 6.45, t)
                 let curX = (startX + (oppX - startX) * midK) * (1 - backK) + Self.bodyCenterAnchor.x * backK
                 let waveY = sin(swimPhase * 0.75) * 4.5 * motionMul
                 sideBlend.target = 1.0
-                turnCos.target = -dir
+                bodyYaw.target = -dir * halfPi * (1.0 - backK * 0.35)
+                tailYaw.target = -dir * halfPi
                 pos.target = CGPoint(x: curX, y: 144 + waveY)
                 swimPitch.target = cos(swimPhase * 0.75) * 0.045
                 tailTapFlex.target = 0
-                if abs(t - 4.35) < dt * 1.1 {
-                    spawnMouthBubbles(count: 2)
-                }
-                _ = k
             } else if t < showcaseDuration {
-                // Phase 5: Gracefully descend back behind keyboard & morph seamlessly into front-facing pose!
-                let k = smoothstep(6.15, showcaseDuration, t)
-                sideBlend.target = 0.0
-                turnCos.target = -dir
+                // Phase 5: Smoothly turn head back to 0° (front-facing) while descending gracefully behind keyboard!
+                let k = smoothstep(6.45, showcaseDuration, t)
+                bodyYaw.target = -dir * halfPi * 0.65 * (1.0 - k)
+                tailYaw.target = -dir * halfPi * (1.0 - k * 0.85)
+                // Only blend back to seated desk rig once head is nearly facing front (`k > 0.35`) so there's zero double-image!
+                sideBlend.target = k > 0.35 ? max(0, 1.0 - (k - 0.35) / 0.65) : 1.0
                 pos.target = CGPoint(x: Self.bodyCenterAnchor.x, y: 144 + (Self.bodyCenterAnchor.y - 144) * k)
                 swimPitch.target = 0
                 tailTapFlex.target = 0
@@ -564,8 +608,9 @@ final class FishSwimPhysics {
             }
 
             pos.step(dt: dt, stiffness: (t >= 2.25 && t < 3.60) ? 88 : 54, damping: 14)
-            sideBlend.step(dt: dt, stiffness: 55, damping: 14)
-            turnCos.step(dt: dt, stiffness: 46, damping: 13)
+            sideBlend.step(dt: dt, stiffness: 58, damping: 14)
+            bodyYaw.step(dt: dt, stiffness: 42, damping: 12)
+            tailYaw.step(dt: dt, stiffness: 22, damping: 9)
             swimPitch.step(dt: dt, stiffness: 68, damping: 15)
             tailTapFlex.step(dt: dt, stiffness: 120, damping: 15)
             microTilt.target = 0
@@ -588,6 +633,10 @@ final class FishSwimPhysics {
 
             sideBlend.target = 0
             sideBlend.step(dt: dt, stiffness: 95, damping: 17)
+            bodyYaw.target = 0
+            bodyYaw.step(dt: dt, stiffness: 70, damping: 15)
+            tailYaw.target = 0
+            tailYaw.step(dt: dt, stiffness: 45, damping: 13)
             swimPitch.target = 0
             swimPitch.step(dt: dt, stiffness: 90, damping: 16)
             tailTapFlex.target = 0
@@ -644,7 +693,7 @@ final class FishSwimPhysics {
 enum FishRenderer {
     private static let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
 
-    /// Head anchor point for floating `🫧 <name>` badge cleanly above either front-facing or side-swimming crown!
+    /// Head anchor point for floating `🫧 <name>` badge cleanly above either front-facing or 3D swimming crown!
     static func headPosition(_ physics: CatPhysics, dna: FishPhotoDNA) -> CGPoint {
         let swim = physics.fishSwim
         let c = swim.pos.point
@@ -652,8 +701,7 @@ enum FishRenderer {
         let sb = max(0, min(1, swim.sideBlend.value))
         let frontTopY = c.y - (52.0 * CGFloat(dna.plumpness) + puff * 18.0)
         let sideTopY = c.y - (38.0 * CGFloat(dna.plumpness))
-        let faceSign: CGFloat = swim.turnCos.value >= 0 ? 1.0 : -1.0
-        let sideHeadX = c.x + faceSign * 14.0
+        let sideHeadX = c.x + sin(swim.bodyYaw.value) * 14.0
         return CGPoint(
             x: c.x + (sideHeadX - c.x) * sb,
             y: frontTopY + (sideTopY - frontTopY) * sb
@@ -1661,7 +1709,7 @@ enum FishRenderer {
         ctx.restoreGState()
     }
 
-    // MARK: - Full Side-Profile Idle Swimming Showcase Fish (`待机游动展示完整鱼形态 + 尾巴炫技轻拍键盘`, Zero Headphones!)
+    // MARK: - True Volumetric 3D Multi-Angle Swimming Fish (`真实体积感 3D 游动转身 + 尾鳍滞后甩弯`, ZERO Paper-Flip!)
 
     private static func drawSideShowcaseFish(
         in ctx: CGContext,
@@ -1680,126 +1728,240 @@ enum FishRenderer {
         let contourCol = blendColor(spotOuterCol, NSColor(srgbRed: 0.16, green: 0.11, blue: 0.10, alpha: 1.0), t: 0.48)
 
         let plump = CGFloat(dna.plumpness)
+        let ps = min(1.16, max(0.88, plump))
         let finScale = CGFloat(dna.finLength)
-        let faceSign: CGFloat = swim.turnCos.value >= 0 ? 1.0 : -1.0
-        let turnScaleX: CGFloat = max(0.24, abs(swim.turnCos.value))
+
+        // True continuous 3D yaw angles (`0` = front-facing plump 3D head-on, `+π/2` = right, `-π/2` = left)
+        let yaw = max(-.pi * 0.5, min(.pi * 0.5, swim.bodyYaw.value))
+        let tYaw = max(-.pi * 0.5, min(.pi * 0.5, swim.tailYaw.value))
+        let s = sin(yaw)          // -1 (left) .. 0 (front) .. +1 (right)
+        let c = max(0, cos(yaw))  //  0 (side) .. +1 (front)
+        let sideAmt = abs(s)      //  0 (full plump front) .. 1 (full side profile)
+        let dirSign: CGFloat = s >= 0 ? 1.0 : -1.0
+
+        let ts = sin(tYaw)
+        let tc = max(0, cos(tYaw))
+        let tailSideAmt = abs(ts)
         let tapFlex = max(0, min(1, swim.tailTapFlex.value))
-        let tailWave = sin(swim.swimPhase) * (8.5 * (1.0 - tapFlex * 0.7))
+        let tailWave = sin(swim.swimPhase) * (8.0 * (1.0 - tapFlex * 0.7))
+
+        // Subtle 3D closeness boost (+6%) when nose arcs toward the front glass mid-turn!
+        let depthZoom: CGFloat = 1.0 + 0.06 * c
+        // Pitch only applies proportionally to side orientation (keeps fish upright & calm when facing viewer mid-turn!)
+        let worldPitch = swim.swimPitch.value * s
 
         ctx.saveGState()
         ctx.translateBy(x: pos.x, y: pos.y)
-        ctx.scaleBy(x: faceSign * turnScaleX, y: 1.0)
-        ctx.rotate(by: swim.swimPitch.value)
+        ctx.scaleBy(x: depthZoom, y: depthZoom)
+        ctx.rotate(by: worldPitch)
 
-        // 1. Far-side protruding eye silhouette peeking slightly over the boxy forehead for rich 3/4 depth!
-        let farEyeCenter = CGPoint(x: 42.0, y: -15.5 * min(1.12, plump))
-        ctx.setFillColor(blendColor(bodyCol, NSColor.white, t: 0.10).cgColor)
-        ctx.fillEllipse(in: CGRect(x: farEyeCenter.x - 7.0, y: farEyeCenter.y - 6.8, width: 14.0, height: 13.6))
-        ctx.setStrokeColor(contourCol.withAlphaComponent(0.70).cgColor)
-        ctx.setLineWidth(1.35)
-        ctx.strokeEllipse(in: CGRect(x: farEyeCenter.x - 7.0, y: farEyeCenter.y - 6.8, width: 14.0, height: 13.6))
+        // =========================================================================
+        // LAYER 1 (BEHIND TORSO): Lagging Tail Peduncle & Broom-Fan Tail, Rounded Dorsal/Anal Fins, Far Eye & Far Pectoral Fin
+        // =========================================================================
 
-        // 2. Translucent Dorsal Fin & Ventral Anal Fin
-        drawSideFinFan(
-            in: ctx,
-            rootA: CGPoint(x: -16, y: -23 * min(1.12, plump)),
-            rootB: CGPoint(x: -32, y: -17 * min(1.12, plump)),
-            tip: CGPoint(x: -28 - tailWave * 0.35, y: -44 * min(1.12, plump) * finScale),
-            finCol: finCol,
-            contourCol: contourCol
-        )
-        drawSideFinFan(
-            in: ctx,
-            rootA: CGPoint(x: -16, y: 21 * min(1.12, plump)),
-            rootB: CGPoint(x: -33, y: 15 * min(1.12, plump)),
-            tip: CGPoint(x: -31 - tailWave * 0.25, y: 40 * min(1.12, plump) * finScale),
-            finCol: finCol,
-            contourCol: contourCol
-        )
+        // Convex blend `blend ∈ [0, 1]` (0 = chubby front puffer, 1 = full side profile) — ALWAYS sums to 1.0 (never `sin+cos = 1.414`!)
+        let blend = sideAmt * sideAmt * (3.0 - 2.0 * sideAmt)
+        let crownY: CGFloat = -(33.0 * (1.0 - blend) + 27.0 * blend) * ps
+        let bellyY: CGFloat = +(33.0 * (1.0 - blend) + 27.0 * blend) * ps
 
-        // 3. Wide Striped Broom-Fan Caudal Tail (gracefully flexes DOWN by +46px during `tailTapTrick` to tap the keycap!)
+        // 1A. Volumetric Broom-Fan Caudal Tail + Curved Peduncle
+        // Coupled `bodyYaw` + lagging `tailYaw`: at `±90°` equals `-54` (exact tail-tap contact!), and during `-42°/-14°` mid-turn still curves visibly past the rear hip!
         let droopY: CGFloat = tapFlex * 46.0
-        let pedEnd = CGPoint(x: -54.0 + tapFlex * 4.0, y: droopY * 0.38 + tailWave * 0.28)
+        let tailTurnDrop: CGFloat = tc * 6.0
+        let pedEndX: CGFloat = (-26.0 * s - 28.0 * ts) * (1.0 - tapFlex * 0.07)
+        let pedEnd = CGPoint(
+            x: pedEndX,
+            y: droopY * 0.38 + tailTurnDrop + tailWave * 0.28 * max(sideAmt, tailSideAmt)
+        )
         let fanLen: CGFloat = (dna.bodyProfile == .bettaFlow ? 50.0 : 40.0) * finScale
         let fanSpread: CGFloat = (dna.bodyProfile == .bettaFlow ? 34.0 : 25.0) * finScale
-        let tailTip = CGPoint(x: pedEnd.x - fanLen * (1.0 - tapFlex * 0.14), y: droopY + tailWave)
+        let tailCombined = (-26.0 * s - 28.0 * ts) / 54.0 // -1..+1 directional vector of tail swing
+        let tailVisStrength = abs(tailCombined)
+        let tailOutSign: CGFloat = tailCombined >= 0 ? 1.0 : -1.0 // +1 = tail extends RIGHT, -1 = tail extends LEFT
+        let effectiveFanLen = fanLen * (1.0 - tapFlex * 0.14) * (0.55 + 0.45 * tailVisStrength)
+        let tailTip = CGPoint(
+            x: pedEnd.x + tailOutSign * effectiveFanLen,
+            y: droopY + tailTurnDrop * 0.4 + tailWave * (0.45 + 0.55 * tailVisStrength)
+        )
 
-        let fan = CGMutablePath()
-        fan.move(to: CGPoint(x: pedEnd.x + 4, y: pedEnd.y - 8))
-        fan.addQuadCurve(
-            to: CGPoint(x: tailTip.x + 3, y: tailTip.y - fanSpread * 0.72),
-            control: CGPoint(x: (pedEnd.x + tailTip.x) * 0.5, y: (pedEnd.y + tailTip.y) * 0.5 - fanSpread * 0.58)
-        )
-        fan.addCurve(
-            to: CGPoint(x: tailTip.x - 2, y: tailTip.y + fanSpread * 0.78),
-            control1: CGPoint(x: tailTip.x - 6, y: tailTip.y - fanSpread * 0.24),
-            control2: CGPoint(x: tailTip.x - 8, y: tailTip.y + fanSpread * 0.28)
-        )
-        fan.addQuadCurve(
-            to: CGPoint(x: pedEnd.x + 4, y: pedEnd.y + 9),
-            control: CGPoint(x: (pedEnd.x + tailTip.x) * 0.5, y: (pedEnd.y + tailTip.y) * 0.5 + fanSpread * 0.58)
-        )
-        fan.closeSubpath()
+        if tailVisStrength > 0.14 {
+            let fanVisSpread = fanSpread * (0.64 + 0.36 * tailVisStrength)
+            let fan = CGMutablePath()
+            fan.move(to: CGPoint(x: pedEnd.x - tailOutSign * 4, y: pedEnd.y - 8))
+            fan.addQuadCurve(
+                to: CGPoint(x: tailTip.x - tailOutSign * 3, y: tailTip.y - fanVisSpread * 0.72),
+                control: CGPoint(x: (pedEnd.x + tailTip.x) * 0.5, y: (pedEnd.y + tailTip.y) * 0.5 - fanVisSpread * 0.58)
+            )
+            fan.addCurve(
+                to: CGPoint(x: tailTip.x + tailOutSign * 2, y: tailTip.y + fanVisSpread * 0.78),
+                control1: CGPoint(x: tailTip.x + tailOutSign * 6, y: tailTip.y - fanVisSpread * 0.24),
+                control2: CGPoint(x: tailTip.x + tailOutSign * 8, y: tailTip.y + fanVisSpread * 0.28)
+            )
+            fan.addQuadCurve(
+                to: CGPoint(x: pedEnd.x - tailOutSign * 4, y: pedEnd.y + 9),
+                control: CGPoint(x: (pedEnd.x + tailTip.x) * 0.5, y: (pedEnd.y + tailTip.y) * 0.5 + fanVisSpread * 0.58)
+            )
+            fan.closeSubpath()
 
-        ctx.saveGState()
-        ctx.addPath(fan); ctx.clip()
-        if let grad = makeLinearGradient([
-            (0.0, finCol.withAlphaComponent(0.95)),
-            (0.60, blendColor(finCol, dorsalCol, t: 0.20).withAlphaComponent(0.84)),
-            (1.0, NSColor(srgbRed: 0.99, green: 0.96, blue: 0.88, alpha: 0.65))
-        ]) {
-            ctx.drawLinearGradient(grad, start: pedEnd, end: tailTip, options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+            ctx.saveGState()
+            ctx.addPath(fan); ctx.clip()
+            if let grad = makeLinearGradient([
+                (0.0, finCol.withAlphaComponent(0.95)),
+                (0.60, blendColor(finCol, dorsalCol, t: 0.20).withAlphaComponent(0.84)),
+                (1.0, NSColor(srgbRed: 0.99, green: 0.96, blue: 0.88, alpha: 0.65))
+            ]) {
+                ctx.drawLinearGradient(grad, start: pedEnd, end: tailTip, options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+            }
+            ctx.setStrokeColor(contourCol.withAlphaComponent(0.42).cgColor)
+            ctx.setLineWidth(1.15)
+            ctx.setLineCap(.round)
+            for i in -3...4 {
+                let f = (CGFloat(i) - 0.5) / 3.5
+                let sy = pedEnd.y + f * 6.5
+                let ey = tailTip.y + f * (fanVisSpread * 0.68)
+                let ex = tailTip.x - tailOutSign * abs(f) * 3.0
+                ctx.beginPath()
+                ctx.move(to: CGPoint(x: pedEnd.x - tailOutSign * 2, y: sy))
+                ctx.addQuadCurve(to: CGPoint(x: ex, y: ey), control: CGPoint(x: (pedEnd.x + ex) * 0.5, y: (sy + ey) * 0.5 + droopY * 0.08))
+                ctx.strokePath()
+            }
+            ctx.restoreGState()
+
+            ctx.saveGState()
+            ctx.setStrokeColor(contourCol.withAlphaComponent(0.76).cgColor)
+            ctx.setLineWidth(1.55)
+            ctx.setLineJoin(.round)
+            ctx.addPath(fan); ctx.strokePath()
+            ctx.restoreGState()
+
+            // Curved muscular tail peduncle seamlessly bridging rear hip -> broom-fan tail ONLY during front/3/4 turns (`blend < 0.72`),
+            // stroking ONLY top/bottom edges so there is ZERO vertical seam line where it meets the torso!
+            if blend < 0.72 {
+                let hipAnchor = CGPoint(x: tailOutSign * 14.0, y: 4.0)
+                let ped = CGMutablePath()
+                ped.move(to: CGPoint(x: hipAnchor.x, y: hipAnchor.y - 13))
+                ped.addQuadCurve(to: CGPoint(x: pedEnd.x, y: pedEnd.y - 8.5), control: CGPoint(x: (hipAnchor.x + pedEnd.x) * 0.5, y: hipAnchor.y - 11))
+                ped.addLine(to: CGPoint(x: pedEnd.x, y: pedEnd.y + 8.5))
+                ped.addQuadCurve(to: CGPoint(x: hipAnchor.x, y: hipAnchor.y + 13), control: CGPoint(x: (hipAnchor.x + pedEnd.x) * 0.5, y: hipAnchor.y + 12))
+                ped.closeSubpath()
+
+                ctx.saveGState()
+                ctx.setFillColor(bodyCol.cgColor)
+                ctx.addPath(ped); ctx.fillPath()
+                if dna.spotPattern == .ringedOcelli {
+                    ctx.saveGState()
+                    ctx.addPath(ped); ctx.clip()
+                    let midPt = CGPoint(x: (hipAnchor.x + pedEnd.x) * 0.58, y: (hipAnchor.y + pedEnd.y) * 0.58)
+                    ctx.setFillColor(spotOuterCol.withAlphaComponent(0.90).cgColor)
+                    ctx.fillEllipse(in: CGRect(x: midPt.x - 5.2, y: midPt.y - 4.6, width: 10.4, height: 9.2))
+                    ctx.setFillColor(spotInnerCol.cgColor)
+                    ctx.fillEllipse(in: CGRect(x: midPt.x - 3.0, y: midPt.y - 2.6, width: 6.0, height: 5.2))
+                    ctx.restoreGState()
+                }
+                ctx.setStrokeColor(contourCol.withAlphaComponent(0.84).cgColor)
+                ctx.setLineWidth(1.65)
+                ctx.setLineCap(.round)
+                // Stroke top & bottom peduncle edges ONLY (open root behind torso -> zero seam!)
+                ctx.beginPath()
+                ctx.move(to: CGPoint(x: hipAnchor.x, y: hipAnchor.y - 13))
+                ctx.addQuadCurve(to: CGPoint(x: pedEnd.x, y: pedEnd.y - 8.5), control: CGPoint(x: (hipAnchor.x + pedEnd.x) * 0.5, y: hipAnchor.y - 11))
+                ctx.move(to: CGPoint(x: hipAnchor.x, y: hipAnchor.y + 13))
+                ctx.addQuadCurve(to: CGPoint(x: pedEnd.x, y: pedEnd.y + 8.5), control: CGPoint(x: (hipAnchor.x + pedEnd.x) * 0.5, y: hipAnchor.y + 12))
+                ctx.strokePath()
+                ctx.restoreGState()
+            }
         }
-        ctx.setStrokeColor(contourCol.withAlphaComponent(0.42).cgColor)
-        ctx.setLineWidth(1.15)
-        ctx.setLineCap(.round)
-        for i in -3...4 {
-            let f = (CGFloat(i) - 0.5) / 3.5
-            let sy = pedEnd.y + f * 6.5
-            let ey = tailTip.y + f * (fanSpread * 0.68)
-            let ex = tailTip.x + abs(f) * 3.0
-            ctx.beginPath()
-            ctx.move(to: CGPoint(x: pedEnd.x + 2, y: sy))
-            ctx.addQuadCurve(to: CGPoint(x: ex, y: ey), control: CGPoint(x: (pedEnd.x + ex) * 0.5, y: (sy + ey) * 0.5 + droopY * 0.08))
-            ctx.strokePath()
+
+        // 1B. Soft Rounded-Fan Dorsal Fin STRICTLY Anchored 9px INSIDE the Body Roof (`crownY + 9`) — NEVER floats or squishes!
+        let dorsalCenterX: CGFloat = -20.0 * s
+        let dorsalRootY: CGFloat = crownY + 9.0 + 4.0 * blend
+        let dorsalHeight: CGFloat = (19.0 * (1.0 - blend) + 23.0 * blend) * finScale
+        let dorsalHalfW: CGFloat = 10.0
+        drawRoundedAquaFin(
+            in: ctx,
+            centerRoot: CGPoint(x: dorsalCenterX, y: dorsalRootY),
+            halfRootWidth: dorsalHalfW,
+            height: dorsalHeight,
+            tiltX: -7.5 * s - tailWave * 0.30 * blend,
+            isTop: true,
+            finCol: finCol,
+            contourCol: contourCol
+        )
+
+        // 1C. Soft Rounded-Fan Ventral Anal Fin Anchored 9px INSIDE Belly Contour (fades in cleanly for side cruising only!)
+        if blend > 0.45 {
+            let analA = min(1.0, (blend - 0.45) / 0.35)
+            ctx.saveGState()
+            ctx.setAlpha(analA)
+            drawRoundedAquaFin(
+                in: ctx,
+                centerRoot: CGPoint(x: -22.0 * s, y: bellyY - 9.0 - 4.0 * blend),
+                halfRootWidth: 9.0,
+                height: 20.0 * finScale,
+                tiltX: -7.0 * s - tailWave * 0.22 * dirSign,
+                isTop: false,
+                finCol: finCol,
+                contourCol: contourCol
+            )
+            ctx.restoreGState()
         }
-        ctx.restoreGState()
 
-        ctx.saveGState()
-        ctx.setStrokeColor(contourCol.withAlphaComponent(0.76).cgColor)
-        ctx.setLineWidth(1.55)
-        ctx.setLineJoin(.round)
-        ctx.addPath(fan); ctx.strokePath()
-        ctx.restoreGState()
+        // 1D. Compute 3D Spherical Coordinates for BOTH Eyes (`φ = ±0.64 rad`) and BOTH Pectoral Fins (`φ = ±1.18 rad`)
+        let eyeAzimuth: CGFloat = 0.64
+        let leftEyeAng = yaw - eyeAzimuth
+        let rightEyeAng = yaw + eyeAzimuth
+        let eyeRadiusX: CGFloat = 45.0 * (0.94 + 0.06 * sideAmt)
+        let eyeBaseY: CGFloat = -(11.5 * blend + 13.0 * (1.0 - blend)) * ps
 
-        // 4. Iconic Side-Profile Puffer Torpedo Body + Curved Tail Peduncle!
-        let ps = min(1.16, max(0.88, plump))
-        let body = CGMutablePath()
-        body.move(to: CGPoint(x: 54, y: 2))
-        // Upper boxy puffer snout -> rounded dorsal arch -> curved peduncle
-        body.addCurve(
-            to: CGPoint(x: 24, y: -27 * ps),
-            control1: CGPoint(x: 54, y: -15 * ps),
-            control2: CGPoint(x: 42, y: -27 * ps)
-        )
-        body.addCurve(
-            to: CGPoint(x: -54 + tapFlex * 4, y: pedEnd.y - 8.5),
-            control1: CGPoint(x: -4, y: -28 * ps),
-            control2: CGPoint(x: -34, y: -16 + droopY * 0.22)
-        )
-        body.addLine(to: CGPoint(x: -54 + tapFlex * 4, y: pedEnd.y + 8.5))
-        // Plump cream-ivory round puffer belly -> chin
-        body.addCurve(
-            to: CGPoint(x: 22, y: 27 * ps),
-            control1: CGPoint(x: -32, y: 18 + droopY * 0.22),
-            control2: CGPoint(x: -6, y: 30 * ps)
-        )
-        body.addCurve(
-            to: CGPoint(x: 54, y: 2),
-            control1: CGPoint(x: 42, y: 25 * ps),
-            control2: CGPoint(x: 54, y: 14 * ps)
-        )
-        body.closeSubpath()
+        let eyes3D: [(isLeft: Bool, x: CGFloat, y: CGFloat, z: CGFloat)] = [
+            (true,  eyeRadiusX * sin(leftEyeAng),  eyeBaseY, cos(leftEyeAng)),
+            (false, eyeRadiusX * sin(rightEyeAng), eyeBaseY, cos(rightEyeAng))
+        ]
+
+        // Draw any FAR-SIDE eye (`z <= 0.08`) BEHIND the snout silhouette — WITH a subtle amber-red iris/pupil sliver so it reads as a real eye!
+        for e in eyes3D where e.z <= 0.08 {
+            let outSign: CGFloat = e.x >= 0 ? 1.0 : -1.0
+            let farX = e.x + outSign * 4.5 * (1.0 - max(0, e.z + 0.5))
+            let farY = e.y - 3.5 * blend
+            let r: CGFloat = 7.2
+            ctx.saveGState()
+            ctx.setFillColor(blendColor(bodyCol, NSColor.white, t: 0.10).cgColor)
+            ctx.fillEllipse(in: CGRect(x: farX - r, y: farY - r * 0.94, width: r * 2, height: r * 1.88))
+            // Subtle protruding iris + pupil peeking on the outer edge of the far eye socket!
+            ctx.setFillColor(irisCol.withAlphaComponent(0.92).cgColor)
+            ctx.fillEllipse(in: CGRect(x: farX + outSign * 1.2 - 4.4, y: farY - 4.4, width: 8.8, height: 8.8))
+            ctx.setFillColor(NSColor(srgbRed: 0.10, green: 0.08, blue: 0.10, alpha: 0.95).cgColor)
+            ctx.fillEllipse(in: CGRect(x: farX + outSign * 2.2 - 2.2, y: farY - 2.2, width: 4.4, height: 4.4))
+            ctx.setFillColor(NSColor.white.withAlphaComponent(0.88).cgColor)
+            ctx.fillEllipse(in: CGRect(x: farX + outSign * 1.0 - 1.2, y: farY - 3.2, width: 2.4, height: 2.2))
+            ctx.setStrokeColor(contourCol.withAlphaComponent(0.75).cgColor)
+            ctx.setLineWidth(1.35)
+            ctx.strokeEllipse(in: CGRect(x: farX - r, y: farY - r * 0.94, width: r * 2, height: r * 1.88))
+            ctx.restoreGState()
+        }
+
+        let pecAzimuth: CGFloat = 1.18
+        let pecs3D: [(side: CGFloat, x: CGFloat, z: CGFloat)] = [
+            (-1.0, 44.0 * sin(yaw - pecAzimuth), cos(yaw - pecAzimuth)),
+            ( 1.0, 44.0 * sin(yaw + pecAzimuth), cos(yaw + pecAzimuth))
+        ]
+        let pecFlutter = sin(swim.finPhase * 2.2) * 0.28
+        for pf in pecs3D where pf.z <= 0.05 {
+            drawVolumetricPectoralFin(
+                in: ctx,
+                origin: CGPoint(x: pf.x, y: 5.5),
+                sweepDir: pf.side * c - s * (1.0 - c * 0.5),
+                flutter: pecFlutter * pf.side,
+                finScale: finScale * 0.85,
+                finCol: finCol,
+                contourCol: contourCol
+            )
+        }
+
+        // =========================================================================
+        // LAYER 2: VOLUMETRIC PLUMP 3D TORSO (Smooth Rounded Cheek at EVERY Angle — ZERO Blunt Chop-Off!)
+        // =========================================================================
+        let body = makeVolumetricSwimBodyPath(s: s, c: c, ps: ps, pedEndY: pedEnd.y, droopY: droopY)
 
         ctx.saveGState()
         ctx.addPath(body); ctx.clip()
@@ -1811,80 +1973,56 @@ enum FishRenderer {
             (0.68, blendColor(bodyCol, bellyCol, t: 0.62)),
             (1.00, bellyCol)
         ]) {
-            ctx.drawLinearGradient(grad, start: CGPoint(x: 0, y: -30 * ps), end: CGPoint(x: 0, y: 30 * ps), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+            ctx.drawLinearGradient(grad, start: CGPoint(x: 0, y: -35 * ps), end: CGPoint(x: 0, y: 35 * ps), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
         }
 
-        // Authentic Full Side-Flank Markings (9-10 Double-Ringed Crimson Ocelli + Russet Dorsal Mottling!)
-        switch dna.spotPattern {
-        case .ringedOcelli:
-            let warmDorsal = blendColor(dorsalCol, spotInnerCol, t: 0.34)
-            for (bx, by, rx, ry) in [
-                (28.0, -21.0, 12.0, 5.5),
-                (6.0, -22.5, 13.0, 5.8),
-                (-16.0, -18.5, 11.0, 5.2),
-                (41.0, -9.0, 7.5, 4.5)
-            ] as [(CGFloat, CGFloat, CGFloat, CGFloat)] {
-                ctx.setFillColor(warmDorsal.withAlphaComponent(0.62).cgColor)
-                ctx.fillEllipse(in: CGRect(x: bx - rx, y: by - ry, width: rx * 2, height: ry * 2))
+        // Subtle 3D cylindrical rim shading so the fish visibly reads as a round plump sphere/torpedo while turning!
+        if (1.0 - blend) > 0.10 {
+            let rimA = 0.26 * (1.0 - blend)
+            if let sideGrad = makeLinearGradient([
+                (0.00, topShade.withAlphaComponent(rimA)),
+                (0.24, NSColor.clear),
+                (0.76, NSColor.clear),
+                (1.00, topShade.withAlphaComponent(rimA))
+            ]) {
+                ctx.drawLinearGradient(sideGrad, start: CGPoint(x: -50, y: 0), end: CGPoint(x: 50, y: 0), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
             }
-
-            let flankOcelli: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
-                (16, -9, 6.2, 5.6),
-                (2, -6, 7.2, 6.4),
-                (-11, -10, 6.6, 5.8),
-                (-23, -4, 6.8, 6.0),
-                (-36, -4 + droopY * 0.14, 5.8, 5.2),
-                (-47, 1 + droopY * 0.28, 4.9, 4.4),
-                (8, 7, 6.4, 5.6),
-                (-6, 8, 7.0, 6.2),
-                (-20, 9, 6.2, 5.4),
-                (-34, 7 + droopY * 0.14, 5.4, 4.8)
-            ]
-            for (ox, oy, rx, ry) in flankOcelli {
-                ctx.setFillColor(spotOuterCol.withAlphaComponent(0.92).cgColor)
-                ctx.fillEllipse(in: CGRect(x: ox - rx, y: oy - ry, width: rx * 2, height: ry * 2))
-                ctx.setFillColor(spotInnerCol.cgColor)
-                ctx.fillEllipse(in: CGRect(x: ox - rx * 0.58, y: oy - ry * 0.58, width: rx * 1.16, height: ry * 1.16))
-            }
-
-        case .spotted:
-            ctx.setFillColor(spotOuterCol.withAlphaComponent(0.84).cgColor)
-            for (ox, oy, r) in [(16, -8, 5.5), (0, -6, 6.4), (-16, -6, 6.0), (-32, -2, 5.0), (4, 8, 5.8), (-14, 8, 5.6)] as [(CGFloat, CGFloat, CGFloat)] {
-                ctx.fillEllipse(in: CGRect(x: ox - r, y: oy - r * 0.9, width: r * 2, height: r * 1.8))
-            }
-
-        case .stripedVertical:
-            for bx in [18.0, -6.0, -30.0] as [CGFloat] {
-                let band = CGPath(roundedRect: CGRect(x: bx - 5, y: -32, width: 10, height: 64), cornerWidth: 4, cornerHeight: 4, transform: nil)
-                ctx.setFillColor(bellyCol.cgColor); ctx.addPath(band); ctx.fillPath()
-                ctx.setStrokeColor(spotOuterCol.withAlphaComponent(0.85).cgColor); ctx.setLineWidth(2.0); ctx.addPath(band); ctx.strokePath()
-            }
-
-        case .calicoBlotch:
-            for (ox, oy, rx, ry, col) in [
-                (14.0, -14.0, 16.0, 11.0, spotInnerCol),
-                (-16.0, -6.0, 18.0, 13.0, spotInnerCol),
-                (-2.0, 10.0, 14.0, 10.0, spotOuterCol.withAlphaComponent(0.84))
-            ] as [(CGFloat, CGFloat, CGFloat, CGFloat, NSColor)] {
-                ctx.setFillColor(col.cgColor)
-                ctx.fillEllipse(in: CGRect(x: ox - rx, y: oy - ry, width: rx * 2, height: ry * 2))
-            }
-
-        case .saddleBack:
-            ctx.setFillColor(dorsalCol.withAlphaComponent(0.72).cgColor)
-            ctx.fillEllipse(in: CGRect(x: -36, y: -36, width: 76, height: 24))
-
-        case .solidGradient:
-            break
         }
 
-        // Glossy wet aquatic back highlight + cute cheek blush
+        // =========================================================================
+        // LAYER 3: 3D CYLINDRICAL SKIN MARKINGS (Evenly Spaced Crimson Ocelli Wrapping Curved Cheeks & Flanks!)
+        // =========================================================================
+        drawVolumetricFlankMarkings(
+            in: ctx,
+            dna: dna,
+            yaw: yaw,
+            s: s,
+            c: c,
+            ps: ps,
+            droopY: droopY,
+            dorsalCol: dorsalCol,
+            spotOuterCol: spotOuterCol,
+            spotInnerCol: spotInnerCol,
+            bellyCol: bellyCol
+        )
+
+        // Glossy wet aquatic forehead/back highlight
         ctx.setFillColor(NSColor.white.withAlphaComponent(0.24).cgColor)
-        ctx.fillEllipse(in: CGRect(x: -6, y: -23 * ps, width: 34, height: 7))
-        ctx.setFillColor(NSColor(srgbRed: 0.95, green: 0.44, blue: 0.44, alpha: 0.30).cgColor)
-        ctx.fillEllipse(in: CGRect(x: 31, y: 1, width: 11, height: 7))
+        ctx.fillEllipse(in: CGRect(x: -17 - 6 * s, y: crownY + 5.0, width: 34, height: 8))
 
-        ctx.restoreGState() // end side body clip
+        // Cute 3D cheek blushes tracking the cheek azimuths (`φ = ±0.56`)
+        for blushAz in [-0.56, 0.56] as [CGFloat] {
+            let a = yaw + blushAz
+            let bz = cos(a)
+            if bz > 0.05 {
+                let bx = 44.0 * sin(a)
+                let bw = 11.5 * (0.45 + 0.55 * bz)
+                ctx.setFillColor(NSColor(srgbRed: 0.95, green: 0.44, blue: 0.44, alpha: 0.30 * min(1, bz * 1.4)).cgColor)
+                ctx.fillEllipse(in: CGRect(x: bx - bw * 0.5, y: 0.5 + 1.5 * (1.0 - blend), width: bw, height: 7.5))
+            }
+        }
+
+        ctx.restoreGState() // end torso clip
 
         // Crisp KuroCat-style outer contour
         ctx.saveGState()
@@ -1895,81 +2033,425 @@ enum FishRenderer {
         ctx.addPath(body); ctx.strokePath()
         ctx.restoreGState()
 
-        // 5. High-Set Bulging 3D Amber-Red Puffer Eye (`#E24E24`)
-        drawFrontFishEye(
+        // =========================================================================
+        // LAYER 4 (IN FRONT OF TORSO): Near-Side Eyes (`z > 0.08`), 3D Perspective Mouth + Buck Teeth, Near Pectoral Fin(s)
+        // =========================================================================
+
+        drawVolumetricSwimMouth(
             in: ctx,
-            center: CGPoint(x: 30.0, y: -11.5 * ps),
-            radius: 9.8,
-            isLeft: false,
-            irisCol: irisCol,
-            bodyCol: bodyCol,
-            contourCol: contourCol,
-            gaze: CGPoint(x: 0.35, y: tapFlex * 0.45),
-            blink: physics.effectiveEyeClosure,
-            puff: 0,
-            frenzy: 0
+            dna: dna,
+            s: s,
+            c: c,
+            bellyCol: bellyCol,
+            contourCol: contourCol
         )
 
-        // 6. Cheerful Side-Profile Dog-Face Puffer Smile + Little Buck Tooth!
-        let lipCol = blendColor(bellyCol, NSColor(srgbRed: 0.97, green: 0.82, blue: 0.76, alpha: 1.0), t: 0.50)
-        ctx.saveGState()
-        let mouthPath = CGMutablePath()
-        mouthPath.move(to: CGPoint(x: 42.5, y: 4.0))
-        mouthPath.addQuadCurve(to: CGPoint(x: 54.0, y: 3.5), control: CGPoint(x: 48.0, y: 10.5))
-        mouthPath.addQuadCurve(to: CGPoint(x: 42.5, y: 4.0), control: CGPoint(x: 48.5, y: 3.2))
-        mouthPath.closeSubpath()
-        ctx.setFillColor(NSColor(srgbRed: 0.54, green: 0.21, blue: 0.25, alpha: 0.90).cgColor)
-        ctx.addPath(mouthPath); ctx.fillPath()
-        if dna.hasBuckTeeth {
+        let visibleEyes = eyes3D.filter { $0.z > 0.08 }.sorted { $0.z < $1.z }
+        for e in visibleEyes {
+            let eyeScaleX = 0.72 + 0.28 * e.z
+            let eyeR: CGFloat = 9.8 * (0.90 + 0.12 * e.z)
             ctx.saveGState()
-            ctx.addPath(mouthPath); ctx.clip()
-            let tooth = CGPath(roundedRect: CGRect(x: 48.2, y: 2.8, width: 3.4, height: 3.6), cornerWidth: 1.2, cornerHeight: 1.2, transform: nil)
-            ctx.setFillColor(NSColor(srgbRed: 0.99, green: 0.98, blue: 0.95, alpha: 1.0).cgColor)
-            ctx.addPath(tooth); ctx.fillPath()
+            ctx.translateBy(x: e.x, y: e.y)
+            ctx.scaleBy(x: eyeScaleX, y: 1.0)
+            drawFrontFishEye(
+                in: ctx,
+                center: .zero,
+                radius: eyeR,
+                isLeft: e.isLeft,
+                irisCol: irisCol,
+                bodyCol: bodyCol,
+                contourCol: contourCol,
+                gaze: CGPoint(x: 0.32 * s, y: tapFlex * 0.45),
+                blink: physics.effectiveEyeClosure,
+                puff: 0,
+                frenzy: 0
+            )
             ctx.restoreGState()
         }
-        let smileLip = CGMutablePath()
-        smileLip.move(to: CGPoint(x: 41.5, y: 4.2))
-        smileLip.addQuadCurve(to: CGPoint(x: 54.5, y: 3.0), control: CGPoint(x: 48.0, y: 6.2))
-        ctx.setStrokeColor(lipCol.cgColor); ctx.setLineWidth(3.2); ctx.setLineCap(.round)
-        ctx.addPath(smileLip); ctx.strokePath()
-        ctx.setStrokeColor(contourCol.withAlphaComponent(0.78).cgColor); ctx.setLineWidth(1.35)
-        ctx.addPath(mouthPath); ctx.strokePath()
+
+        for pf in pecs3D where pf.z > 0.05 {
+            let sweep = pf.side * c - s * (1.0 - c * 0.45)
+            drawVolumetricPectoralFin(
+                in: ctx,
+                origin: CGPoint(x: pf.x, y: 4.5 + 3.0 * (1.0 - blend)),
+                sweepDir: sweep,
+                flutter: pecFlutter * pf.side,
+                finScale: finScale * (0.78 + 0.22 * pf.z),
+                finCol: finCol,
+                contourCol: contourCol
+            )
+        }
+
+        ctx.restoreGState()
+    }
+
+    /// Soft plump rounded translucent aqua fin (used for dorsal & anal fins across ALL 3D yaw angles — NEVER needle-thin or detached!).
+    private static func drawRoundedAquaFin(
+        in ctx: CGContext,
+        centerRoot: CGPoint,
+        halfRootWidth: CGFloat,
+        height: CGFloat,
+        tiltX: CGFloat,
+        isTop: Bool,
+        finCol: NSColor,
+        contourCol: NSColor
+    ) {
+        let vy: CGFloat = isTop ? -1.0 : 1.0
+        let rootL = CGPoint(x: centerRoot.x - halfRootWidth, y: centerRoot.y)
+        let rootR = CGPoint(x: centerRoot.x + halfRootWidth, y: centerRoot.y)
+        let peak = CGPoint(x: centerRoot.x + tiltX, y: centerRoot.y + vy * height)
+        let fanHalfSpread = halfRootWidth * 1.25
+
+        let p = CGMutablePath()
+        p.move(to: rootL)
+        p.addCurve(
+            to: CGPoint(x: peak.x - fanHalfSpread * 0.45, y: peak.y + vy * 2.0),
+            control1: CGPoint(x: rootL.x - 4.0 + tiltX * 0.35, y: centerRoot.y + vy * height * 0.55),
+            control2: CGPoint(x: peak.x - fanHalfSpread * 0.95, y: peak.y + vy * 4.0)
+        )
+        p.addQuadCurve(
+            to: CGPoint(x: peak.x + fanHalfSpread * 0.55, y: peak.y + vy * 2.5),
+            control: CGPoint(x: peak.x, y: peak.y - vy * 3.5)
+        )
+        p.addCurve(
+            to: rootR,
+            control1: CGPoint(x: peak.x + fanHalfSpread * 0.95, y: peak.y + vy * 5.0),
+            control2: CGPoint(x: rootR.x + 3.0 + tiltX * 0.35, y: centerRoot.y + vy * height * 0.55)
+        )
+        p.closeSubpath()
+
+        ctx.saveGState()
+        ctx.addPath(p); ctx.clip()
+        if let grad = makeLinearGradient([
+            (0.0, finCol.withAlphaComponent(0.88)),
+            (1.0, NSColor(srgbRed: 0.99, green: 0.96, blue: 0.89, alpha: 0.56))
+        ]) {
+            ctx.drawLinearGradient(grad, start: centerRoot, end: peak, options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+        }
+        ctx.setStrokeColor(contourCol.withAlphaComponent(0.32).cgColor)
+        ctx.setLineWidth(0.95)
+        ctx.setLineCap(.round)
+        for f in [-0.6, -0.2, 0.2, 0.6] as [CGFloat] {
+            ctx.beginPath()
+            ctx.move(to: CGPoint(x: centerRoot.x + f * halfRootWidth * 0.65, y: centerRoot.y))
+            ctx.addQuadCurve(
+                to: CGPoint(x: peak.x + f * fanHalfSpread * 0.72, y: peak.y + vy * 2.5),
+                control: CGPoint(x: centerRoot.x + tiltX * 0.45 + f * halfRootWidth * 0.75, y: centerRoot.y + vy * height * 0.52)
+            )
+            ctx.strokePath()
+        }
         ctx.restoreGState()
 
-        // 7. Fluttering Translucent Side Pectoral Fin (authentic short helicopter paddle behind gill!)
-        let pecFlutter = sin(swim.finPhase * 2.2) * 0.26
         ctx.saveGState()
-        ctx.translateBy(x: 15.0, y: 3.5)
-        ctx.rotate(by: pecFlutter)
+        ctx.setStrokeColor(contourCol.withAlphaComponent(0.72).cgColor)
+        ctx.setLineWidth(1.4)
+        ctx.setLineJoin(.round)
+        ctx.addPath(p); ctx.strokePath()
+        ctx.restoreGState()
+    }
+
+    /// Continuous volumetric body contour across ANY 3D yaw (`s = sin(yaw)`, `c = cos(yaw)`):
+    /// Smoothly morphs between a chubby 92px-wide front puffer (`blend = 0`) and a sleek 102px-long side-profile torpedo (`blend = 1`) —
+    /// Rear edge uses a full rounded cubic cheek until `blend > 0.78` so there is NEVER a flat chopped-off stump!
+    private static func makeVolumetricSwimBodyPath(s: CGFloat, c: CGFloat, ps: CGFloat, pedEndY: CGFloat, droopY: CGFloat) -> CGPath {
+        let sideAmt = abs(s)
+        let dirSign: CGFloat = s >= 0 ? 1.0 : -1.0
+        let blend = sideAmt * sideAmt * (3.0 - 2.0 * sideAmt)
+        // Only pinch the rear into a tail peduncle once near full side profile (`blend > 0.72`)!
+        let pedBlend = max(0, min(1, (blend - 0.70) / 0.30))
+        let pedSmooth = pedBlend * pedBlend * (3.0 - 2.0 * pedBlend)
+
+        let headX: CGFloat = 45.0 * ps * (1.0 - blend) + 54.0 * blend
+        let rearX: CGFloat = -45.0 * ps * (1.0 - pedSmooth) - (54.0 - droopY * 0.08) * pedSmooth
+        let crownY: CGFloat = -(33.0 * (1.0 - blend) + 27.0 * blend) * ps
+        let bellyY: CGFloat = +(33.0 * (1.0 - blend) + 27.0 * blend) * ps
+        let snoutMidY: CGFloat = 2.0 * blend
+
+        func pt(_ lx: CGFloat, _ ly: CGFloat) -> CGPoint {
+            CGPoint(x: lx * dirSign, y: ly)
+        }
+
+        let p = CGMutablePath()
+        p.move(to: pt(headX, snoutMidY))
+        // Upper forehead arch -> crown
+        p.addCurve(
+            to: pt(24.0 * blend, crownY),
+            control1: pt(headX, crownY * (0.64 - 0.08 * blend)),
+            control2: pt(headX * (0.62 + 0.16 * blend), crownY)
+        )
+
+        if pedSmooth > 0.04 {
+            // Sleek torpedo taper smoothly narrowing into the tail peduncle at side profile (`|yaw| > 64°`)
+            let rearTopY = -12.0 * ps * (1.0 - pedSmooth) + (pedEndY - 8.5) * pedSmooth
+            let rearBotY = +12.0 * ps * (1.0 - pedSmooth) + (pedEndY + 8.5) * pedSmooth
+            p.addCurve(
+                to: pt(rearX, rearTopY),
+                control1: pt(-4.0 * blend, crownY * 1.03),
+                control2: pt(rearX * 0.66, -16.0 + droopY * 0.22)
+            )
+            p.addQuadCurve(
+                to: pt(rearX, rearBotY),
+                control: pt(rearX - 7.0 * (1.0 - pedSmooth), (rearTopY + rearBotY) * 0.5)
+            )
+            p.addCurve(
+                to: pt(22.0 * blend, bellyY),
+                control1: pt(rearX * 0.66, 18.0 + droopY * 0.22),
+                control2: pt(-6.0 * blend, bellyY * 1.08)
+            )
+        } else {
+            // Smooth plump 3D rounded puffer cheek & rear hip across all front & 3/4 turn angles (`0° .. 64°`) — ZERO blunt vertical chop!
+            p.addCurve(
+                to: pt(rearX, 0),
+                control1: pt(-24.0 * ps, crownY),
+                control2: pt(rearX, crownY * 0.62)
+            )
+            p.addCurve(
+                to: pt(22.0 * blend, bellyY),
+                control1: pt(rearX, bellyY * 0.64),
+                control2: pt(-24.0 * ps, bellyY)
+            )
+        }
+
+        // Plump belly -> chin -> snout
+        p.addCurve(
+            to: pt(headX, snoutMidY),
+            control1: pt(headX * (0.62 + 0.16 * blend), bellyY * (0.96 - 0.04 * blend)),
+            control2: pt(headX, bellyY * (0.64 - 0.10 * blend))
+        )
+        p.closeSubpath()
+        return p
+    }
+
+    /// Maps double-ringed crimson ocelli & dorsal mottling onto a real 3D rotating cylinder so spots wrap organically around the puffer as it turns!
+    private static func drawVolumetricFlankMarkings(
+        in ctx: CGContext,
+        dna: FishPhotoDNA,
+        yaw: CGFloat,
+        s: CGFloat,
+        c: CGFloat,
+        ps: CGFloat,
+        droopY: CGFloat,
+        dorsalCol: NSColor,
+        spotOuterCol: NSColor,
+        spotInnerCol: NSColor,
+        bellyCol: NSColor
+    ) {
+        let sideAmt = abs(s)
+        let dirSign: CGFloat = s >= 0 ? 1.0 : -1.0
+
+        switch dna.spotPattern {
+        case .ringedOcelli:
+            // Warm russet crown mottling smoothly orbiting the forehead & upper back
+            let warmDorsal = blendColor(dorsalCol, spotInnerCol, t: 0.34)
+            let browAzimuths: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+                (0.0, -24.0 * ps, 13.0, 5.8),
+                (-0.52, -21.5 * ps, 11.5, 5.2),
+                ( 0.52, -21.5 * ps, 11.5, 5.2),
+                (-1.12, -21.0 * ps, 12.0, 5.4),
+                ( 1.12, -21.0 * ps, 12.0, 5.4)
+            ]
+            for (az, by, rx, ry) in browAzimuths {
+                let a = yaw + az
+                let z = cos(a)
+                if z > -0.25 {
+                    let bx = 45.0 * sin(a)
+                    let sx = max(0.38, min(1.0, z + 0.35))
+                    ctx.setFillColor(warmDorsal.withAlphaComponent(0.60).cgColor)
+                    ctx.fillEllipse(in: CGRect(x: bx - rx * sx, y: by - ry, width: rx * sx * 2, height: ry * 2))
+                }
+            }
+
+            // Evenly spaced 3D flank double-ringed crimson ocelli across cheeks & flanks (no clumping behind pectoral fin!)
+            let singleSideSpots: [(az: CGFloat, y: CGFloat, rx: CGFloat, ry: CGFloat)] = [
+                (0.92, -6.5, 5.6, 5.0),
+                (1.32, -10.5, 6.4, 5.8),
+                (1.74, -5.5, 7.0, 6.2),
+                (2.16, -8.5, 6.2, 5.5),
+                (1.08,  9.5, 5.8, 5.2),
+                (1.54,  8.0, 6.8, 6.0),
+                (1.98,  9.5, 6.0, 5.4)
+            ]
+            for side in [-1.0, 1.0] as [CGFloat] {
+                for sp in singleSideSpots {
+                    let a = yaw + side * sp.az
+                    let z = cos(a)
+                    guard z > -0.05 else { continue }
+                    let sx = 44.0 * sin(a)
+                    let foreshorten = max(0.42, min(1.0, 0.30 + z * 0.72))
+                    let rx = sp.rx * foreshorten
+                    let ry = sp.ry
+                    ctx.setFillColor(spotOuterCol.withAlphaComponent(0.92).cgColor)
+                    ctx.fillEllipse(in: CGRect(x: sx - rx, y: sp.y - ry, width: rx * 2, height: ry * 2))
+                    ctx.setFillColor(spotInnerCol.cgColor)
+                    ctx.fillEllipse(in: CGRect(x: sx - rx * 0.58, y: sp.y - ry * 0.58, width: rx * 1.16, height: ry * 1.16))
+                }
+            }
+
+            // Extra rear peduncle ocelli visible during side cruising & tail-tap!
+            if sideAmt > 0.68 {
+                let tailSpotA = min(1.0, (sideAmt - 0.68) / 0.25)
+                for (ox, oy, rx, ry) in [
+                    (-36.0, -3.5 + droopY * 0.14, 5.6, 5.0),
+                    (-46.5,  1.2 + droopY * 0.28, 4.8, 4.3),
+                    (-34.0,  7.5 + droopY * 0.14, 5.2, 4.6)
+                ] as [(CGFloat, CGFloat, CGFloat, CGFloat)] {
+                    let wx = ox * dirSign
+                    ctx.setFillColor(spotOuterCol.withAlphaComponent(0.92 * tailSpotA).cgColor)
+                    ctx.fillEllipse(in: CGRect(x: wx - rx, y: oy - ry, width: rx * 2, height: ry * 2))
+                    ctx.setFillColor(spotInnerCol.withAlphaComponent(tailSpotA).cgColor)
+                    ctx.fillEllipse(in: CGRect(x: wx - rx * 0.58, y: oy - ry * 0.58, width: rx * 1.16, height: ry * 1.16))
+                }
+            }
+
+        case .spotted:
+            ctx.setFillColor(spotOuterCol.withAlphaComponent(0.84).cgColor)
+            for side in [-1.0, 1.0] as [CGFloat] {
+                for (az, sy, r) in [(1.0, -7.0, 5.4), (1.48, -6.0, 6.2), (1.96, -6.0, 5.8), (1.25, 8.5, 5.8), (1.76, 8.5, 5.5)] as [(CGFloat, CGFloat, CGFloat)] {
+                    let a = yaw + side * az
+                    let z = cos(a)
+                    guard z > -0.05 else { continue }
+                    let sx = 44.0 * sin(a)
+                    let rx = r * max(0.42, 0.30 + z * 0.72)
+                    ctx.fillEllipse(in: CGRect(x: sx - rx, y: sy - r * 0.9, width: rx * 2, height: r * 1.8))
+                }
+            }
+
+        case .stripedVertical:
+            for az in [-1.8, -1.1, 1.1, 1.8] as [CGFloat] {
+                let a = yaw + az
+                let z = cos(a)
+                guard z > 0.05 else { continue }
+                let sx = 45.0 * sin(a)
+                let w = 10.0 * max(0.45, z)
+                let band = CGPath(roundedRect: CGRect(x: sx - w * 0.5, y: -34, width: w, height: 68), cornerWidth: 4, cornerHeight: 4, transform: nil)
+                ctx.setFillColor(bellyCol.cgColor); ctx.addPath(band); ctx.fillPath()
+                ctx.setStrokeColor(spotOuterCol.withAlphaComponent(0.85).cgColor); ctx.setLineWidth(1.9); ctx.addPath(band); ctx.strokePath()
+            }
+
+        case .calicoBlotch:
+            for (az, oy, rx, ry, col) in [
+                (-1.25, -13.0, 15.0, 11.0, spotInnerCol),
+                ( 1.35, -10.0, 16.0, 11.5, spotInnerCol),
+                (-1.85,   6.0, 14.0, 10.0, spotOuterCol.withAlphaComponent(0.84)),
+                ( 1.75,   8.0, 14.0, 10.0, dorsalCol.withAlphaComponent(0.84))
+            ] as [(CGFloat, CGFloat, CGFloat, CGFloat, NSColor)] {
+                let a = yaw + az
+                let z = cos(a)
+                guard z > -0.1 else { continue }
+                let sx = 44.0 * sin(a)
+                let fx = max(0.45, z + 0.25)
+                ctx.setFillColor(col.cgColor)
+                ctx.fillEllipse(in: CGRect(x: sx - rx * fx, y: oy - ry, width: rx * fx * 2, height: ry * 2))
+            }
+
+        case .saddleBack:
+            ctx.setFillColor(dorsalCol.withAlphaComponent(0.72).cgColor)
+            ctx.fillEllipse(in: CGRect(x: -38, y: -36 * ps, width: 76, height: 24))
+
+        case .solidGradient:
+            break
+        }
+    }
+
+    private static func drawVolumetricSwimMouth(
+        in ctx: CGContext,
+        dna: FishPhotoDNA,
+        s: CGFloat,
+        c: CGFloat,
+        bellyCol: NSColor,
+        contourCol: NSColor
+    ) {
+        let lipCol = blendColor(bellyCol, NSColor(srgbRed: 0.97, green: 0.82, blue: 0.76, alpha: 1.0), t: 0.50)
+        let mx = 46.5 * s
+        let my = 4.2 + 2.6 * c
+        let halfW = 5.6 + 4.4 * c
+
+        ctx.saveGState()
+        ctx.translateBy(x: mx, y: my)
+
+        let cavity = CGMutablePath()
+        cavity.move(to: CGPoint(x: -halfW, y: -0.5))
+        cavity.addQuadCurve(to: CGPoint(x: halfW, y: -0.5), control: CGPoint(x: 0, y: -2.0))
+        cavity.addQuadCurve(to: CGPoint(x: -halfW, y: -0.5), control: CGPoint(x: 0, y: 6.2 + 1.5 * c))
+        cavity.closeSubpath()
+
+        ctx.setFillColor(NSColor(srgbRed: 0.55, green: 0.21, blue: 0.25, alpha: 0.90).cgColor)
+        ctx.addPath(cavity); ctx.fillPath()
+
+        if dna.hasBuckTeeth {
+            ctx.saveGState()
+            ctx.addPath(cavity); ctx.clip()
+            let toothCol = NSColor(srgbRed: 0.99, green: 0.98, blue: 0.95, alpha: 1.0)
+            ctx.setFillColor(toothCol.cgColor)
+            if c > 0.30 {
+                let tw = 3.2 * (0.72 + 0.28 * c)
+                let t1 = CGPath(roundedRect: CGRect(x: -tw - 0.3, y: -1.4, width: tw, height: 3.9), cornerWidth: 1.2, cornerHeight: 1.2, transform: nil)
+                let t2 = CGPath(roundedRect: CGRect(x: 0.3, y: -1.4, width: tw, height: 3.9), cornerWidth: 1.2, cornerHeight: 1.2, transform: nil)
+                ctx.addPath(t1); ctx.fillPath()
+                ctx.addPath(t2); ctx.fillPath()
+            } else {
+                let t1 = CGPath(roundedRect: CGRect(x: -1.6 + s * 1.4, y: -1.4, width: 3.3, height: 3.8), cornerWidth: 1.2, cornerHeight: 1.2, transform: nil)
+                ctx.addPath(t1); ctx.fillPath()
+            }
+            ctx.restoreGState()
+        }
+
+        let smileLip = CGMutablePath()
+        smileLip.move(to: CGPoint(x: -halfW - 1.0, y: -0.8))
+        smileLip.addQuadCurve(to: CGPoint(x: halfW + 1.0, y: -0.8), control: CGPoint(x: 0, y: 1.4))
+        ctx.setStrokeColor(lipCol.cgColor); ctx.setLineWidth(3.2); ctx.setLineCap(.round)
+        ctx.addPath(smileLip); ctx.strokePath()
+
+        ctx.setStrokeColor(contourCol.withAlphaComponent(0.78).cgColor); ctx.setLineWidth(1.35)
+        ctx.addPath(cavity); ctx.strokePath()
+        ctx.restoreGState()
+    }
+
+    private static func drawVolumetricPectoralFin(
+        in ctx: CGContext,
+        origin: CGPoint,
+        sweepDir: CGFloat,
+        flutter: CGFloat,
+        finScale: CGFloat,
+        finCol: NSColor,
+        contourCol: NSColor
+    ) {
+        let dirSign: CGFloat = sweepDir >= 0 ? 1.0 : -1.0
+        let lenScale = max(0.58, min(1.05, 0.55 + abs(sweepDir) * 0.50)) * finScale
+
+        ctx.saveGState()
+        ctx.translateBy(x: origin.x, y: origin.y)
+        ctx.scaleBy(x: dirSign, y: 1.0)
+        ctx.rotate(by: flutter)
+
         let pec = CGMutablePath()
-        pec.move(to: CGPoint(x: 2, y: -5))
-        pec.addCurve(to: CGPoint(x: -16 * finScale, y: -9), control1: CGPoint(x: -5, y: -11), control2: CGPoint(x: -12, y: -12))
-        pec.addQuadCurve(to: CGPoint(x: -14 * finScale, y: 12), control: CGPoint(x: -20 * finScale, y: 2))
-        pec.addCurve(to: CGPoint(x: 2, y: 6), control1: CGPoint(x: -8, y: 13), control2: CGPoint(x: -2, y: 10))
+        pec.move(to: CGPoint(x: -2, y: -5))
+        pec.addCurve(to: CGPoint(x: 16 * lenScale, y: -8), control1: CGPoint(x: 5, y: -10), control2: CGPoint(x: 12 * lenScale, y: -11))
+        pec.addQuadCurve(to: CGPoint(x: 14 * lenScale, y: 11), control: CGPoint(x: 20 * lenScale, y: 2))
+        pec.addCurve(to: CGPoint(x: -2, y: 5.5), control1: CGPoint(x: 8 * lenScale, y: 12), control2: CGPoint(x: 2, y: 9))
         pec.closeSubpath()
+
         ctx.saveGState()
         ctx.addPath(pec); ctx.clip()
         if let grad = makeLinearGradient([
             (0.0, finCol.withAlphaComponent(0.84)),
             (1.0, NSColor(srgbRed: 1.0, green: 0.98, blue: 0.92, alpha: 0.56))
         ]) {
-            ctx.drawLinearGradient(grad, start: CGPoint(x: 2, y: 0), end: CGPoint(x: -18 * finScale, y: 2), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+            ctx.drawLinearGradient(grad, start: CGPoint(x: -2, y: 0), end: CGPoint(x: 18 * lenScale, y: 2), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
         }
         ctx.setStrokeColor(contourCol.withAlphaComponent(0.32).cgColor)
         ctx.setLineWidth(0.9)
-        for ry in [-5.0, 0.0, 5.5] as [CGFloat] {
+        for ry in [-4.5, 0.0, 5.0] as [CGFloat] {
             ctx.beginPath()
             ctx.move(to: CGPoint(x: 0, y: ry * 0.45))
-            ctx.addLine(to: CGPoint(x: -14 * finScale, y: ry))
+            ctx.addLine(to: CGPoint(x: 14 * lenScale, y: ry))
             ctx.strokePath()
         }
         ctx.restoreGState()
+
         ctx.setStrokeColor(contourCol.withAlphaComponent(0.68).cgColor)
         ctx.setLineWidth(1.25)
         ctx.addPath(pec); ctx.strokePath()
-        ctx.restoreGState()
-
         ctx.restoreGState()
     }
 

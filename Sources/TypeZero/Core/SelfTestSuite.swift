@@ -952,6 +952,9 @@ public enum SelfTestSuite {
             let paths = fishIn.split(separator: ":").map(String.init)
             renderFishPhotoToRig4PanelSheet(photoPaths: paths, outPath: fishOut)
         }
+        if let turnOut = ProcessInfo.processInfo.environment["TZ_TEST_FISH_TURN_OUT"], !turnOut.isEmpty {
+            renderFishVolumetricTurnSheet(outPath: turnOut)
+        }
 
         // Test: FishRig Multi-Species Compilation, Round-Trip & 4-Pose Offscreen Render
         var allFishProfilesOK = true
@@ -1630,6 +1633,54 @@ public enum SelfTestSuite {
             name: "红斑", mood: "🫧", accentColor: NSColor(srgbRed: 0.45, green: 0.85, blue: 1.0, alpha: 1.0), alpha: 1.0, phase: 0.4
         )
         ctx.restoreGState()
+
+        if let outImg = ctx.makeImage() {
+            let data = NSMutableData()
+            if let dest = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil) {
+                CGImageDestinationAddImage(dest, outImg, nil)
+                if CGImageDestinationFinalize(dest) {
+                    try? (data as Data).write(to: URL(fileURLWithPath: outPath))
+                }
+            }
+        }
+    }
+
+    /// Renders a 6-frame (3x2) continuous volumetric 3D U-turn QA strip:
+    /// [+90° Right -> +55° Turning -> +20° 3/4 Front -> 0° Full Plump Front (Tail Lagging!) -> -45° 3/4 Left -> -90° Left]
+    private static func renderFishVolumetricTurnSheet(outPath: String) {
+        guard let sk = try? FishCoatCompiler.compileSkinSpec(from: FishPhotoDNA.crossRiverPufferPreset) else { return }
+        let cellW = 380, cellH = 340
+        let totalW = cellW * 3, totalH = cellH * 2
+        let cs = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(
+            data: nil, width: totalW, height: totalH, bitsPerComponent: 8, bytesPerRow: totalW * 4,
+            space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return }
+        ctx.translateBy(x: 0, y: CGFloat(totalH))
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.setFillColor(NSColor(srgbRed: 0.94, green: 0.96, blue: 0.99, alpha: 1.0).cgColor)
+        ctx.fill(CGRect(x: 0, y: 0, width: totalW, height: totalH))
+
+        let frames: [(bodyDeg: CGFloat, tailDeg: CGFloat, cx: CGFloat, cy: CGFloat)] = [
+            ( 90,  90, 198, 146),
+            ( 52,  82, 192, 150),
+            ( 18,  60, 186, 155),
+            (  0,  42, 184, 156),
+            (-42, -14, 178, 151),
+            (-90, -90, 172, 146)
+        ]
+
+        for (idx, f) in frames.enumerated() {
+            let col = idx % 3
+            let row = idx / 3
+            ctx.saveGState()
+            ctx.translateBy(x: CGFloat(col * cellW) + 10, y: CGFloat(row * cellH) + 20)
+            let p = CatPhysics()
+            p.forceFishSimulation = true
+            p.fishSwim.setTurnAngleSnapshot(bodyYawDeg: f.bodyDeg, tailYawDeg: f.tailDeg, center: CGPoint(x: f.cx, y: f.cy))
+            CatRenderer.draw(in: ctx, physics: p, showPermissionPill: false, isPreview: true, customSkinOverride: sk)
+            ctx.restoreGState()
+        }
 
         if let outImg = ctx.makeImage() {
             let data = NSMutableData()
