@@ -36,5 +36,7 @@ personal_corpus/
 *.sqlite-wal
 *.db
 
-# Local agent workspace rules (machine-specific ops paths, never publish)
+# Local agent workspace rules & parallel worktrees (machine-specific, never publish)
 AGENTS.md
+.agents/
+.worktrees/
