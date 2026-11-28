@@ -438,7 +438,21 @@ struct CustomCatStudioSheet: View {
     // MARK: - Right Column: Naming + Fine-Tune Studio
 
     private var rightControlsColumn: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack(spacing: 7) {
+                Image(systemName: "wand.and.stars")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(TZTheme.accent)
+                Text("以下参数由 AI 从照片自动提取生成 — 修改任意色块或开关，左侧猫咪 0 延迟实时同步")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(TZTheme.inkSecondary)
+            }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(TZTheme.accentSoft.opacity(0.42))
+            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+
             // 1. Cat Naming & Head Bubble Section
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
@@ -568,6 +582,42 @@ struct CustomCatStudioSheet: View {
                         hexColorControl(title: tertiaryColorLabel, hex: $dna.tertiaryFurHex)
                     }
                     hexColorControl(title: "鼻头色", hex: $dna.noseHex)
+                }
+
+                // Quick 1-click Fur Tone Presets so dark/black/brown/silver/ginger cats snap to exact richness immediately!
+                HStack(spacing: 6) {
+                    Text("主毛色快选：")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(TZTheme.inkMuted)
+                    ForEach([
+                        ("绒黑", "#19191E"),
+                        ("黑狸深炭", "#3A322B"),
+                        ("深巧褐", "#4A3528"),
+                        ("暖灰褐", "#685C50"),
+                        ("英短蓝", "#6E7887"),
+                        ("美短银", "#B8BDBC"),
+                        ("大橘金", "#DC954B"),
+                        ("纯奶白", "#F6F2EA")
+                    ], id: \.0) { label, presetHex in
+                        Button {
+                            dna.primaryFurHex = presetHex
+                        } label: {
+                            HStack(spacing: 3.5) {
+                                Circle()
+                                    .fill(Color(nsColor: CatCoatCompiler.swiftUIColor(presetHex)))
+                                    .frame(width: 9, height: 9)
+                                    .overlay(Circle().strokeBorder(Color.black.opacity(0.22), lineWidth: 0.6))
+                                Text(label)
+                                    .font(.system(size: 10.5))
+                            }
+                            .foregroundStyle(dna.primaryFurHex == presetHex ? TZTheme.accent : TZTheme.inkSecondary)
+                            .padding(.horizontal, 6.5)
+                            .padding(.vertical, 2.5)
+                            .background(dna.primaryFurHex == presetHex ? TZTheme.accentSoft : TZTheme.recessedWell)
+                            .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
 
                 HStack(spacing: 14) {
