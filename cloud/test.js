@@ -302,13 +302,24 @@ async function run() {
     const meLowRes = await fetch(`${base}/api/me`, {
       headers: { Authorization: `Bearer ${v1.token}` },
     });
-    const meLow = await meLowRes.json();
+      const meLow = await meLowRes.json();
     assert.equal(meLow.user.trial.status, "low");
     assert.equal(meLow.user.trial.remainingPercent, 20);
     assert.equal(meLow.user.trial.asrUsedMinutes, 240);
     assert.equal(meLow.user.trial.asrRemainingMinutes, 60);
 
-    console.log("✅ All 12 TypeZero Cloud backend test suites passed!");
+    // 13. /api/pet/analyze-photo validation & authenticated relay contract
+    const badImgRes = await fetch(`${base}/api/pet/analyze-photo`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${v1.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ imageDataUrl: "not-a-data-url" }),
+    });
+    assert.equal(badImgRes.status, 400);
+
+    console.log("✅ All 13 TypeZero Cloud backend test suites passed!");
   } finally {
     server.close();
     db.flushSync();

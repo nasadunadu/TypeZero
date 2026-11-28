@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 // MARK: - Live Embedded Vector Cat Preview Stage (Supports Both KuroCat & Clack-Clack Styles!)
 
@@ -166,7 +167,7 @@ struct PetCompanionView: View {
     @ObservedObject var appState: AppState
     @ObservedObject var pet: PetCompanionController
     @Environment(\.colorScheme) private var scheme
-    @State private var selectedSubTab: PetSettingsSubTab = .keyboardAndLook
+    @State private var selectedSubTab: PetSettingsSubTab = .breedAndHandover
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -183,6 +184,9 @@ struct PetCompanionView: View {
             case .interactAndSys:
                 interactionAndSystemSection
             }
+        }
+        .sheet(isPresented: $pet.showCustomCatStudio) {
+            CustomCatStudioSheet(appState: appState, pet: pet)
         }
     }
 
@@ -266,13 +270,23 @@ struct PetCompanionView: View {
                             Text("开启桌面黑猫搭子")
                                 .font(.system(size: 15.5, weight: .semibold))
                                 .foregroundStyle(TZTheme.inkPrimary)
-                            Text(CatSettings.shared.activeSkin.name)
+                            Button {
+                                pet.promptRenameActiveCat()
+                            } label: {
+                                HStack(spacing: 3.5) {
+                                    Text("🐾 \(pet.activeCatDisplayName)")
+                                    Image(systemName: "pencil")
+                                        .font(.system(size: 9, weight: .bold))
+                                }
                                 .font(.system(size: 10.5, weight: .semibold))
                                 .foregroundStyle(TZTheme.accent)
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 2)
+                                .padding(.horizontal, 7.5)
+                                .padding(.vertical, 2.5)
                                 .background(TZTheme.accentSoft)
                                 .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .help("点击给猫咪起名或改名")
                         }
                         Text("常驻桌面右下角（可揪后颈拖动、滚轮缩放、双击进入旋转缩放框，右键小猫可一键关流光/开关音效）")
                             .font(.system(size: 12))
@@ -297,25 +311,36 @@ struct PetCompanionView: View {
                 }
 
                 // Quick Interactive Action Buttons
-                HStack(spacing: 9) {
+                HStack(spacing: 8) {
                     Button {
-                        pet.playShiftHandoverDemo()
+                        pet.openCustomCatStudio()
                     } label: {
-                        HStack(spacing: 5.5) {
-                            Image(systemName: "arrow.left.arrow.right.circle.fill")
-                                .font(.system(size: 12))
-                            Text(pet.isHandoverRunning ? "正在顶额头换班中…" : "立即演示原版「顶额头换班」")
+                        HStack(spacing: 5) {
+                            Image(systemName: "camera.fill")
+                                .font(.system(size: 11.5))
+                            Text("上传我家猫咪照片")
                         }
                     }
                     .buttonStyle(TZAccentButtonStyle(compact: true, capsule: true))
 
                     Button {
+                        pet.playShiftHandoverDemo()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrow.left.arrow.right.circle.fill")
+                                .font(.system(size: 11.5))
+                            Text(pet.isHandoverRunning ? "正在换班中…" : "演示「顶额头换班」")
+                        }
+                    }
+                    .buttonStyle(TZSecondaryButtonStyle(compact: true, capsule: true))
+
+                    Button {
                         pet.playVoiceTypingDemo()
                     } label: {
-                        HStack(spacing: 5.5) {
+                        HStack(spacing: 5) {
                             Image(systemName: "keyboard.fill")
-                                .font(.system(size: 11.5))
-                            Text("试播语音变敲键")
+                                .font(.system(size: 11))
+                            Text("试播语音敲键")
                         }
                     }
                     .buttonStyle(TZSecondaryButtonStyle(compact: true, capsule: true))
@@ -324,10 +349,10 @@ struct PetCompanionView: View {
                         Button {
                             pet.resetPosition()
                         } label: {
-                            HStack(spacing: 4.5) {
+                            HStack(spacing: 4) {
                                 Image(systemName: "scope")
                                     .font(.system(size: 11))
-                                Text("归位右下角")
+                                Text("归位")
                             }
                         }
                         .buttonStyle(TZSecondaryButtonStyle(compact: true, capsule: true))
@@ -405,7 +430,125 @@ struct PetCompanionView: View {
                 .padding(16)
             }
 
-            TZGroupedSection(title: "猫咪品种与原版换班交接（Clack-Clack 1:1 复刻）") {
+            TZGroupedSection(title: "专属猫咪定制与名字气泡（上传照片一键还原画风与动画）") {
+                Button {
+                    pet.triggerCatNameBubbleNow(mood: "🐾")
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "bubble.middle.bottom.fill")
+                            .font(.system(size: 10.5, weight: .semibold))
+                        Text("立即冒一下名字")
+                    }
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(TZTheme.accent)
+                }
+                .buttonStyle(.plain)
+            } content: {
+                VStack(alignment: .leading, spacing: 14) {
+                    // Photo Upload & Drop CTA Banner
+                    HStack(spacing: 14) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(TZTheme.accentSoft)
+                                .frame(width: 46, height: 46)
+                            Image(systemName: "camera.viewfinder")
+                                .font(.system(size: 21, weight: .semibold))
+                                .foregroundStyle(TZTheme.accent)
+                        }
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("上传自家猫咪照片 · 生成专属动态桌宠")
+                                .font(.system(size: 13.5, weight: .semibold))
+                                .foregroundStyle(TZTheme.inkPrimary)
+                            Text("自动提取毛色、正八字/偏分开脸、三花/玳瑁/布偶/虎斑、白手套与鸳鸯异瞳，100% 保留敲键与顶额头换班动画（也可直接把照片拖到桌面小猫身上）")
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(TZTheme.inkSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 8)
+
+                        Button {
+                            pet.openCustomCatStudio()
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "plus.viewfinder")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text("上传照片定制…")
+                            }
+                        }
+                        .buttonStyle(TZAccentButtonStyle(compact: true, capsule: true))
+                    }
+                    .padding(12)
+                    .background(TZTheme.accentSoft.opacity(0.32))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(TZTheme.accent.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [5, 3]))
+                    )
+                    .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                        guard let prov = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }) else {
+                            return false
+                        }
+                        prov.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                            let url: URL? = {
+                                if let d = item as? Data { return URL(dataRepresentation: d, relativeTo: nil) }
+                                return item as? URL
+                            }()
+                            if let url {
+                                Task { @MainActor in
+                                    pet.openCustomCatStudio(initialPhotoURL: url)
+                                }
+                            }
+                        }
+                        return true
+                    }
+
+                    TZHairline()
+
+                    // Cat Name & Occasional Head-Top Floating Bubble Controls
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2.5) {
+                            HStack(spacing: 7) {
+                                Text("当前猫咪名字：「\(pet.activeCatDisplayName)」")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(TZTheme.inkPrimary)
+                                Button("修改名字…") {
+                                    pet.promptRenameActiveCat()
+                                }
+                                .font(.system(size: 11.5, weight: .medium))
+                                .foregroundStyle(TZTheme.accent)
+                                .buttonStyle(.plain)
+                            }
+                            Text("开启后，猫咪的名字会偶尔轻盈浮现在脑袋上方（摸头呼噜、换班落座、打盹时还会带专属小表情）")
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(TZTheme.inkSecondary)
+                        }
+                        Spacer()
+                        if pet.showOccasionalNameBubble {
+                            TZSegmentedBar(
+                                items: [(2, "高频 2分"), (4, "自然 4分"), (8, "安静 8分")].map { mins, label in
+                                    TZSegmentedBar.Item(
+                                        title: label,
+                                        isSelected: pet.nameBubbleIntervalMinutes == mins,
+                                        action: { pet.setNameBubbleIntervalMinutes(mins) }
+                                    )
+                                },
+                                compact: true
+                            )
+                        }
+                        Toggle("", isOn: Binding(
+                            get: { pet.showOccasionalNameBubble },
+                            set: { pet.setShowOccasionalNameBubble($0) }
+                        ))
+                        .toggleStyle(.switch)
+                        .tint(TZTheme.accent)
+                        .labelsHidden()
+                    }
+                }
+                .padding(16)
+            }
+
+            TZGroupedSection(title: "猫咪品种与我家猫主子（支持一键顶额头换班）") {
                 HStack(spacing: 12) {
                     Button {
                         pet.openSkinWorkshop()
@@ -436,18 +579,11 @@ struct PetCompanionView: View {
             } content: {
                 VStack(alignment: .leading, spacing: 14) {
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                        ForEach(pet.importedSkins, id: \.id) { skin in
+                            customCatSelectionCard(for: skin)
+                        }
                         ForEach(CatCoatTheme.allCases) { coat in
                             breedSelectionCard(for: coat)
-                        }
-                    }
-
-                    if !pet.importedSkins.isEmpty {
-                        TZHairline()
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("已导入的自定义 .kurocat 皮肤（支持一键换班、改名与移入废纸篓）")
-                                .font(.system(size: 11.5, weight: .semibold))
-                                .foregroundStyle(TZTheme.inkSecondary)
-                            FlowImportedSkinsRow(pet: pet)
                         }
                     }
 
@@ -1188,6 +1324,109 @@ struct PetCompanionView: View {
 
     // MARK: - Subcomponents
 
+    private func customCatSelectionCard(for skin: SkinSpec) -> some View {
+        let isSelected = (pet.customSkinID == skin.id)
+        let bodyColor = Color(nsColor: skin.palette.body.srgbNS)
+        let eyeL = Color(nsColor: (skin.palette.irisLeft ?? skin.palette.iris)?.srgbNS ?? NSColor.systemYellow)
+        let eyeR = Color(nsColor: (skin.palette.irisRight ?? skin.palette.iris)?.srgbNS ?? NSColor.systemYellow)
+
+        return HStack(spacing: 10) {
+            Button {
+                if !pet.isEnabled { pet.setEnabled(true) }
+                pet.selectCustomSkin(id: skin.id)
+            } label: {
+                HStack(spacing: 11) {
+                    ZStack {
+                        if let png = skin.preview, let nsImg = NSImage(data: png) {
+                            Image(nsImage: nsImg)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 36, height: 36)
+                                .clipShape(Circle())
+                                .overlay(Circle().strokeBorder(Color.white.opacity(0.85), lineWidth: 1.5))
+                                .shadow(color: Color.black.opacity(0.18), radius: 3, x: 0, y: 1.5)
+                        } else {
+                            Circle()
+                                .fill(bodyColor)
+                                .frame(width: 36, height: 36)
+                                .overlay(Circle().strokeBorder(Color.white.opacity(0.78), lineWidth: 1.4))
+                                .shadow(color: Color.black.opacity(0.16), radius: 3, x: 0, y: 1.5)
+                            HStack(spacing: 4) {
+                                Circle().fill(eyeL).frame(width: 6.5, height: 6.5)
+                                Circle().fill(eyeR).frame(width: 6.5, height: 6.5)
+                            }
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 2.5) {
+                        HStack(spacing: 6) {
+                            Text(SkinLibrary.shared.displayName(for: skin))
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(TZTheme.inkPrimary)
+                                .lineLimit(1)
+                            if isSelected {
+                                Text("值班中")
+                                    .font(.system(size: 9.5, weight: .bold))
+                                    .foregroundStyle(TZTheme.accent)
+                                    .padding(.horizontal, 5.5)
+                                    .padding(.vertical, 1.5)
+                                    .background(TZTheme.accentSoft)
+                                    .clipShape(Capsule())
+                            }
+                        }
+                        Text(skin.photoDNA?.breedBadge ?? (skin.author.isEmpty ? "自定义猫咪" : skin.author))
+                            .font(.system(size: 11))
+                            .foregroundStyle(TZTheme.inkSecondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 2)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            HStack(spacing: 6) {
+                Button {
+                    pet.openCustomCatStudio(editingSkinID: skin.id)
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(TZTheme.inkSecondary)
+                }
+                .buttonStyle(.plain)
+                .help("微调花色与名字")
+
+                Button {
+                    pet.renameImportedSkin(id: skin.id)
+                } label: {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(TZTheme.inkSecondary)
+                }
+                .buttonStyle(.plain)
+                .help("改名")
+
+                Button {
+                    pet.removeImportedSkin(id: skin.id)
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(TZTheme.inkMuted)
+                }
+                .buttonStyle(.plain)
+                .help("移入废纸篓")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(isSelected ? TZTheme.accentSoft.opacity(0.55) : TZTheme.recessedWell.opacity(0.65))
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .strokeBorder(isSelected ? TZTheme.accent.opacity(0.65) : TZTheme.cardBorder, lineWidth: isSelected ? 1.25 : 0.8)
+        )
+    }
+
     private func breedSelectionCard(for coat: CatCoatTheme) -> some View {
         let isSelected = pet.customSkinID.isEmpty && pet.coatTheme == coat
         let swatchColors = coatSwatchColors(for: coat)
@@ -1213,9 +1452,12 @@ struct PetCompanionView: View {
 
                 VStack(alignment: .leading, spacing: 2.5) {
                     HStack(spacing: 6) {
-                        Text(coat == .orangeWhite ? "橘白猫 · 黄粽子" : coat.shortTitle)
+                        let customNick = CatSettings.shared.builtInNicknames[coat.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        let baseTitle = coat == .orangeWhite ? "橘白猫 · 黄粽子" : coat.shortTitle
+                        Text(customNick.isEmpty ? baseTitle : "\(customNick) · \(coat.shortTitle)")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(TZTheme.inkPrimary)
+                            .lineLimit(1)
                         if isSelected {
                             Text("值班中")
                                 .font(.system(size: 9.5, weight: .bold))

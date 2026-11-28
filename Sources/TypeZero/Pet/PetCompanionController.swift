@@ -73,6 +73,9 @@ public final class PetCompanionController: ObservableObject {
     @Published public private(set) var tabletMode: Int
     @Published public private(set) var autoHeadphonesOnMusic: Bool
     @Published public private(set) var hourlyAnnouncement: Bool
+    @Published public private(set) var showOccasionalNameBubble: Bool
+    @Published public private(set) var nameBubbleIntervalMinutes: Int
+    @Published public private(set) var activeCatDisplayName: String
     @Published public private(set) var pauseInputSync: Bool
     @Published public private(set) var privacyMode: Bool
     @Published public private(set) var reducedMotion: Bool
@@ -105,6 +108,9 @@ public final class PetCompanionController: ObservableObject {
     @Published public private(set) var inputStatusText: String = InputEngine.shared.status.rawValue
     @Published public private(set) var inputNeedsPermission: Bool = InputEngine.shared.status.needsAttention
     @Published public var statusNotice: String = ""
+    @Published public var showCustomCatStudio: Bool = false
+    @Published public var pendingStudioPhotoURL: URL? = nil
+    @Published public var editingStudioSkinID: String? = nil
 
     public var onOpenPetSettingsTab: (() -> Void)?
 
@@ -113,6 +119,7 @@ public final class PetCompanionController: ObservableObject {
     private var renderCadence: RenderCadence = .paused
     private var minuteTimer: Timer?
     private var lastAnnouncedHour: Int = -1
+    private var nextAmbientNameBubbleTime: CFTimeInterval = CACurrentMediaTime() + 95.0
     private var lastFrameTime: CFTimeInterval = CACurrentMediaTime()
     private var screensAsleep = false
     private var hiddenByFullscreen = false
@@ -166,6 +173,9 @@ public final class PetCompanionController: ObservableObject {
         self.tabletMode = s.tabletMode
         self.autoHeadphonesOnMusic = s.autoHeadphonesOnMusic
         self.hourlyAnnouncement = s.hourlyAnnouncement
+        self.showOccasionalNameBubble = s.showOccasionalNameBubble
+        self.nameBubbleIntervalMinutes = s.nameBubbleIntervalMinutes
+        self.activeCatDisplayName = s.activeCatDisplayName
         self.pauseInputSync = s.pauseInputSync
         self.privacyMode = s.privacyMode
         self.reducedMotion = s.reducedMotion
@@ -234,7 +244,9 @@ public final class PetCompanionController: ObservableObject {
         CatSettings.shared.isEnabled = enabled
         if enabled {
             activateOverlay()
-            overlayWindow?.catView.showToast(text: "🐱 \(CatSettings.shared.activeSkin.name) 已上岗陪打！")
+            refreshActiveCatDisplayName()
+            scheduleNextAmbientNameBubble(initialSoon: true)
+            overlayWindow?.catView.showToast(text: "🐱 \(activeCatDisplayName) 已上岗陪打！")
         } else {
             deactivateOverlay()
         }
@@ -334,11 +346,18 @@ public final class PetCompanionController: ObservableObject {
             self.coatTheme = newCoat
             self.customSkinID = newCustomID
             self.isHandoverRunning = false
+            self.refreshActiveCatDisplayName()
             if let p = self.physics {
                 p.bodySquash.velocity -= 1.5
                 p.earTwitch.velocity += 4.2
             }
-            self.overlayWindow?.catView.showToast(text: "🐾 换班完成：\(skinName) 接管键盘！")
+            let display = self.activeCatDisplayName
+            if self.showOccasionalNameBubble {
+                self.overlayWindow?.catView.showNameBubble(name: display, mood: "🐾")
+                self.scheduleNextAmbientNameBubble()
+            } else {
+                self.overlayWindow?.catView.showToast(text: "🐾 换班完成：\(display) 接管键盘！")
+            }
             self.overlayWindow?.catView.needsDisplay = true
         }
 
@@ -359,6 +378,17 @@ public final class PetCompanionController: ObservableObject {
             for url in urls {
                 self?.importDroppedFile(url)
             }
+        }
+        catView.onDropPhotoURL = { [weak self] photoURL in
+            guard let self else { return }
+            self.openCustomCatStudio(initialPhotoURL: photoURL, editingSkinID: nil)
+            self.onOpenPetSettingsTab?()
+        }
+        catView.onHeadPetMilestone = { [weak self] in
+            guard let self, self.isEnabled, self.showOccasionalNameBubble else { return }
+            self.overlayWindow?.catView.showNameBubble(name: self.activeCatDisplayName, mood: "💛")
+            self.scheduleNextAmbientNameBubble()
+            self.wakeToActive(immediateRedraw: true)
         }
         catView.onRightClickMenu = { [weak self] event in
             guard let self else { return }
@@ -414,6 +444,10 @@ public final class PetCompanionController: ObservableObject {
             customSkinID = ""
             coatTheme = target
             isHandoverRunning = false
+            refreshActiveCatDisplayName()
+            if showOccasionalNameBubble {
+                overlayWindow?.catView.showNameBubble(name: activeCatDisplayName, mood: "🐾")
+            }
             overlayWindow?.catView.needsDisplay = true
         }
     }
@@ -421,6 +455,11 @@ public final class PetCompanionController: ObservableObject {
     func selectCustomSkin(id: String) {
         guard let spec = SkinLibrary.shared.skin(id: id) else { return }
         if customSkinID == id && !(physics?.isHandoverActive ?? false) { return }
+
+        if overrideSkinIris {
+            overrideSkinIris = false
+            CatSettings.shared.overrideSkinIris = false
+        }
 
         if isEnabled && enableHandoverAnimation, let p = physics {
             let nowMs = CACurrentMediaTime() * 1000.0
@@ -441,6 +480,10 @@ public final class PetCompanionController: ObservableObject {
             CatSettings.shared.customSkin = id
             customSkinID = id
             isHandoverRunning = false
+            refreshActiveCatDisplayName()
+            if showOccasionalNameBubble {
+                overlayWindow?.catView.showNameBubble(name: activeCatDisplayName, mood: "✨")
+            }
             overlayWindow?.catView.needsDisplay = true
         }
     }
@@ -713,6 +756,116 @@ public final class PetCompanionController: ObservableObject {
         }
     }
 
+    public func setShowOccasionalNameBubble(_ value: Bool) {
+        showOccasionalNameBubble = value
+        CatSettings.shared.showOccasionalNameBubble = value
+        if value {
+            startHourlyTimerIfNeeded()
+            scheduleNextAmbientNameBubble(initialSoon: true)
+            triggerCatNameBubbleNow(mood: "🐾")
+        }
+    }
+
+    public func setNameBubbleIntervalMinutes(_ minutes: Int) {
+        let clamped = max(1, min(15, minutes))
+        nameBubbleIntervalMinutes = clamped
+        CatSettings.shared.nameBubbleIntervalMinutes = clamped
+        scheduleNextAmbientNameBubble()
+    }
+
+    public func refreshActiveCatDisplayName() {
+        activeCatDisplayName = CatSettings.shared.activeCatDisplayName
+    }
+
+    public func triggerCatNameBubbleNow(mood: String? = nil) {
+        if !isEnabled {
+            setEnabled(true)
+        }
+        refreshActiveCatDisplayName()
+        overlayWindow?.catView.showNameBubble(name: activeCatDisplayName, mood: mood)
+        scheduleNextAmbientNameBubble()
+        wakeToActive(immediateRedraw: true)
+    }
+
+    private func scheduleNextAmbientNameBubble(initialSoon: Bool = false) {
+        let baseSec = initialSoon
+            ? 45.0
+            : Double(max(1, nameBubbleIntervalMinutes)) * 60.0
+        let jitter = Double.random(in: 0.74...1.26)
+        nextAmbientNameBubbleTime = CACurrentMediaTime() + baseSec * jitter
+    }
+
+    public func openCustomCatStudio(initialPhotoURL: URL? = nil, editingSkinID: String? = nil) {
+        pendingStudioPhotoURL = initialPhotoURL
+        editingStudioSkinID = editingSkinID
+        showCustomCatStudio = true
+    }
+
+    public func adoptCompiledCatSkin(jsonData: Data, replacingSkinID: String?, enableNameBubble: Bool) throws {
+        let newID = try SkinLibrary.shared.saveCompiledData(jsonData, replacingId: replacingSkinID)
+        importedSkins = SkinLibrary.shared.skins
+        overrideSkinIris = false
+        CatSettings.shared.overrideSkinIris = false
+        if enableNameBubble != showOccasionalNameBubble {
+            showOccasionalNameBubble = enableNameBubble
+            CatSettings.shared.showOccasionalNameBubble = enableNameBubble
+        }
+        let wasAlreadyActiveSame = (customSkinID == newID)
+        if !isEnabled {
+            CatSettings.shared.customSkin = newID
+            customSkinID = newID
+            refreshActiveCatDisplayName()
+            setEnabled(true)
+            overlayWindow?.catView.showNameBubble(name: activeCatDisplayName, mood: "✨")
+        } else if wasAlreadyActiveSame || replacingSkinID == customSkinID {
+            if let spec = SkinLibrary.shared.skin(id: newID) {
+                physics?.clackSim.handover.syncInstant(coat: coatTheme, customSkinID: newID, skin: spec)
+            }
+            CatSettings.shared.customSkin = newID
+            customSkinID = newID
+            refreshActiveCatDisplayName()
+            overlayWindow?.catView.showNameBubble(name: activeCatDisplayName, mood: "✨")
+            wakeToActive(immediateRedraw: true)
+        } else {
+            selectCustomSkin(id: newID)
+        }
+        scheduleNextAmbientNameBubble()
+        if let sp = SkinLibrary.shared.skin(id: newID) {
+            statusNotice = "🐾 「\(sp.name)」已定制完成并上岗！"
+        }
+    }
+
+    public func promptRenameActiveCat() {
+        if !customSkinID.isEmpty, SkinLibrary.shared.skin(id: customSkinID) != nil {
+            renameImportedSkin(id: customSkinID)
+            return
+        }
+        let current = activeCatDisplayName
+        let alert = NSAlert()
+        alert.messageText = "给猫咪起个名字"
+        alert.informativeText = "为当前「\(coatTheme.shortTitle)」设置专属名字（留空恢复默认品种名，名字会偶尔浮现在脑袋上方）："
+        alert.addButton(withTitle: "保存")
+        alert.addButton(withTitle: "取消")
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        input.stringValue = CatSettings.shared.builtInNicknames[coatTheme.rawValue] ?? current
+        alert.accessoryView = input
+        alert.window.initialFirstResponder = input
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let trimmed = String(input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).prefix(20))
+        var map = CatSettings.shared.builtInNicknames
+        if trimmed.isEmpty || trimmed == coatTheme.shortTitle {
+            map.removeValue(forKey: coatTheme.rawValue)
+        } else {
+            map[coatTheme.rawValue] = trimmed
+        }
+        CatSettings.shared.builtInNicknames = map
+        refreshActiveCatDisplayName()
+        statusNotice = "✅ 已将小猫名字设为「\(activeCatDisplayName)」"
+        if isEnabled {
+            triggerCatNameBubbleNow(mood: "✨")
+        }
+    }
+
     public func setPauseInputSync(_ value: Bool) {
         pauseInputSync = value
         CatSettings.shared.pauseInputSync = value
@@ -936,8 +1089,13 @@ public final class PetCompanionController: ObservableObject {
             if customSkinID == id {
                 CatSettings.shared.customSkin = newID
                 customSkinID = newID
+                physics?.clackSim.handover.syncInstant(coat: coatTheme, customSkinID: newID, skin: SkinLibrary.shared.skin(id: newID))
             }
+            refreshActiveCatDisplayName()
             statusNotice = "✅ 已重命名为「\(trimmed)」"
+            if isEnabled && customSkinID == newID {
+                overlayWindow?.catView.showNameBubble(name: trimmed, mood: "✨")
+            }
             wakeToActive(immediateRedraw: true)
         } catch {
             statusNotice = "⚠️ \(error.localizedDescription)"
@@ -951,6 +1109,7 @@ public final class PetCompanionController: ObservableObject {
         }
         SkinLibrary.shared.remove(id: id)
         importedSkins = SkinLibrary.shared.skins
+        refreshActiveCatDisplayName()
         wakeToActive(immediateRedraw: true)
     }
 
@@ -1040,6 +1199,18 @@ public final class PetCompanionController: ObservableObject {
         demoItem.target = self
         menu.addItem(demoItem)
 
+        let uploadCatItem = NSMenuItem(title: "📸 上传照片 · 定制我家猫咪…", action: #selector(handleOpenCustomStudioAction), keyEquivalent: "")
+        uploadCatItem.target = self
+        menu.addItem(uploadCatItem)
+
+        let renameCatItem = NSMenuItem(title: "🏷️ 给小猫起名 / 改名（\(activeCatDisplayName)）…", action: #selector(handleRenameActiveCatAction), keyEquivalent: "")
+        renameCatItem.target = self
+        menu.addItem(renameCatItem)
+
+        let popNameItem = NSMenuItem(title: "💬 冒一下头顶名字气泡", action: #selector(handlePopNameBubbleAction), keyEquivalent: "")
+        popNameItem.target = self
+        menu.addItem(popNameItem)
+
         menu.addItem(.separator())
 
         let marqueeItem = NSMenuItem(title: "✨ 键盘 RGB 流光跑马灯", action: #selector(handleToggleMarquee), keyEquivalent: "")
@@ -1117,6 +1288,12 @@ public final class PetCompanionController: ObservableObject {
         selectCustomSkin(id: id)
     }
     @objc private func handleDemoHandoverAction() { playShiftHandoverDemo() }
+    @objc private func handleOpenCustomStudioAction() {
+        openCustomCatStudio()
+        onOpenPetSettingsTab?()
+    }
+    @objc private func handleRenameActiveCatAction() { promptRenameActiveCat() }
+    @objc private func handlePopNameBubbleAction() { triggerCatNameBubbleNow(mood: "🐾") }
     @objc private func handleToggleMarquee() { setKeyboardMarquee(!keyboardMarquee) }
     @objc private func handleToggleKeyGlow() { setKeyboardKeyGlow(!keyboardKeyGlow) }
     @objc private func handleToggleKeyboardSound() { setKeyboardSound(!keyboardSound) }
@@ -1133,14 +1310,33 @@ public final class PetCompanionController: ObservableObject {
 
     private func startHourlyTimerIfNeeded() {
         guard minuteTimer == nil else { return }
-        let t = Timer(timeInterval: 20.0, repeats: true) { [weak self] _ in
+        let t = Timer(timeInterval: 15.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.checkHourlyAnnouncement()
+                self?.checkPeriodicPetMoments()
             }
         }
-        t.tolerance = 4.0
+        t.tolerance = 3.0
         RunLoop.main.add(t, forMode: .common)
         minuteTimer = t
+    }
+
+    private func checkPeriodicPetMoments() {
+        checkHourlyAnnouncement()
+        checkAmbientNameBubble()
+    }
+
+    private func checkAmbientNameBubble() {
+        guard isEnabled, showOccasionalNameBubble, !hiddenByFullscreen, !screensAsleep else { return }
+        guard let view = overlayWindow?.catView else { return }
+        let now = CACurrentMediaTime()
+        guard now >= nextAmbientNameBubbleTime else { return }
+        scheduleNextAmbientNameBubble()
+        guard !view.toastActive, !view.nameBubbleActive, !view.physics.isHandoverActive, view.physics.scruffDrag.value < 0.15 else {
+            return
+        }
+        refreshActiveCatDisplayName()
+        view.showNameBubble(name: activeCatDisplayName)
+        wakeToActive(immediateRedraw: true)
     }
 
     private func checkHourlyAnnouncement() {
@@ -1321,10 +1517,12 @@ public final class PetCompanionController: ObservableObject {
         let wasBlinking = physics.isBlinking
         let wasYawning = physics.isYawning
         let wasToastActive = view.toastActive
+        let wasNameBubbleActive = view.nameBubbleActive
 
         view.updateHoverAndClickThrough()
         physics.step(dt: dt, windowFrameInScreen: physicsFrame)
         view.tickToast(dt: dt)
+        view.tickNameBubble(dt: dt)
 
         let curKPM = input.currentKPM
         if currentKPM != curKPM {
@@ -1364,6 +1562,7 @@ public final class PetCompanionController: ObservableObject {
             || (!pauseInputSync && (input.leftMouseDown || input.rightMouseDown || input.otherMouseDown))
             || view.isDraggingOrResizing || hasMotion
             || wasToastActive || view.toastActive
+            || wasNameBubbleActive || view.nameBubbleActive
 
         let desiredCadence: RenderCadence = isActive ? .active : (isAsleep ? .asleep : .idle)
         if desiredCadence != renderCadence {

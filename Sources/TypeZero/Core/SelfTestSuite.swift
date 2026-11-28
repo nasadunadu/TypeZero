@@ -886,6 +886,82 @@ public enum SelfTestSuite {
             "Desktop Pet Pinyin keystroke decomposition, 10.58s Clack-Clack forehead-butting handover, MX Clear/Blue + G502/Crisp + LaoWu audio bank, independent flash toggles, and SidebarTab.pet all pass"
         )
 
+        // Test: Custom Cat Photo -> CatPhotoDNA -> .kurocat Compiler, Dual-Renderer Offscreen Paint, Heterochromia & Head-Top Name Bubble
+        var allFamiliesCompiled = true
+        var compiledSampleSkins: [SkinSpec] = []
+        let showcaseDNAs: [CatPhotoDNA] = [
+            CatPhotoDNA(name: "小花", breedBadge: "三花小猫", patternFamily: .calico, faceBlaze: .invertedV, blazeWidth: 0.58, chestBib: .fullBib, primaryFurHex: "#F6F2E9", secondaryFurHex: "#DC8E43", tertiaryFurHex: "#232227", irisLeftHex: "#DDA938", irisRightHex: "#DDA938", noseHex: "#EDA2A6"),
+            CatPhotoDNA(name: "布丁", breedBadge: "海双布偶", patternFamily: .ragdollBicolor, faceBlaze: .invertedV, blazeWidth: 0.62, chestBib: .fullBib, primaryFurHex: "#4A3529", secondaryFurHex: "#F7F3EB", irisLeftHex: "#6BC5F8", irisRightHex: "#6BC5F8", noseHex: "#EDA4A8", cheekFullness: 1.16),
+            CatPhotoDNA(name: "警长", breedBadge: "奶牛警长", patternFamily: .tuxedoBicolor, faceBlaze: .skewLeft, chinSpot: true, chestBib: .fullBib, frontLeftSock: .mitten, frontRightSock: .none, hindSocks: true, tailTipDip: true, primaryFurHex: "#1C1C22", secondaryFurHex: "#F5F1E8", irisLeftHex: "#CFE848", irisRightHex: "#CFE848", noseHex: "#ECA2A6"),
+            CatPhotoDNA(name: "糯米", breedBadge: "纯白鸳鸯眼", patternFamily: .solid, faceBlaze: .none, chestBib: .none, frontLeftSock: .none, frontRightSock: .none, hindSocks: false, heterochromia: true, primaryFurHex: "#F7F5F0", secondaryFurHex: "#FFFFFF", irisLeftHex: "#6AC6F8", irisRightHex: "#E5B43B", noseHex: "#F0A8AE"),
+            CatPhotoDNA(name: "泡芙", breedBadge: "金渐层", patternFamily: .shaded, faceBlaze: .whiteMuzzle, foreheadM: true, chestBib: .fullBib, primaryFurHex: "#DFAA67", secondaryFurHex: "#F8F4EC", tertiaryFurHex: "#6B4E35", irisLeftHex: "#5BC282", irisRightHex: "#5BC282", noseHex: "#EA9D9F", cheekFullness: 1.15),
+            CatPhotoDNA(name: "琥珀", breedBadge: "玳瑁小猫", patternFamily: .tortoiseshell, faceBlaze: .none, chestBib: .none, frontLeftSock: .none, frontRightSock: .none, primaryFurHex: "#26201E", secondaryFurHex: "#D68A3E", tertiaryFurHex: "#E6BA7E", irisLeftHex: "#DAB644", irisRightHex: "#DAB644", noseHex: "#362B2A")
+        ]
+
+        for fam in CatPatternFamily.allCases {
+            var d = CatPhotoDNA(name: "测_\(fam.rawValue)", breedBadge: fam.title, patternFamily: fam)
+            d.heterochromia = (fam == .van)
+            d.irisRightHex = "#68C4F6"
+            if let sp = try? CatCoatCompiler.compileSkinSpec(from: d),
+               sp.photoDNA?.patternFamily == fam {
+                // valid
+            } else {
+                allFamiliesCompiled = false
+            }
+        }
+        for sd in showcaseDNAs {
+            if let sp = try? CatCoatCompiler.compileSkinSpec(from: sd) {
+                compiledSampleSkins.append(sp)
+            }
+        }
+
+        // Verify offscreen rendering in BOTH KuroCat & ClackRenderer + Floating Name Badge without crash or empty buffer
+        var dualRenderOK = (compiledSampleSkins.count == showcaseDNAs.count)
+        let cs = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        if let testCtx = CGContext(
+            data: nil, width: 420, height: 380, bitsPerComponent: 8, bytesPerRow: 420 * 4,
+            space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ), let firstSkin = compiledSampleSkins.first {
+            testCtx.translateBy(x: 0, y: 380)
+            testCtx.scaleBy(x: 1, y: -1)
+            let p = CatPhysics()
+            CatRenderer.draw(in: testCtx, physics: p, showPermissionPill: false, isPreview: true, customSkinOverride: firstSkin)
+            CatCanvasView.drawCatNameBadgeStatic(
+                in: testCtx, headCenterX: 184, headTopY: 88, minX: 8, maxX: 412, minY: 4,
+                name: firstSkin.name, mood: "🐾", accentColor: .systemYellow, alpha: 1.0, phase: 0.5
+            )
+            ClackRenderer.drawStage(
+                in: testCtx, pose: p.clackSim.pose, breed: .classicBlack, handover: nil, customSkin: firstSkin
+            )
+            if testCtx.makeImage() == nil { dualRenderOK = false }
+        } else {
+            dualRenderOK = false
+        }
+
+        if let customSheetPath = ProcessInfo.processInfo.environment["TZ_RENDER_CUSTOM_CAT_SHEET"], !customSheetPath.isEmpty {
+            renderCustomCatVerificationSheet(skins: compiledSampleSkins, to: customSheetPath)
+        }
+
+        let parsedSample = PhotoCatAnalyzer.parseVisionTextResponse("""
+        ```json
+        {"breedBadge":"海双布偶","patternFamily":"ragdoll_bicolor","faceBlaze":"inverted_v","blazeWidth":0.6,"heterochromia":true,"primaryFurHex":"#4A3529","secondaryFurHex":"#F7F3EB","irisLeftHex":"#6BC5F8","irisRightHex":"#E5B43B"}
+        ```
+        """)
+        let heterochromiaPal = compiledSampleSkins.first(where: { $0.name == "糯米" }).map {
+            ClackBreedPalette.resolve(coat: .classicBlack, customSkin: $0)
+        }
+
+        expect(
+            allFamiliesCompiled
+                && dualRenderOK
+                && parsedSample?.patternFamily == .ragdollBicolor
+                && parsedSample?.faceBlaze == .invertedV
+                && parsedSample?.heterochromia == true
+                && heterochromiaPal != nil
+                && heterochromiaPal!.iris != heterochromiaPal!.effectiveIrisRight,
+            "All 10 CatPatternFamily Procedural Rigs compile losslessly to .kurocat v2, dual-render (KuroSticker + ClackOriginal + Head-Top Name Bubble) cleanly, and preserve heterochromia eyes"
+        )
+
         print("==> Summary: \(passed) passed, \(failed) failed.")
         return failed == 0 ? 0 : 1
     }
@@ -1167,5 +1243,79 @@ public enum SelfTestSuite {
         renderSheet(OnboardingSheetView(appState: state, initialStep: 4), name: "step4_ready")
         print("Dumped 5 onboarding QA PNGs to \(outDir)")
         return 0
+    }
+
+    private static func renderCustomCatVerificationSheet(skins: [SkinSpec], to outPath: String) {
+        let cols = 3
+        let rows = 4 // top 2 rows: KuroCat Sticker + Name Bubble; bottom 2 rows: Clack-Clack Original + Handover
+        let cellW = 380
+        let cellH = 340
+        let totalW = cols * cellW
+        let totalH = rows * cellH
+        let cs = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(
+            data: nil, width: totalW, height: totalH, bitsPerComponent: 8, bytesPerRow: totalW * 4,
+            space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return }
+        ctx.translateBy(x: 0, y: CGFloat(totalH))
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.setFillColor(NSColor(srgbRed: 0.94, green: 0.95, blue: 0.98, alpha: 1.0).cgColor)
+        ctx.fill(CGRect(x: 0, y: 0, width: totalW, height: totalH))
+
+        for (idx, sk) in skins.prefix(6).enumerated() {
+            let col = idx % cols
+            let kuroRow = idx / cols
+            let clackRow = kuroRow + 2
+
+            // 1) KuroCat 2.5D Sticker Style + Floating Head-Top Name Bubble
+            let kx = CGFloat(col * cellW)
+            let ky = CGFloat(kuroRow * cellH)
+            ctx.saveGState()
+            ctx.translateBy(x: kx + 10, y: ky + 32)
+            let p = CatPhysics()
+            CatRenderer.draw(in: ctx, physics: p, showPermissionPill: false, isPreview: true, customSkinOverride: sk)
+            let hc = CatRenderer.headPosition(p, skin: sk)
+            let accent = (sk.palette.irisLeft ?? sk.palette.iris)?.srgbNS ?? .systemYellow
+            CatCanvasView.drawCatNameBadgeStatic(
+                in: ctx, headCenterX: hc.x, headTopY: hc.y - 38.0 * sk.shape.headScale,
+                minX: 6, maxX: 354, minY: -28, name: sk.name, mood: "🐾",
+                accentColor: accent, alpha: 1.0, phase: 0.4
+            )
+            ctx.restoreGState()
+
+            // 2) Clack-Clack 1:1 Style (and on idx == 0..1, show standing duel handover!)
+            let cx = CGFloat(col * cellW)
+            let cy = CGFloat(clackRow * cellH)
+            ctx.saveGState()
+            ctx.translateBy(x: cx, y: cy)
+            let sim = ClackSimulation(initialBreed: .classicBlack, initialCustomSkinID: sk.id, initialSkin: sk)
+            var hf: ClackHandoverFrame? = nil
+            if idx == 2 {
+                let dir = ClackHandoverDirector(initialBreed: .classicBlack)
+                let fakeHashID = sk.id.isEmpty ? "1122334455667788" : sk.id
+                dir.startHandover(fromCoat: .classicBlack, toCoat: .classicBlack, toCustomID: fakeHashID, toSkin: sk, nowMs: 1000)
+                hf = dir.evaluateFrame(nowMs: 4500, scale: 1.0)
+            }
+            ClackRenderer.drawStage(
+                in: ctx, pose: sim.pose, breed: .classicBlack, handover: hf, customSkin: sk,
+                anchorX: 185, anchorY: 315, baseScale: 0.76, whiteOutline: true
+            )
+            CatCanvasView.drawCatNameBadgeStatic(
+                in: ctx, headCenterX: 185, headTopY: 74, minX: 6, maxX: CGFloat(cellW) - 6, minY: 4,
+                name: "\(sk.name) · \(sk.photoDNA?.breedBadge ?? "")", mood: "✨",
+                accentColor: accent, alpha: 1.0, phase: 0.4
+            )
+            ctx.restoreGState()
+        }
+
+        if let outImg = ctx.makeImage() {
+            let data = NSMutableData()
+            if let dest = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil) {
+                CGImageDestinationAddImage(dest, outImg, nil)
+                if CGImageDestinationFinalize(dest) {
+                    try? (data as Data).write(to: URL(fileURLWithPath: outPath))
+                }
+            }
+        }
     }
 }

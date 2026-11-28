@@ -12,6 +12,16 @@ struct ClackBreedPalette {
     let point: NSColor?
     let tabby: Bool
     let isSilverTabby: Bool
+    var irisRightOverride: NSColor? = nil
+    var customBib: NSColor? = nil
+    var customStripe: NSColor? = nil
+    var customTailBase: NSColor? = nil
+    var customTailTip: NSColor? = nil
+    var customNose: NSColor? = nil
+    var customEarInner: NSColor? = nil
+    var dna: CatPhotoDNA? = nil
+
+    var effectiveIrisRight: NSColor { irisRightOverride ?? iris }
 
     static func palette(for coat: CatCoatTheme) -> ClackBreedPalette {
         switch coat {
@@ -68,33 +78,69 @@ struct ClackBreedPalette {
             NSColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: c.a)
         }
         let p = sk.palette
-        let furCol = ns(p.body)
-        let edgeCol = Self.lerpColor(furCol, ns(p.earOuter), 0.55)
-        let irisCol = p.iris.map(ns) ?? coat.recommendedEyeTheme.primaryColor
+        let dna = sk.photoDNA
+        let primaryNS: NSColor = {
+            if let d = dna {
+                switch d.patternFamily {
+                case .tuxedoBicolor:
+                    return CatCoatCompiler.swiftUIColor(d.primaryFurHex)
+                case .ragdollBicolor:
+                    return hex(0xF5EFE6)
+                case .shaded:
+                    return CatCoatCompiler.swiftUIColor(d.primaryFurHex)
+                default:
+                    break
+                }
+            }
+            return ns(p.body)
+        }()
+        let darkBody = (p.body.luminance < 0.25)
+        let veryLightBody = (p.body.luminance > 0.72)
+        let edgeBase: NSColor = {
+            if veryLightBody { return hex(0x888178) }
+            if darkBody { return Self.lerpColor(primaryNS, hex(0x46434B), 0.36) }
+            return Self.lerpColor(primaryNS, hex(0x4A4039), 0.42)
+        }()
+        let leftIris = (p.irisLeft ?? p.iris).map(ns) ?? coat.recommendedEyeTheme.primaryColor
+        let rightIris = (p.irisRight ?? p.iris).map(ns) ?? leftIris
         let whiskerCol = ns(p.whiskers)
         let ptCol = sk.colorpoint ? p.points.map(ns) : nil
+        let isTabby = (p.stripes != nil && !sk.colorpoint) || dna?.patternFamily == .tabby || dna?.patternFamily == .tabbyBicolor
+
         return ClackBreedPalette(
-            fur: furCol,
-            edge: edgeCol,
-            iris: irisCol,
+            fur: primaryNS,
+            edge: edgeBase,
+            iris: leftIris,
             whisker: whiskerCol,
             point: ptCol,
-            tabby: p.stripes != nil && !sk.colorpoint,
-            isSilverTabby: p.body.luminance > 0.55
+            tabby: isTabby,
+            isSilverTabby: p.body.luminance > 0.55,
+            irisRightOverride: rightIris,
+            customBib: p.belly.map(ns) ?? (dna != nil ? CatCoatCompiler.swiftUIColor(dna!.secondaryFurHex) : nil),
+            customStripe: p.stripes.map(ns) ?? (dna != nil ? CatCoatCompiler.swiftUIColor(dna!.tertiaryFurHex) : nil),
+            customTailBase: ns(p.tail),
+            customTailTip: p.tailTip.map(ns),
+            customNose: p.nose.map(ns),
+            customEarInner: p.earInner.map(ns),
+            dna: dna
         )
     }
 
     var bibCream: NSColor {
-        isSilverTabby ? Self.hex(0xF6F7F5) : Self.hex(0xFFF4DF)
+        if let customBib { return customBib }
+        return isSilverTabby ? Self.hex(0xF6F7F5) : Self.hex(0xFFF4DF)
     }
     var stripeDark: NSColor {
-        isSilverTabby ? Self.hex(0x4E5355) : Self.hex(0xAA632F)
+        if let customStripe { return customStripe }
+        return isSilverTabby ? Self.hex(0x4E5355) : Self.hex(0xAA632F)
     }
     var stripeMid: NSColor {
-        isSilverTabby ? Self.hex(0x686E70) : Self.hex(0xBF8046)
+        if let customStripe { return Self.lerpColor(customStripe, fur, 0.22) }
+        return isSilverTabby ? Self.hex(0x686E70) : Self.hex(0xBF8046)
     }
     var tailTipLight: NSColor {
-        isSilverTabby ? Self.hex(0xDFE3DF) : Self.hex(0xEFC394)
+        if let customTailTip { return customTailTip }
+        return isSilverTabby ? Self.hex(0xDFE3DF) : Self.hex(0xEFC394)
     }
 
     static func hex(_ rgb: Int, alpha: CGFloat = 1.0) -> NSColor {
@@ -760,7 +806,7 @@ enum ClackRenderer {
         ctx.addPath(path)
         ctx.strokePath()
 
-        ctx.setStrokeColor((pal.point ?? pal.fur).cgColor)
+        ctx.setStrokeColor((pal.customTailBase ?? pal.point ?? pal.fur).cgColor)
         ctx.setLineWidth(17.0)
         ctx.addPath(path)
         ctx.strokePath()
@@ -768,6 +814,14 @@ enum ClackRenderer {
 
         if pal.tabby {
             drawTabbyTailRings(in: ctx, pal: pal, p0: [325, 279 + s], p1: [335, 262 + s], p2: [343, 252 + o], p3: [363, 252 + o], width: 17.0)
+        } else if let dna = pal.dna, dna.tailTipDip || dna.patternFamily == .calico || dna.patternFamily == .shaded {
+            let tipCol: NSColor = {
+                switch dna.patternFamily {
+                case .calico, .shaded: return CatCoatCompiler.swiftUIColor(dna.tertiaryFurHex)
+                default: return CatCoatCompiler.swiftUIColor(dna.secondaryFurHex)
+                }
+            }()
+            fillEllipse(ctx, x: 360, y: 253 + o, rx: 10.5, ry: 9.0, color: tipCol)
         }
     }
 
@@ -848,6 +902,79 @@ enum ClackRenderer {
             drawPawMarking(ctx, pal: pal, x: hindFeet.left.marking[0], y: hindFeet.left.marking[1])
             drawPawMarking(ctx, pal: pal, x: hindFeet.right.marking[0], y: hindFeet.right.marking[1])
             ctx.restoreGState()
+        } else if let dna = pal.dna {
+            ctx.saveGState()
+            ctx.addPath(path)
+            ctx.clip()
+            if dna.patternFamily == .shaded {
+                let dorsal = CatCoatCompiler.swiftUIColor(dna.primaryFurHex)
+                let cream = CatCoatCompiler.swiftUIColor(dna.secondaryFurHex)
+                fillPathWithLinearGradient(
+                    ctx,
+                    path: path,
+                    start: CGPoint(x: 245, y: 155),
+                    end: CGPoint(x: 215, y: 318),
+                    stops: [(0.0, dorsal), (0.56, ClackBreedPalette.lerpColor(dorsal, cream, 0.72)), (1.0, cream)]
+                )
+            } else {
+                drawCustomDNABodyMarkings(in: ctx, dna: dna, pal: pal, standBlend: 0) { u, d in o(231 + u, 330 + d) }
+            }
+            if dna.hindSocks || dna.patternFamily == .shaded || dna.patternFamily == .ragdollBicolor {
+                let sockC = ClackBreedPalette.hex(0xF6F2EA)
+                fillEllipse(ctx, x: hindFeet.left.marking[0], y: hindFeet.left.marking[1], rx: 14, ry: 14, color: sockC)
+                fillEllipse(ctx, x: hindFeet.right.marking[0], y: hindFeet.right.marking[1], rx: 14, ry: 14, color: sockC)
+            }
+            ctx.restoreGState()
+        }
+    }
+
+    private static func drawCustomDNABodyMarkings(
+        in ctx: CGContext,
+        dna: CatPhotoDNA,
+        pal: ClackBreedPalette,
+        standBlend e: CGFloat,
+        mapPt: (CGFloat, CGFloat) -> CGPoint
+    ) {
+        func s(_ ox: CGFloat, _ oy: CGFloat, _ rx: CGFloat, _ ry: CGFloat) -> CGPoint {
+            mapPt(ox + (rx - ox) * e, oy + (ry - oy) * e)
+        }
+        let milk = ClackBreedPalette.hex(0xF6F2EA)
+        if dna.chestBib == .fullBib || dna.patternFamily == .ragdollBicolor || dna.patternFamily == .shaded {
+            let bibCol = dna.patternFamily == .shaded ? CatCoatCompiler.swiftUIColor(dna.secondaryFurHex) : milk
+            let bib = CGMutablePath()
+            bib.move(to: s(-44, -188, 64, -141))
+            bib.addCurve(to: s(-14, -108, 60, -98), control1: s(-30, -152, 67, -122), control2: s(-16, -142, 62, -107))
+            bib.addCurve(to: s(-36, 3, 58, -75), control1: s(-12, -40, 58, -92), control2: s(-26, -18, 57, -83))
+            bib.addLine(to: s(36, 3, 80, -73))
+            bib.addLine(to: s(14, -108, 97, -79))
+            bib.addQuadCurve(to: s(46, -188, 86, -143), control: s(16, -142, 106, -98))
+            bib.closeSubpath()
+            fillPath(ctx, bib, bibCol)
+        } else if dna.chestBib == .locket {
+            let lk = s(0, -152, 74, -118)
+            fillEllipse(ctx, x: lk.x, y: lk.y, rx: 16, ry: 13, color: milk)
+        }
+
+        if dna.patternFamily == .calico {
+            let ginger = CatCoatCompiler.swiftUIColor(dna.secondaryFurHex)
+            let ink = CatCoatCompiler.swiftUIColor(dna.tertiaryFurHex)
+            let p1 = s(-54, -92, -26, -150)
+            fillEllipse(ctx, x: p1.x, y: p1.y, rx: 32, ry: 26, color: ginger, rotation: -0.25)
+            let p2 = s(52, -125, 22, -156)
+            fillEllipse(ctx, x: p2.x, y: p2.y, rx: 28, ry: 24, color: ink, rotation: 0.28)
+        } else if dna.patternFamily == .tortoiseshell {
+            let amber = CatCoatCompiler.swiftUIColor(dna.secondaryFurHex).withAlphaComponent(0.84)
+            let gold = CatCoatCompiler.swiftUIColor(dna.tertiaryFurHex).withAlphaComponent(0.74)
+            for (ox, oy, rx, ry, col, rot) in [
+                (-44.0, -118.0, 20.0, 15.0, amber, -0.3),
+                (-16.0, -76.0, 16.0, 12.0, gold, 0.2),
+                (34.0, -110.0, 21.0, 16.0, amber, 0.25),
+                (14.0, -146.0, 15.0, 12.0, gold, -0.2),
+                (48.0, -64.0, 18.0, 14.0, amber, 0.15)
+            ] as [(CGFloat, CGFloat, CGFloat, CGFloat, NSColor, CGFloat)] {
+                let pt = s(ox, oy, ox * 0.45, oy - 28.0)
+                fillEllipse(ctx, x: pt.x, y: pt.y, rx: rx, ry: ry, color: col, rotation: rot)
+            }
         }
     }
 
@@ -974,10 +1101,11 @@ enum ClackRenderer {
         } else {
             edgeRGB = (234.0 / 255.0, 232.0 / 255.0, 227.0 / 255.0)
         }
+        let hasCustomDNA = (r.dna != nil)
         let strokeStops: [(CGFloat, NSColor)] = [
             (0.28, NSColor(srgbRed: edgeRGB.0, green: edgeRGB.1, blue: edgeRGB.2, alpha: 0)),
-            (0.55, NSColor(srgbRed: edgeRGB.0, green: edgeRGB.1, blue: edgeRGB.2, alpha: 0.65)),
-            (1.0, (r.point != nil || r.tabby) ? r.edge : ClackBreedPalette.hex(0xEEECE6))
+            (0.55, hasCustomDNA ? r.edge.withAlphaComponent(0.55) : NSColor(srgbRed: edgeRGB.0, green: edgeRGB.1, blue: edgeRGB.2, alpha: 0.65)),
+            (1.0, (r.point != nil || r.tabby || hasCustomDNA) ? r.edge : ClackBreedPalette.hex(0xEEECE6))
         ]
         if d > 0.001 {
             ctx.saveGState()
@@ -1023,14 +1151,39 @@ enum ClackRenderer {
                 strokePathWithLinearGradient(ctx, path: spine, lineWidth: i * 2.0 * d, start: gs, end: ge, stops: stops)
             }
         } else {
-            fillPath(ctx, path, r.fur)
-            if d > 0.001 {
-                ctx.saveGState()
-                ctx.setStrokeColor(r.fur.cgColor)
-                ctx.setLineWidth(i * 2.0 * d)
-                ctx.addPath(spine)
-                ctx.strokePath()
-                ctx.restoreGState()
+            let isShaded = (r.dna?.patternFamily == .shaded)
+            let hasSock: Bool = {
+                guard let dna = r.dna else { return false }
+                if dna.patternFamily == .ragdollBicolor { return true }
+                return h ? (dna.frontRightSock != .none) : (dna.frontLeftSock != .none)
+            }()
+            if isShaded, let dna = r.dna {
+                let dorsal = CatCoatCompiler.swiftUIColor(dna.primaryFurHex)
+                let cream = CatCoatCompiler.swiftUIColor(dna.secondaryFurHex)
+                let stops: [(CGFloat, NSColor)] = [(0.0, ClackBreedPalette.lerpColor(dorsal, cream, 0.45)), (0.65, cream), (1.0, cream)]
+                fillPathWithLinearGradient(ctx, path: path, start: n, end: o, stops: stops)
+                if d > 0.001 {
+                    strokePathWithLinearGradient(ctx, path: spine, lineWidth: i * 2.0 * d, start: n, end: o, stops: stops)
+                }
+            } else if hasSock {
+                let sockCol = ClackBreedPalette.hex(0xF6F2EA)
+                let stops: [(CGFloat, NSColor)] = [
+                    (0.0, r.fur), (0.68, r.fur), (0.76, sockCol), (1.0, sockCol)
+                ]
+                fillPathWithLinearGradient(ctx, path: path, start: n, end: o, stops: stops)
+                if d > 0.001 {
+                    strokePathWithLinearGradient(ctx, path: spine, lineWidth: i * 2.0 * d, start: n, end: o, stops: stops)
+                }
+            } else {
+                fillPath(ctx, path, r.fur)
+                if d > 0.001 {
+                    ctx.saveGState()
+                    ctx.setStrokeColor(r.fur.cgColor)
+                    ctx.setLineWidth(i * 2.0 * d)
+                    ctx.addPath(spine)
+                    ctx.strokePath()
+                    ctx.restoreGState()
+                }
             }
         }
 
@@ -1395,7 +1548,211 @@ enum ClackRenderer {
                 ep.addLine(to: CGPoint(x: b[0], y: b[1]))
                 ep.addLine(to: CGPoint(x: y[0], y: y[1]))
                 ep.closeSubpath()
-                fillPath(ctx, ep, ClackBreedPalette.hex(n.isSilverTabby ? 0xD8AEB4 : 0xE9AC83))
+                fillPath(ctx, ep, n.customEarInner ?? ClackBreedPalette.hex(n.isSilverTabby ? 0xD8AEB4 : 0xE9AC83))
+            }
+            ctx.restoreGState()
+        } else if n.point == nil, let dna = n.dna {
+            // Custom Photo Cat 3D-Projected Blazes, Calico/Ragdoll/Tuxedo/Shaded Markings & Nose!
+            ctx.saveGState()
+            ctx.addPath(headFull)
+            ctx.clip()
+            let mapHead: (CGFloat, CGFloat, CGFloat) -> CGPoint = { vx, vy, vz in
+                let r = c(proj.project(vx, vy, vz), 17.0 + vx * 0.65 + vz * 0.45, vy * 0.91 + 7.0)
+                return CGPoint(x: r[0], y: r[1])
+            }
+            let milkCol = ClackBreedPalette.hex(0xF6F2EA)
+            let pCol = CatCoatCompiler.swiftUIColor(dna.primaryFurHex)
+            let sCol = CatCoatCompiler.swiftUIColor(dna.secondaryFurHex)
+            let tCol = CatCoatCompiler.swiftUIColor(dna.tertiaryFurHex)
+
+            switch dna.patternFamily {
+            case .calico:
+                let leftPatch = CGMutablePath()
+                leftPatch.move(to: mapHead(-2, -42, 4))
+                leftPatch.addQuadCurve(to: mapHead(-56, -24, 0), control: mapHead(-32, -44, 2))
+                leftPatch.addLine(to: mapHead(-56, 18, 2))
+                leftPatch.addQuadCurve(to: mapHead(-2, -16, 22), control: mapHead(-24, 14, 18))
+                leftPatch.closeSubpath()
+                fillPath(ctx, leftPatch, sCol)
+
+                let rightPatch = CGMutablePath()
+                rightPatch.move(to: mapHead(2, -42, 4))
+                rightPatch.addQuadCurve(to: mapHead(56, -24, 0), control: mapHead(32, -44, 2))
+                rightPatch.addLine(to: mapHead(56, 14, 2))
+                rightPatch.addQuadCurve(to: mapHead(2, -18, 22), control: mapHead(24, 10, 18))
+                rightPatch.closeSubpath()
+                fillPath(ctx, rightPatch, tCol)
+
+                let earL = CGMutablePath()
+                earL.move(to: CGPoint(x: f.outer[0], y: f.outer[1]))
+                appendEarCurve(earL, f, outerFirst: true)
+                earL.closeSubpath()
+                fillPath(ctx, earL, sCol)
+
+                let earR = CGMutablePath()
+                earR.move(to: CGPoint(x: p.inner[0], y: p.inner[1]))
+                appendEarCurve(earR, p, outerFirst: false)
+                earR.closeSubpath()
+                fillPath(ctx, earR, tCol)
+
+            case .ragdollBicolor:
+                for ear in [f, p] {
+                    let ep = CGMutablePath()
+                    if ear.side < 0 {
+                        ep.move(to: CGPoint(x: ear.outer[0], y: ear.outer[1]))
+                        appendEarCurve(ep, ear, outerFirst: true)
+                    } else {
+                        ep.move(to: CGPoint(x: ear.inner[0], y: ear.inner[1]))
+                        appendEarCurve(ep, ear, outerFirst: false)
+                    }
+                    ep.closeSubpath()
+                    fillPath(ctx, ep, pCol)
+                }
+                let spread = CGFloat(14.0 + dna.blazeWidth * 28.0)
+                for side in [-1.0, 1.0] as [CGFloat] {
+                    let cap = CGMutablePath()
+                    cap.move(to: mapHead(0, -42, 4))
+                    cap.addQuadCurve(to: mapHead(side * 58, -18, 0), control: mapHead(side * 34, -42, 2))
+                    cap.addLine(to: mapHead(side * 56, 22, 2))
+                    cap.addQuadCurve(to: mapHead(0, -14, 22), control: mapHead(side * spread, 16, 18))
+                    cap.closeSubpath()
+                    fillPath(ctx, cap, pCol)
+                }
+
+            case .tortoiseshell:
+                for (vx, vy, rx, ry, col) in [
+                    (-26.0, -26.0, 18.0, 14.0, sCol.withAlphaComponent(0.86)),
+                    (12.0, -24.0, 13.0, 10.0, tCol.withAlphaComponent(0.76)),
+                    (32.0, 12.0, 16.0, 13.0, sCol.withAlphaComponent(0.82)),
+                    (-34.0, 16.0, 14.0, 11.0, tCol.withAlphaComponent(0.74))
+                ] as [(CGFloat, CGFloat, CGFloat, CGFloat, NSColor)] {
+                    let pt = mapHead(vx, vy, 14)
+                    fillEllipse(ctx, x: pt.x, y: pt.y, rx: rx, ry: ry, color: col)
+                }
+                let earPatch = CGMutablePath()
+                earPatch.move(to: CGPoint(x: f.tip[0], y: f.tip[1]))
+                earPatch.addLine(to: CGPoint(x: f.outerTip[0], y: f.outerTip[1]))
+                earPatch.addLine(to: CGPoint(x: f.innerBase[0], y: f.innerBase[1]))
+                earPatch.closeSubpath()
+                fillPath(ctx, earPatch, sCol.withAlphaComponent(0.85))
+
+            case .shaded:
+                fillPathWithLinearGradient(
+                    ctx,
+                    path: headFull,
+                    start: CGPoint(x: 0, y: -48),
+                    end: CGPoint(x: 0, y: 46),
+                    stops: [(0.0, pCol), (0.58, ClackBreedPalette.lerpColor(pCol, sCol, 0.72)), (1.0, sCol)]
+                )
+                if dna.foreheadM {
+                    ctx.setFillColor(tCol.withAlphaComponent(0.36).cgColor)
+                    for fx in [-13.0, -4.0, 4.0, 13.0] as [CGFloat] {
+                        let st = CGMutablePath()
+                        st.move(to: mapHead(fx, -38, 4))
+                        st.addQuadCurve(to: mapHead(fx * 0.85, -16, 20), control: mapHead(fx - 3, -25, 15))
+                        st.addQuadCurve(to: mapHead(fx + 2.5, -38, 4), control: mapHead(fx + 3, -25, 15))
+                        st.closeSubpath()
+                        ctx.addPath(st)
+                        ctx.fillPath()
+                    }
+                }
+
+            default:
+                if o > 0.45 && dna.faceBlaze != .none && dna.faceBlaze != .sealMask {
+                    let profBlaze = CGMutablePath()
+                    profBlaze.move(to: CGPoint(x: 24, y: -6))
+                    profBlaze.addQuadCurve(to: CGPoint(x: 44, y: 18), control: CGPoint(x: 38, y: 4))
+                    profBlaze.addQuadCurve(to: CGPoint(x: 32, y: 50), control: CGPoint(x: 42, y: 38))
+                    profBlaze.addQuadCurve(to: CGPoint(x: 6, y: 48), control: CGPoint(x: 18, y: 52))
+                    profBlaze.addQuadCurve(to: CGPoint(x: 24, y: -6), control: CGPoint(x: 14, y: 18))
+                    profBlaze.closeSubpath()
+                    fillPath(ctx, profBlaze, milkCol)
+                } else {
+                    switch dna.faceBlaze {
+                    case .invertedV:
+                        let spread = CGFloat(16.0 + dna.blazeWidth * 32.0)
+                        let blaze = CGMutablePath()
+                        blaze.move(to: mapHead(0, -10, 24))
+                        blaze.addQuadCurve(to: mapHead(-spread, 44, 6), control: mapHead(-spread * 0.55, 16, 20))
+                        blaze.addLine(to: mapHead(-62, 72, 0))
+                        blaze.addLine(to: mapHead(62, 72, 0))
+                        blaze.addLine(to: mapHead(spread, 44, 6))
+                        blaze.addQuadCurve(to: mapHead(0, -10, 24), control: mapHead(spread * 0.55, 16, 20))
+                        blaze.closeSubpath()
+                        fillPath(ctx, blaze, milkCol)
+                    case .skewLeft, .skewRight:
+                        let dir: CGFloat = dna.faceBlaze == .skewLeft ? 1.0 : -1.0
+                        let blaze = CGMutablePath()
+                        blaze.move(to: mapHead(dir * 12, -8, 23))
+                        blaze.addQuadCurve(to: mapHead(-46, 42, 4), control: mapHead(-12, 18, 20))
+                        blaze.addLine(to: mapHead(-62, 72, 0))
+                        blaze.addLine(to: mapHead(62, 72, 0))
+                        blaze.addLine(to: mapHead(50, 36, 4))
+                        blaze.closeSubpath()
+                        fillPath(ctx, blaze, milkCol)
+                    case .helmetCap, .whiteMuzzle:
+                        let muzzle = CGMutablePath()
+                        let topY: CGFloat = dna.faceBlaze == .helmetCap ? 8.0 : 24.0
+                        muzzle.move(to: mapHead(-54, 42, 3))
+                        muzzle.addQuadCurve(to: mapHead(0, topY, 26), control: mapHead(-24, topY + 6, 18))
+                        muzzle.addQuadCurve(to: mapHead(54, 42, 3), control: mapHead(24, topY + 6, 18))
+                        muzzle.addLine(to: mapHead(65, 73, 0))
+                        muzzle.addLine(to: mapHead(-65, 73, 0))
+                        muzzle.closeSubpath()
+                        fillPath(ctx, muzzle, milkCol)
+                    case .splitHalf:
+                        let half = CGMutablePath()
+                        half.move(to: mapHead(0, -45, 4))
+                        half.addLine(to: mapHead(62, -42, 0))
+                        half.addLine(to: mapHead(62, 72, 0))
+                        half.addLine(to: mapHead(0, 72, 12))
+                        half.closeSubpath()
+                        fillPath(ctx, half, sCol)
+                    default:
+                        break
+                    }
+                }
+            }
+
+            let effectiveNose: NSColor? = {
+                if dna.patternFamily == .tortoiseshell {
+                    return ClackBreedPalette.hex(0xCA7F7A)
+                }
+                return n.customNose
+            }()
+            if let noseCol = effectiveNose, o < 0.85 {
+                let noseP = CGMutablePath()
+                noseP.move(to: mapHead(-4, 17, 26))
+                noseP.addQuadCurve(to: mapHead(4, 17, 26), control: mapHead(0, 15, 27))
+                noseP.addQuadCurve(to: mapHead(-4, 17, 26), control: mapHead(0, 25, 28))
+                noseP.closeSubpath()
+                fillPath(ctx, noseP, noseCol)
+
+                let mCol = (dna.patternFamily == .tortoiseshell)
+                    ? ClackBreedPalette.hex(0xDECAB8, alpha: 0.78)
+                    : ClackBreedPalette.hex(0x7B6A5E, alpha: 0.62)
+                let ml = mapHead(-8, 28, 25), mm = mapHead(0, 25, 27), mr = mapHead(8, 28, 25)
+                ctx.saveGState()
+                ctx.setStrokeColor(mCol.cgColor)
+                ctx.setLineWidth(1.3)
+                ctx.move(to: ml)
+                ctx.addQuadCurve(to: mm, control: CGPoint(x: (ml.x + mm.x) * 0.5, y: ml.y + 2.4))
+                ctx.addQuadCurve(to: mr, control: CGPoint(x: (mm.x + mr.x) * 0.5, y: mr.y + 2.4))
+                ctx.strokePath()
+                ctx.restoreGState()
+            }
+            if let innerCol = n.customEarInner {
+                for ear in [f, p] {
+                    let b = W(ear.tip, ear.outer, 0.7)
+                    let y = W(ear.tip, ear.inner, 0.7)
+                    let t0 = W(ear.tip, b, 0.2)
+                    let ep = CGMutablePath()
+                    ep.move(to: CGPoint(x: t0[0], y: t0[1]))
+                    ep.addLine(to: CGPoint(x: b[0], y: b[1]))
+                    ep.addLine(to: CGPoint(x: y[0], y: y[1]))
+                    ep.closeSubpath()
+                    fillPath(ctx, ep, innerCol)
+                }
             }
             ctx.restoreGState()
         }
@@ -1421,7 +1778,8 @@ enum ClackRenderer {
             let eyePos = c(proj.project(v * 23.0 + e.turn * 0.35, P, 16.0 - 24.0 * L), isLeft ? ce : fe, isLeft ? ye : ye - Rn)
             let A = cos(e.headYaw + v * 0.29) / cos(0.29) * (1.0 - 0.12 * L)
             let gt: CGFloat = isLeft ? (1.02 + 0.1 * s) : 0.32
-            drawEye(in: ctx, pose: e, side: v, center: eyePos, scaleX: A + (gt - A) * o, scaleY: proj.cp, irisColor: n.iris, tension: s, profile: o)
+            let eyeIris = isLeft ? n.iris : n.effectiveIrisRight
+            drawEye(in: ctx, pose: e, side: v, center: eyePos, scaleX: A + (gt - A) * o, scaleY: proj.cp, irisColor: eyeIris, tension: s, profile: o)
 
             if !isLeft && o >= 0.999 { continue }
             let wTarget = isLeft ? leftWhiskers : rightWhiskers
@@ -1869,7 +2227,7 @@ enum ClackRenderer {
         ctx.addPath(path)
         ctx.strokePath()
 
-        ctx.setStrokeColor((n.point ?? n.fur).cgColor)
+        ctx.setStrokeColor((n.customTailBase ?? n.point ?? n.fur).cgColor)
         ctx.setLineWidth(innerW)
         ctx.addPath(path)
         ctx.strokePath()
@@ -1877,6 +2235,14 @@ enum ClackRenderer {
 
         if n.tabby {
             drawTabbyTailRings(in: ctx, pal: n, p0: pts[3], p1: pts[4], p2: pts[5], p3: pts[6], width: innerW)
+        } else if let dna = n.dna, dna.tailTipDip || dna.patternFamily == .calico || dna.patternFamily == .shaded {
+            let tipCol: NSColor = {
+                switch dna.patternFamily {
+                case .calico, .shaded: return CatCoatCompiler.swiftUIColor(dna.tertiaryFurHex)
+                default: return CatCoatCompiler.swiftUIColor(dna.secondaryFurHex)
+                }
+            }()
+            fillEllipse(ctx, x: pts[6][0], y: pts[6][1], rx: innerW * 0.52, ry: innerW * 0.52, color: tipCol)
         }
     }
 
@@ -2169,6 +2535,31 @@ enum ClackRenderer {
                     let rPath = CGPath(rect: rect, transform: nil)
                     fillStandingGradient(ctx, path: rPath, pal: s, topY: M(-17.0, -148.0 + n.bob, e.stand), bottomY: foot[1], isFar: false)
                 }
+                if let dna = s.dna {
+                    let standAmount = e.stand * abs(e.heading)
+                    let milk = ClackBreedPalette.hex(0xF6F2EA)
+                    if dna.chestBib == .fullBib || dna.patternFamily == .ragdollBicolor {
+                        let chest = CGMutablePath()
+                        chest.move(to: CGPoint(x: 42, y: -152 + n.bob))
+                        chest.addQuadCurve(to: CGPoint(x: 78, y: -96 + n.bob), control: CGPoint(x: 76, y: -134 + n.bob))
+                        chest.addQuadCurve(to: CGPoint(x: 18, y: -48 + n.bob), control: CGPoint(x: 62, y: -62 + n.bob))
+                        chest.addQuadCurve(to: CGPoint(x: 22, y: -112 + n.bob), control: CGPoint(x: 14, y: -82 + n.bob))
+                        chest.closeSubpath()
+                        fillPath(ctx, chest, milk)
+                    }
+                    let nearForeFoot = zPoint(e, n, seg: 10, coord: 4, far: false)
+                    let nearHindFoot = zPoint(e, n, seg: 5, coord: 4, far: false)
+                    if dna.frontLeftSock != .none || dna.patternFamily == .ragdollBicolor {
+                        fillEllipse(ctx, x: nearForeFoot[0] + 4, y: nearForeFoot[1] - 4, rx: 12, ry: 10, color: milk)
+                    }
+                    if dna.hindSocks || dna.patternFamily == .ragdollBicolor {
+                        fillEllipse(ctx, x: nearHindFoot[0] + 4, y: nearHindFoot[1] - 4, rx: 12, ry: 10, color: milk)
+                    }
+                    drawCustomDNABodyMarkings(in: ctx, dna: dna, pal: s, standBlend: standAmount) { ix, iy in
+                        let lv = min(1.0, max(0, -iy / 120.0))
+                        return CGPoint(x: ix, y: iy + n.bob * lv + (1.0 - e.tension) * 18.0 * lv)
+                    }
+                }
                 ctx.restoreGState()
             }
             ctx.saveGState()
@@ -2225,7 +2616,7 @@ enum ClackRenderer {
                 ])
                 strokePathWithLinearGradient(ctx, path: uPath, lineWidth: 1.7, start: CGPoint(x: 0, y: -118), end: CGPoint(x: 0, y: foot[1]), stops: [
                     (0.28, NSColor.clear),
-                    (1.0, (s.point != nil || s.tabby) ? s.edge : ClackBreedPalette.hex(0xEEECE6))
+                    (1.0, (s.point != nil || s.tabby || s.dna != nil) ? s.edge : ClackBreedPalette.hex(0xEEECE6))
                 ])
             }
             ctx.restoreGState()

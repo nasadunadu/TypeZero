@@ -371,12 +371,24 @@ enum CatRenderer {
 
     static func draw(in ctx: CGContext, physics: CatPhysics, showPermissionPill: Bool,
                      permissionPillText: String = "点击开启全局/游戏键盘监听 🔑",
-                     isPreview: Bool = false) {
+                     isPreview: Bool = false,
+                     customSkinOverride: SkinSpec? = nil) {
+        let settings = CatSettings.shared
+        let prevOverride = settings.previewSkinOverride
+        let prevIrisOverride = settings.overrideSkinIris
+        if let customSkinOverride {
+            settings.previewSkinOverride = customSkinOverride
+            settings.overrideSkinIris = false
+        }
+        defer {
+            if customSkinOverride != nil {
+                settings.previewSkinOverride = prevOverride
+                settings.overrideSkinIris = prevIrisOverride
+            }
+        }
         ctx.saveGState()
         ctx.setAllowsAntialiasing(true)
         ctx.setShouldAntialias(true)
-
-        let settings = CatSettings.shared
         if !isPreview && settings.obsCaptureMode == 2 {
             ctx.setFillColor(NSColor(calibratedRed: 0.0, green: 1.0, blue: 0.0, alpha: 1.0).cgColor)
             ctx.fill(CGRect(origin: .zero, size: CatPhysics.canvasSize))
@@ -4455,7 +4467,8 @@ enum CatRenderer {
                 ctx.strokePath()
                 ctx.restoreGState()
             }
-            ctx.setFillColor(sc(pal.paws, skin).cgColor)
+            let sitPawCol = skin.partGradients[armSpace.rawValue]?.to ?? pal.paws
+            ctx.setFillColor(sc(sitPawCol, skin).cgColor)
             ctx.addPath(cuffPath)
             ctx.fillPath()
         }
