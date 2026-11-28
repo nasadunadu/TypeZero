@@ -32,7 +32,7 @@ ensure_common_excludes() {
     local exclude_file="$GIT_COMMON_DIR/info/exclude"
     mkdir -p "$(dirname "$exclude_file")"
     touch "$exclude_file"
-    for pat in ".worktrees/" ".agents/" ".agents" "AGENTS.md" "Vendor" "site/media" ".lane-owner.json"; do
+    for pat in ".worktrees/" ".agents/" ".agents" "AGENTS.md" "Vendor" "site/media" "cloud/node_modules" ".lane-owner.json"; do
         if ! grep -qxF "$pat" "$exclude_file" 2>/dev/null; then
             echo "$pat" >> "$exclude_file"
         fi
@@ -70,11 +70,14 @@ link_shared_assets() {
     if [ -d "$TRUNK_DIR/site/media" ] && [ -d "$wt_dir/site" ] && [ ! -e "$wt_dir/site/media" ]; then
         ln -s "$TRUNK_DIR/site/media" "$wt_dir/site/media"
     fi
+    if [ -d "$TRUNK_DIR/cloud/node_modules" ] && [ -d "$wt_dir/cloud" ] && [ ! -e "$wt_dir/cloud/node_modules" ]; then
+        ln -s "$TRUNK_DIR/cloud/node_modules" "$wt_dir/cloud/node_modules"
+    fi
 }
 
 unlink_shared_symlinks() {
     local wt_dir="$1"
-    for rel in "Vendor" "AGENTS.md" ".agents" "site/media" ".lane-owner.json"; do
+    for rel in "Vendor" "AGENTS.md" ".agents" "site/media" "cloud/node_modules" ".lane-owner.json"; do
         if [ -L "$wt_dir/$rel" ] || [ "$rel" = ".lane-owner.json" ]; then
             move_to_trash "$wt_dir/$rel"
         fi
