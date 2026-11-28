@@ -2,10 +2,10 @@
   "use strict";
 
   const STAGE = {
-    width: 564,
-    height: 432,
-    anchorX: 266,
-    anchorY: 392
+    width: 540,
+    height: 396,
+    anchorX: 256,
+    anchorY: 368
   };
 
   const KB = { x: 118, y: 331, width: 276, height: 72 };
@@ -16,7 +16,7 @@
   const PERSP_DIST = 520;
   const PERSP_TILT = 0.68;
   const PERSP_ORIGIN_Y = 340;
-  const BASE_SCALE = 0.84;
+  const BASE_SCALE = 0.82;
 
   function projectDeck(x, y, z = 0) {
     const s = PERSP_DIST / (PERSP_DIST + KB_BOTTOM_Y - y);
@@ -348,7 +348,6 @@
     ctx.fillStyle = "#aba69d";
     ctx.fill(plate);
 
-    // Optional RGB ambient underglow on plate
     if (settings.rgbGlow) {
       ctx.save();
       ctx.clip(plate);
@@ -499,7 +498,6 @@
     ctx.stroke(shell);
   }
 
-  // Tabby helpers (supports both Orange Tabby "huangzongzi" & Silver Shorthair!)
   function tabbyColors(pal) {
     if (pal.silver) {
       return {
@@ -730,7 +728,6 @@
     ctx.lineWidth = 1;
     ctx.stroke();
 
-    // Subtle chest contour lines (visible on black cat like KuroCat / Clack)
     if (!pal.tabby && !pal.point) {
       ctx.save();
       ctx.strokeStyle = "rgba(148, 152, 160, 0.42)";
@@ -1053,7 +1050,6 @@
       }
     }
 
-    // Cozy Retro Headphones when Music Mode is active (only on seated cat)
     if (extras?.headphones && profile === 0) {
       ctx.save();
       ctx.beginPath();
@@ -1077,7 +1073,6 @@
       ctx.restore();
     }
 
-    // Cute Anime Anger Vein (💢) on rapid voice/key clacking!
     if (extras?.anger > 0.04 && profile === 0) {
       const a = Math.min(1, extras.anger);
       const pulse = 1 + Math.sin(pose.time * 16) * 0.09;
@@ -1311,29 +1306,22 @@
       working: 1 - smoothstep(clamp01Range(elapsed, 540, T.approachEnd))
     };
 
-    let phaseCaption = "";
-    if (elapsed < T.approachEnd) {
-      phaseCaption = `🐾 ${BREEDS[toBreed].label}溜达进工位，准备接班…`;
-    } else if (elapsed < T.braceEnd) {
-      phaseCaption = `⚡ 两只小猫弓背炸毛，气氛突然焦灼！`;
-    } else if (elapsed < T.duelEnd) {
-      phaseCaption = `💢 顶额头吵架交接中：「老吴！！到点换我敲了！」`;
-    } else if (elapsed < T.exitEnd) {
-      phaseCaption = `🚶 ${BREEDS[fromBreed].label}骂骂咧咧打卡下班…`;
-    } else {
-      phaseCaption = `✨ ${BREEDS[toBreed].label}坐稳工位，接管键盘开工！`;
-    }
+    let duelStep = 1;
+    if (elapsed < T.approachEnd) duelStep = 1;
+    else if (elapsed < T.braceEnd) duelStep = 2;
+    else if (elapsed < T.duelEnd) duelStep = 3;
+    else duelStep = 4;
 
     return {
       resident: elapsed < T.exitEnd ? resident : null,
       visitor,
       leftEdge,
       rightEdge,
-      caption: phaseCaption
+      duelStep,
+      isHeadbuttPeak: elapsed >= T.braceEnd - 150 && elapsed < T.duelEnd
     };
   }
 
-  // Body Spline Tables for Walking & Braced Forehead-Butting Cat
   const BODY_SPLINES = {
     seated: [[40, -182], [34, -207, -34, -193, -43, -166], [-52, -139, -61, -115, -68, -76], [-72, -57, -70, -36, -56, -16], [-61, -11, -60, -4, -55, -1], [-52, 3, -47, 3, -43, 0], [-40, 0, -37, -3, -37, -8], [-36, -8, -34, -7, -33, -7], [-32, -7, -30, -7, -29, -8], [-29, -8, -29, -8, -29, -7], [-29, -1, -25, 3, -19, 3], [-13, 3, -9, 0, -9, -7], [26, -15, 73, -62, 63, -101], [54, -127, 46, -157, 40, -182]],
     walking: [[51, -159], [21, -143, -1, -170, -39, -161], [-69, -156, -84, -128, -83, -100], [-82, -71, -92, -54, -90, -18], [-91, -12, -95, -2, -85, 0], [-80, 1, -73, 1, -68, 0], [-62, -1, -63, -11, -69, -15], [-67, -38, -44, -58, -25, -83], [-11, -77, 10, -73, 18, -76], [15, -56, 23, -31, 25, -13], [21, 0, 29, 2, 40, 1], [50, 2, 55, -7, 46, -15], [48, -34, 65, -65, 75, -84], [106, -96, 89, -139, 51, -159]],
@@ -1852,7 +1840,6 @@
       ctx.stroke(body);
     }
 
-    // Iconic 3-Spike Arched Back Fur Tuft during Forehead-Butting Duel!
     if (actor.tension * actor.stand > 0.03) {
       const tuftPos = rigNode(actor, rig, 1, 4);
       const sc = actor.tension * actor.stand;
@@ -1934,7 +1921,7 @@
   }
 
   // =========================================================================
-  // Audio Engine (Duel "老吴！！" + Mechanical Key Switches + Mouse Click)
+  // Audio Engine
   // =========================================================================
   class PetAudioManager {
     constructor() {
@@ -1943,7 +1930,7 @@
       this.enabled = false;
       this.duelSource = null;
       this.activeDuelCue = null;
-      this.tone = "clear"; // "clear" | "blue"
+      this.tone = "clear";
     }
 
     ensureContext() {
@@ -1998,7 +1985,7 @@
       const gain = ac.createGain();
       src.buffer = buf;
       src.playbackRate.value = 0.95 + Math.random() * 0.1;
-      gain.gain.value = isMouse ? 0.45 : 0.36;
+      gain.gain.value = isMouse ? 0.45 : 0.34;
       src.connect(gain);
       gain.connect(ac.destination);
       src.start();
@@ -2037,7 +2024,7 @@
   }
 
   // =========================================================================
-  // Live Pose Simulator & Stage Renderer (With Sticker White Border!)
+  // Cat Simulator & Offscreen Sticker Renderer
   // =========================================================================
   class CatSimulator {
     constructor(settings) {
@@ -2062,8 +2049,6 @@
         earLeft: 0,
         earRight: 0,
         time: 0,
-        active: false,
-        sleeping: false,
         pressed: new Set(),
         buttons: new Set(),
         flashes: new Map(),
@@ -2086,7 +2071,7 @@
       this.blinkIndex = 0;
     }
 
-    tapKey(code, holdMs = 75) {
+    tapKey(code, holdMs = 70) {
       const now = Date.now();
       const id = this.pulseId++;
       this.pose.pressed.add(code);
@@ -2102,7 +2087,7 @@
           code,
           atMs: now,
           x: pt.x,
-          y: Math.min(pt.y - 32, KB.y - 24)
+          y: Math.min(pt.y - 30, KB.y - 22)
         });
         this.pose.bubbles = this.pose.bubbles.slice(-7);
       }
@@ -2121,7 +2106,6 @@
       const dy = loc.y - this.cursorLogical.y;
       this.cursorLogical = loc;
 
-      // Petting check on cat head!
       const ho = headOffset(this.pose);
       const distHead = Math.hypot(loc.x - (231 + ho.x), loc.y - (130 + ho.y));
       if (distHead < 58 && Math.hypot(dx, dy) > 0.4) {
@@ -2144,12 +2128,10 @@
       p.time += dt;
       p.petting = Math.max(0, p.petting - dt * 0.65);
 
-      // Compute anger from rapid clacking density
       this.recentPressTimestamps = this.recentPressTimestamps.filter((t) => nowMs - t < 1100);
-      const targetAnger = this.recentPressTimestamps.length >= 6 ? Math.min(1, (this.recentPressTimestamps.length - 5) / 5) : 0;
+      const targetAnger = this.recentPressTimestamps.length >= 5 ? Math.min(1, (this.recentPressTimestamps.length - 4) / 5) : 0;
       this.anger += (targetAnger - this.anger) * (1 - Math.exp(-8 * dt));
 
-      // Natural blinking (or happy squint when petting!)
       const bElapsed = p.time - this.nextBlink;
       const blinkCurve = Math.max(0, Math.min(1, bElapsed / 0.09, (0.29 - bElapsed) / 0.16));
       if (bElapsed >= 0.29) {
@@ -2366,15 +2348,11 @@
 
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-
-      // Soft sticker drop shadow on warm desk mat
       ctx.save();
       ctx.globalAlpha = 0.16;
-      const shOff = 2.8 * this.dpr;
-      ctx.drawImage(this.silLayer, 0, shOff);
+      ctx.drawImage(this.silLayer, 0, 2.8 * this.dpr);
       ctx.restore();
 
-      // Crisp 3.8px die-cut white sticker border
       const rad = 3.8 * this.dpr;
       const steps = 12;
       for (let i = 0; i < steps; i++) {
@@ -2393,7 +2371,6 @@
       ctx.save();
       this.applyCamera(ctx);
 
-      // Ground shadows
       if (handoverFrame) {
         for (const actor of [handoverFrame.resident, handoverFrame.visitor]) {
           if (actor) this.drawShadow(ctx, actor.x, actor.y, 75, 6, 0.18);
@@ -2404,12 +2381,10 @@
       this.drawShadow(ctx, 257, 382, 144, 8, 0.14);
       this.drawShadow(ctx, pose.mouse.x - 4, pose.mouse.y + 20, 19, 4.5, 0.18);
 
-      // Draw 3D Mechanical Keyboard & Mouse first so die-cut sticker cat sits cleanly over the desk!
       drawKeyboard(ctx, pose, settings, nowMs);
       drawMouse(ctx, pose, nowMs);
       ctx.restore();
 
-      // Render Cat(s) onto offscreen layer to get seamless die-cut white sticker border
       const cctx = this.catCtx;
       cctx.setTransform(1, 0, 0, 1, 0, 0);
       cctx.clearRect(0, 0, this.catLayer.width, this.catLayer.height);
@@ -2459,13 +2434,12 @@
         ctx.restore();
       }
 
-      // Floating keycap pop bubbles & musical notes on top
       ctx.save();
       this.applyCamera(ctx);
 
       if (!handoverFrame && settings.musicMode && !settings.reducedMotion) {
         for (let i = 0; i < 2; i++) {
-          const prog = ((pose.time * 0.45 + i * 0.5) % 1);
+          const prog = (pose.time * 0.45 + i * 0.5) % 1;
           const alpha = Math.sin(prog * Math.PI) * 0.85;
           const nx = 152 - i * 24 + Math.sin(pose.time * 2.2 + i) * 7;
           const ny = 96 - prog * 34;
@@ -2523,31 +2497,59 @@
   }
 
   // =========================================================================
-  // Voice-to-Cat-Clacking Everyday Demo Scripts
+  // 3-Act Panoramic SVG + Cat Director Timeline Scripts
   // =========================================================================
-  const VOICE_DEMOS = [
+  const CINEMA_ACTS = [
     {
-      tag: "小红书探店随口记",
-      spoken: "“呃今天在武康路喝到一家超绝的开心果拿铁，不对是开心果脏脏奶，奶盖巨绵密一定要坐窗边拍照”",
-      output: "今天在武康路挖到一家超绝的开心果脏脏奶！奶盖巨绵密，姐妹们来一定要选窗边位置拍照 ✨",
-      keys: ["KeyJ", "KeyI", "KeyN", "KeyT", "KeyI", "KeyA", "KeyN", "Space", "KeyK", "KeyA", "KeyI", "KeyX", "KeyI", "KeyN", "Digit1", "KeyN", "KeyA", "KeyI", "KeyG", "KeyA", "KeyI", "Space", "KeyP", "KeyA", "KeyI", "KeyZ", "KeyH", "KeyA", "KeyO", "Enter"]
+      id: "act1",
+      durationMs: 6000,
+      appBadge: "💬 聊天窗口 · 秒回消息",
+      latencyText: "118 ms",
+      segments: [
+        { text: "呃那个", bug: true },
+        { text: "琳琳不好意思呀，我刚下地铁拎着东西没法打字，", bug: false },
+        { text: "周三不对", bug: true },
+        { text: "改成周四晚七点那家云南菜哈", bug: false }
+      ],
+      badges: ["✂️ 秒删口头禅", "🎯 捉住改口：周三→周四", "✨ 语气自然润色"],
+      polished: "琳琳不好意思呀，我刚下地铁手里拎着东西不方便打字。周四晚上七点那家云南菜我订好啦，不见不散！",
+      keys: [
+        "KeyL", "KeyI", "KeyN", "Space", "KeyD", "KeyI", "KeyT", "KeyI", "KeyE", "Space",
+        "KeyZ", "KeyH", "KeyO", "KeyU", "Digit4", "Space", "KeyQ", "KeyI", "KeyD", "KeyI", "KeyA", "KeyN",
+        "Space", "KeyY", "KeyU", "KeyN", "KeyN", "KeyA", "KeyN", "Enter"
+      ]
     },
     {
-      tag: "工作消息温柔秒回",
-      spoken: "“那个王姐不好意思哈，方案我刚改完第二版了，呃不是发邮箱我直接发飞书群里吧你随时看”",
-      output: "王姐好，方案第二版我已经整理好直接发在飞书群里啦，您方便的时候随时过目～",
-      keys: ["KeyW", "KeyA", "KeyN", "KeyG", "Space", "KeyF", "KeyA", "KeyN", "KeyG", "KeyA", "KeyN", "Digit2", "KeyF", "KeyE", "KeyI", "KeyS", "KeyH", "KeyU", "Space", "KeyS", "KeyU", "KeyI", "KeyS", "KeyH", "KeyI", "Enter"]
+      id: "act2",
+      durationMs: 6200,
+      appBadge: "📕 小红书 / 备忘录 · 碎碎念成稿",
+      latencyText: "132 ms",
+      segments: [
+        { text: "记一下周五探店拍摄", bug: false },
+        { text: "呃怎么说呢", bug: true },
+        { text: "三件事哈，第一带奶油色针织开衫，第二提前订靠窗位，第三", bug: false },
+        { text: "那个啥", bug: true },
+        { text: "把两块相机电池充满", bug: false }
+      ],
+      badges: ["✂️ 滤除碎碎念废话", "📑 自动分点 1·2·3", "⚡ 零乱码直出光标"],
+      polished: "周五探店拍摄清单：\n1. 穿搭准备：带上奶油色针织开衫；\n2. 场地预约：提前锁定靠窗拍照座位；\n3. 设备检查：把两块备用相机电池充满。",
+      keys: [
+        "Digit1", "KeyK", "KeyA", "KeyI", "KeyS", "KeyH", "KeyA", "KeyN", "Enter",
+        "Digit2", "KeyK", "KeyA", "KeyO", "KeyC", "KeyH", "KeyU", "KeyA", "KeyN", "KeyG", "Enter",
+        "Digit3", "KeyX", "KeyI", "KeyA", "KeyN", "KeyG", "KeyJ", "KeyI", "Enter"
+      ]
     },
     {
-      tag: "下班前 10 秒口述周报",
-      spoken: "“本周做了三件事哈，第一上线桌面小黑猫搭子，第二修复苹果公证流程，第三准备下周小红书推广素材”",
-      output: "本周核心进展：\n1. 上线桌面小黑猫陪班搭子与双猫换班动画；\n2. 跑通 macOS 官方公证零拦截安装包；\n3. 完成下周小红书种草图文素材准备。",
-      keys: ["Digit1", "KeyZ", "KeyH", "KeyU", "KeyO", "KeyC", "KeyH", "KeyO", "KeyN", "KeyG", "Space", "Digit2", "KeyM", "KeyA", "KeyC", "KeyO", "KeyS", "Space", "Digit3", "KeyS", "KeyU", "KeyC", "KeyA", "KeyI", "Enter"]
+      id: "act3",
+      durationMs: 10800,
+      isDuelAct: true,
+      appBadge: "🐾 桌面搭子 · 换猫交接仪式",
+      latencyText: "名场面"
     }
   ];
 
   // =========================================================================
-  // Mount Controller to DOM
+  // Mount Controller & Auto-Director
   // =========================================================================
   function initPetStage() {
     const canvas = document.getElementById("heroPetCanvas");
@@ -2568,23 +2570,39 @@
     const renderer = new StageRenderer(canvas);
     const audio = new PetAudioManager();
 
-    let handover = null; // { from, to, startPerfMs }
-    let demoIndex = 0;
-    let voiceTimer = null;
-    let textStreamTimer = null;
-    let idleTapTimer = null;
+    let handover = null;
     let userMutedExplicitly = false;
 
-    const captionEl = document.getElementById("petStageCaption");
-    const voiceSpokenEl = document.getElementById("petVoiceSpoken");
-    const voiceOutputEl = document.getElementById("petVoiceOutput");
-    const voiceTagEl = document.getElementById("petVoiceTag");
+    // Cinema DOM elements
+    const actBtns = Array.from(document.querySelectorAll("[data-cinema-act]"));
+    const waveBars = Array.from(document.querySelectorAll("#capsuleWaveSvg rect"));
+    const capsuleStatusEl = document.getElementById("cinemaCapsuleStatus");
+    const capsuleLatencyEl = document.getElementById("cinemaCapsuleLatency");
+    const capsulePillEl = document.getElementById("cinemaVoiceCapsule");
+    const appBadgeEl = document.getElementById("cinemaAppBadge");
+    const spokenContainerEl = document.getElementById("cinemaSpokenText");
+    const magicBadgesEl = document.getElementById("cinemaMagicBadges");
+    const flowLineEl = document.getElementById("cinemaSvgFlowPath");
+    const polishedBoxEl = document.getElementById("cinemaPolishedText");
+    const doneChipEl = document.getElementById("cinemaDoneChip");
+    const voiceStageView = document.getElementById("cinemaVoiceView");
+    const duelStageView = document.getElementById("cinemaDuelView");
+    const duelStepEls = Array.from(document.querySelectorAll("[data-duel-step]"));
+    const duelPairTitleEl = document.getElementById("cinemaDuelPairTitle");
+
+    // SVG Overlays on Cat Stage
+    const svgTypingBubble = document.getElementById("svgCatTypingBubble");
+    const svgDuelBubble = document.getElementById("svgCatDuelBubble");
     const soundBtn = document.getElementById("petSoundToggle");
     const rgbBtn = document.getElementById("petRgbToggle");
     const musicBtn = document.getElementById("petMusicToggle");
-    const duelBtn = document.getElementById("petDuelBtn");
-    const voiceBtn = document.getElementById("petVoiceDemoBtn");
     const breedBtns = Array.from(document.querySelectorAll("[data-pet-breed]"));
+
+    // Director state
+    let currentActIdx = 0;
+    let actStartPerf = performance.now();
+    let lastFiredKeySlot = -1;
+    let renderedActSignature = "";
 
     function syncControlUI() {
       breedBtns.forEach((btn) => {
@@ -2616,127 +2634,227 @@
       }
     }
 
-    function setCaption(text, highlight = false) {
-      if (!captionEl) return;
-      captionEl.textContent = text;
-      captionEl.classList.toggle("is-highlight", highlight);
+    function renderSpokenTemplate(act) {
+      if (!spokenContainerEl || !act.segments) return;
+      spokenContainerEl.innerHTML = act.segments
+        .map((seg, i) => {
+          if (seg.bug) {
+            return `<span class="raw-seg is-bug" data-seg-idx="${i}"><span class="bug-txt">${seg.text}</span><svg class="strike-svg" viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true"><path d="M2 10 Q 50 5, 98 9" pathLength="1"/></svg></span>`;
+          }
+          return `<span class="raw-seg" data-seg-idx="${i}">${seg.text}</span>`;
+        })
+        .join("");
+
+      if (magicBadgesEl) {
+        magicBadgesEl.innerHTML = act.badges
+          .map((b) => `<span class="cinema-fix-pill">${b}</span>`)
+          .join("");
+      }
     }
 
-    function stopVoiceDemo() {
-      if (voiceTimer) {
-        clearInterval(voiceTimer);
-        voiceTimer = null;
-      }
-      if (textStreamTimer) {
-        clearInterval(textStreamTimer);
-        textStreamTimer = null;
+    function startAct(idx, options = {}) {
+      currentActIdx = ((idx % CINEMA_ACTS.length) + CINEMA_ACTS.length) % CINEMA_ACTS.length;
+      actStartPerf = performance.now();
+      lastFiredKeySlot = -1;
+      const act = CINEMA_ACTS[currentActIdx];
+
+      actBtns.forEach((b, i) => {
+        const active = i === currentActIdx;
+        b.classList.toggle("is-active", active);
+        b.setAttribute("aria-selected", String(active));
+        b.style.setProperty("--act-progress", active ? "0%" : "0%");
+      });
+
+      if (act.isDuelAct) {
+        if (voiceStageView) voiceStageView.hidden = true;
+        if (duelStageView) duelStageView.hidden = false;
+        if (appBadgeEl) appBadgeEl.textContent = act.appBadge;
+
+        const prevBreed = handover ? handover.to : settings.breed;
+        const targetBreed = options.targetBreed && options.targetBreed !== prevBreed
+          ? options.targetBreed
+          : BREED_ORDER[(BREED_ORDER.indexOf(prevBreed) + 1) % BREED_ORDER.length];
+
+        settings.breed = targetBreed;
+        syncControlUI();
+
+        if (duelPairTitleEl) {
+          duelPairTitleEl.textContent = `${BREEDS[prevBreed].label} ⇄ ${BREEDS[targetBreed].label}`;
+        }
+
+        if (!settings.reducedMotion) {
+          handover = {
+            from: prevBreed,
+            to: targetBreed,
+            startPerfMs: actStartPerf
+          };
+        } else {
+          handover = null;
+        }
+      } else {
+        if (handover) {
+          handover = null;
+          audio.syncDuel(null, actStartPerf);
+        }
+        if (voiceStageView) voiceStageView.hidden = false;
+        if (duelStageView) duelStageView.hidden = true;
+
+        if (appBadgeEl) appBadgeEl.textContent = act.appBadge;
+        if (capsuleLatencyEl) capsuleLatencyEl.textContent = act.latencyText;
+        const sig = act.id;
+        if (renderedActSignature !== sig) {
+          renderSpokenTemplate(act);
+          renderedActSignature = sig;
+        } else {
+          renderSpokenTemplate(act);
+        }
       }
     }
 
-    function switchBreed(nextBreed, fromUserGesture = false) {
-      if (!BREEDS[nextBreed]) return;
-      if (fromUserGesture) autoEnableSoundOnGesture();
-      stopVoiceDemo();
-
-      const prevBreed = handover ? handover.to : settings.breed;
-      if (prevBreed === nextBreed && !handover) {
-        // Pick the next breed in order so clicking "看吵架换班" always plays!
-        const nextIdx = (BREED_ORDER.indexOf(prevBreed) + 1) % BREED_ORDER.length;
-        nextBreed = BREED_ORDER[nextIdx];
-      }
-      settings.breed = nextBreed;
-      syncControlUI();
+    function updateDirectorTimeline(nowPerf) {
+      const act = CINEMA_ACTS[currentActIdx];
+      const elapsed = nowPerf - actStartPerf;
 
       if (settings.reducedMotion) {
-        handover = null;
-        setCaption(`✨ 已切换为「${BREEDS[nextBreed].label}」在线陪班`, false);
+        // Static crystal-clear state when reduced motion is active
+        if (!act.isDuelAct) {
+          spokenContainerEl?.querySelectorAll(".raw-seg").forEach((el) => {
+            el.classList.add("is-visible", "is-struck");
+          });
+          magicBadgesEl?.classList.add("is-lit");
+          if (polishedBoxEl) polishedBoxEl.textContent = act.polished;
+          if (doneChipEl) doneChipEl.classList.add("is-visible");
+          if (capsuleStatusEl) capsuleStatusEl.textContent = "已整理直出";
+        }
+        if (svgTypingBubble) svgTypingBubble.classList.remove("is-visible");
+        if (svgDuelBubble) svgDuelBubble.classList.remove("is-visible");
         return;
       }
 
-      handover = {
-        from: prevBreed,
-        to: nextBreed,
-        startPerfMs: performance.now()
-      };
-    }
-
-    function playVoiceDemo(fromUserGesture = false) {
-      if (fromUserGesture) autoEnableSoundOnGesture();
-      if (handover) {
-        handover = null;
-        audio.syncDuel(null, performance.now());
-      }
-      stopVoiceDemo();
-
-      const item = VOICE_DEMOS[demoIndex % VOICE_DEMOS.length];
-      demoIndex++;
-
-      if (voiceTagEl) voiceTagEl.textContent = `🎙️ 正在按住说话 · ${item.tag}`;
-      if (voiceSpokenEl) voiceSpokenEl.textContent = item.spoken;
-
-      if (settings.reducedMotion) {
-        if (voiceOutputEl) voiceOutputEl.textContent = item.output;
-        setCaption(`✨ 口水话已秒变清爽好句！`, true);
+      if (elapsed >= act.durationMs) {
+        startAct((currentActIdx + 1) % CINEMA_ACTS.length);
         return;
       }
 
-      setCaption(`🎙️ 识别到你在说话，${BREEDS[settings.breed].label}正在疯狂替你敲字…`, true);
-      if (voiceOutputEl) voiceOutputEl.textContent = "";
+      const progressPct = Math.min(100, (elapsed / act.durationMs) * 100);
+      const activeBtn = actBtns[currentActIdx];
+      if (activeBtn) {
+        activeBtn.style.setProperty("--act-progress", `${progressPct.toFixed(1)}%`);
+      }
 
-      let kIdx = 0;
-      voiceTimer = setInterval(() => {
-        if (settings.reducedMotion) {
-          stopVoiceDemo();
-          if (voiceOutputEl) voiceOutputEl.textContent = item.output;
-          return;
-        }
-        const code = item.keys[kIdx % item.keys.length];
-        sim.tapKey(code, 62);
-        audio.playKey(false);
-        kIdx++;
-        if (kIdx >= item.keys.length) {
-          clearInterval(voiceTimer);
-          voiceTimer = null;
-        }
-      }, 78);
+      if (act.isDuelAct) {
+        if (capsulePillEl) capsulePillEl.classList.remove("is-speaking");
+        if (capsuleStatusEl) capsuleStatusEl.textContent = "桌面搭子 · 交接班小剧场";
+        if (capsuleLatencyEl) capsuleLatencyEl.textContent = "10.5s 实况";
+        waveBars.forEach((bar) => {
+          bar.setAttribute("y", "11");
+          bar.setAttribute("height", "4");
+        });
+        if (svgTypingBubble) svgTypingBubble.classList.remove("is-visible");
+        return;
+      }
 
-      let charIdx = 0;
-      const totalChars = item.output.length;
-      const stepChars = Math.max(1, Math.ceil(totalChars / 28));
-      textStreamTimer = setInterval(() => {
-        charIdx += stepChars;
-        if (voiceOutputEl) {
-          voiceOutputEl.textContent = item.output.slice(0, charIdx);
+      // Voice + Bug-Catching + Cat Clacking Act Timeline (0 ~ 6000ms)
+      // 0 ~ 2100ms: User speaking into mic (waveform bouncing + raw segments appear)
+      // 1750 ~ 2500ms: Red SVG pen strikes out filler/self-correction bugs + badges light up!
+      // 1950 ~ 4350ms: Cat furiously clacks keys + polished text streams into app cursor!
+      // 4350 ~ 6000ms: Clean finished output held clearly for reading before next act!
+      const isSpeaking = elapsed < 2250;
+      const isStriking = elapsed >= 1700;
+      const isStreaming = elapsed >= 1900 && elapsed < 4400;
+      const isFinished = elapsed >= 4300;
+
+      if (capsulePillEl) capsulePillEl.classList.toggle("is-speaking", isSpeaking);
+      if (capsuleStatusEl) {
+        capsuleStatusEl.textContent = isSpeaking
+          ? "🎙️ 正在按住说话…"
+          : isStreaming
+            ? "⚡ 极速捉错直出中"
+            : "✅ 已直出漂亮终稿";
+      }
+
+      // Animate 14 SVG waveform bars smoothly
+      waveBars.forEach((bar, i) => {
+        if (isSpeaking) {
+          const v = Math.abs(Math.sin(nowPerf * 0.012 + i * 0.65)) * 0.65 + Math.abs(Math.cos(nowPerf * 0.019 - i * 0.4)) * 0.35;
+          const h = Math.round(4 + v * 17);
+          const y = Math.round(13 - h / 2);
+          bar.setAttribute("y", String(y));
+          bar.setAttribute("height", String(h));
+        } else {
+          bar.setAttribute("y", "11");
+          bar.setAttribute("height", "4");
         }
-        if (charIdx >= totalChars) {
-          clearInterval(textStreamTimer);
-          textStreamTimer = null;
-          if (voiceTagEl) voiceTagEl.textContent = `✅ 已直出到光标 · ${item.tag}`;
-          setCaption(`✨ 敲完啦！你也可以直接按自己电脑键盘，或者点上面的猫咪换班～`, false);
+      });
+
+      // Reveal raw spoken segments progressively (0 ~ 1650ms)
+      if (spokenContainerEl) {
+        const segEls = spokenContainerEl.querySelectorAll(".raw-seg");
+        const count = segEls.length || 1;
+        segEls.forEach((el, idx) => {
+          const threshold = (idx / count) * 1450;
+          el.classList.toggle("is-visible", elapsed >= threshold);
+          if (el.classList.contains("is-bug")) {
+            el.classList.toggle("is-struck", isStriking);
+          }
+        });
+      }
+
+      if (magicBadgesEl) {
+        magicBadgesEl.classList.toggle("is-lit", isStriking);
+      }
+      if (flowLineEl) {
+        flowLineEl.classList.toggle("is-flowing", elapsed >= 1650 && elapsed < 4500);
+      }
+
+      // Stream polished text & trigger synchronized cat clacking!
+      if (polishedBoxEl) {
+        if (elapsed < 1900) {
+          polishedBoxEl.textContent = "";
+        } else {
+          const streamFrac = clamp01Range(elapsed, 1900, 4250);
+          const chars = Math.round(streamFrac * act.polished.length);
+          polishedBoxEl.textContent = act.polished.slice(0, chars);
         }
-      }, 82);
+      }
+      if (doneChipEl) {
+        doneChipEl.classList.toggle("is-visible", isFinished);
+      }
+
+      // Trigger synchronized cat keycap clacks every ~78ms during streaming window
+      if (isStreaming) {
+        const slot = Math.floor((elapsed - 1900) / 78);
+        if (slot !== lastFiredKeySlot && slot < act.keys.length) {
+          lastFiredKeySlot = slot;
+          sim.tapKey(act.keys[slot], 62);
+          audio.playKey(false);
+        }
+      }
+
+      if (svgTypingBubble) {
+        svgTypingBubble.classList.toggle("is-visible", isStreaming);
+      }
+      if (svgDuelBubble) {
+        svgDuelBubble.classList.remove("is-visible");
+      }
     }
 
-    // Bind UI Controls
-    breedBtns.forEach((btn) => {
+    // Bind Act Tab Buttons
+    actBtns.forEach((btn, idx) => {
       btn.addEventListener("click", () => {
-        switchBreed(btn.dataset.petBreed, true);
+        autoEnableSoundOnGesture();
+        startAct(idx);
       });
     });
 
-    if (duelBtn) {
-      duelBtn.addEventListener("click", () => {
-        const cur = handover ? handover.to : settings.breed;
-        const next = BREED_ORDER[(BREED_ORDER.indexOf(cur) + 1) % BREED_ORDER.length];
-        switchBreed(next, true);
+    // Bind Breed Switcher Pills -> immediately jump to Act 3 Duel with chosen cat!
+    breedBtns.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const chosen = btn.dataset.petBreed;
+        autoEnableSoundOnGesture();
+        startAct(2, { targetBreed: chosen });
       });
-    }
-
-    if (voiceBtn) {
-      voiceBtn.addEventListener("click", () => {
-        playVoiceDemo(true);
-      });
-    }
+    });
 
     if (soundBtn) {
       soundBtn.addEventListener("click", () => {
@@ -2757,12 +2875,6 @@
       rgbBtn.addEventListener("click", () => {
         settings.rgbGlow = !settings.rgbGlow;
         syncControlUI();
-        setCaption(
-          settings.rgbGlow
-            ? "✨ 已开启键盘幻彩呼吸灯与按键柔光"
-            : "🌙 已关闭键盘闪光，恢复素雅奶白键帽（客户端同款开关）",
-          false
-        );
       });
     }
 
@@ -2770,27 +2882,24 @@
       musicBtn.addEventListener("click", () => {
         settings.musicMode = !settings.musicMode;
         syncControlUI();
-        setCaption(
-          settings.musicMode
-            ? "🎧 检测到正在听歌，小猫自动戴上复古小耳机跟着晃脑袋～"
-            : "🐾 已摘下小耳机，继续专心陪你敲字",
-          false
-        );
       });
     }
 
-    // Story cards below hero can also trigger live stage actions!
+    // Story cards below hero jump up & play the exact scene!
     document.querySelectorAll("[data-pet-trigger]").forEach((el) => {
       el.addEventListener("click", () => {
         const action = el.dataset.petTrigger;
-        canvas.scrollIntoView({ behavior: settings.reducedMotion ? "auto" : "smooth", block: "center" });
+        const heroCinema = document.getElementById("heroCinema");
+        if (heroCinema) {
+          heroCinema.scrollIntoView({ behavior: settings.reducedMotion ? "auto" : "smooth", block: "center" });
+        }
         setTimeout(() => {
           if (action === "voice") {
-            playVoiceDemo(true);
+            autoEnableSoundOnGesture();
+            startAct(0);
           } else if (action === "duel") {
-            const cur = handover ? handover.to : settings.breed;
-            const next = BREED_ORDER[(BREED_ORDER.indexOf(cur) + 1) % BREED_ORDER.length];
-            switchBreed(next, true);
+            autoEnableSoundOnGesture();
+            startAct(2);
           } else if (action === "rgb-off") {
             settings.rgbGlow = !settings.rgbGlow;
             audio.tone = audio.tone === "clear" ? "blue" : "clear";
@@ -2798,31 +2907,21 @@
             sim.tapKey("KeyT", 75);
             audio.playKey(false);
             syncControlUI();
-            setCaption(
-              settings.rgbGlow
-                ? "✨ 键盘呼吸灯已开启，清脆青轴/段落轴随心切"
-                : "🌙 键盘闪光已一键关闭，安安静静不晃眼",
-              true
-            );
           } else if (action === "music") {
             settings.musicMode = true;
             syncControlUI();
-            setCaption("🎧 听歌自动戴上小耳机，鼠标穿透绝不挡窗口！", true);
           }
-        }, settings.reducedMotion ? 0 : 280);
+        }, settings.reducedMotion ? 0 : 260);
       });
     });
 
-    // Pointer interaction on canvas (petting cat head or moving mouse!)
+    // Pointer interaction on cat canvas
     canvas.addEventListener("pointermove", (e) => {
       const rect = canvas.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
       const sx = ((e.clientX - rect.left) / rect.width) * STAGE.width;
       const sy = ((e.clientY - rect.top) / rect.height) * STAGE.height;
-      const hit = sim.moveMouse(sx, sy, false);
-      if (hit === "pet" && !handover) {
-        setCaption("🥰 呼噜呼噜…摸摸小猫脑袋，干活不累～", false);
-      }
+      sim.moveMouse(sx, sy, false);
     });
 
     canvas.addEventListener("pointerdown", (e) => {
@@ -2842,7 +2941,6 @@
       }
     });
 
-    // Real physical keyboard listener!
     window.addEventListener("keydown", (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const tag = document.activeElement?.tagName;
@@ -2853,24 +2951,19 @@
       }
     });
 
-    // Gentle ambient typing life when idle so first-time visitors immediately see the cat clacking!
-    const IDLE_SAMPLE_SEQ = ["KeyH", "KeyI", "Space", "Digit2", "KeyK", "KeyU", "KeyR", "KeyO"];
-    let idleSeqIdx = 0;
-    idleTapTimer = setInterval(() => {
-      if (document.hidden || settings.reducedMotion || handover || voiceTimer) return;
-      if (Date.now() - (sim.recentPressTimestamps.at(-1) ?? 0) < 2600) return;
-      sim.tapKey(IDLE_SAMPLE_SEQ[idleSeqIdx % IDLE_SAMPLE_SEQ.length], 85);
-      idleSeqIdx++;
-    }, 1850);
-
     window.addEventListener("resize", () => renderer.resize(), { passive: true });
 
-    // Main 60fps Animation Loop
+    // Start Act 1 immediately!
+    syncControlUI();
+    startAct(0);
+
     let lastPerf = performance.now();
     function tick(nowPerf) {
       settings.reducedMotion = Boolean(window.tzMotionPaused) || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const dt = Math.min(0.06, Math.max(0.001, (nowPerf - lastPerf) / 1000));
       lastPerf = nowPerf;
+
+      updateDirectorTimeline(nowPerf);
 
       const nowMs = Date.now();
       const pose = sim.step(dt, nowMs);
@@ -2881,12 +2974,19 @@
         if (elapsed < HANDOVER_TIMING.end) {
           hFrame = computeHandoverState(handover.from, handover.to, elapsed, 1);
           pose.bubbles.length = 0;
-          setCaption(hFrame.caption, elapsed >= HANDOVER_TIMING.braceEnd && elapsed < HANDOVER_TIMING.duelEnd);
           audio.syncDuel(handover.startPerfMs + HANDOVER_TIMING.braceEnd, nowPerf);
+          if (svgDuelBubble) {
+            svgDuelBubble.classList.toggle("is-visible", hFrame.isHeadbuttPeak);
+          }
+          duelStepEls.forEach((stepEl) => {
+            const stepNum = Number(stepEl.dataset.duelStep);
+            stepEl.classList.toggle("is-active", stepNum === hFrame.duelStep);
+            stepEl.classList.toggle("is-done", stepNum < hFrame.duelStep);
+          });
         } else {
           handover = null;
           audio.syncDuel(null, nowPerf);
-          setCaption(`✨ 换班完毕！${BREEDS[settings.breed].label}正在工位陪你敲键盘`, false);
+          if (svgDuelBubble) svgDuelBubble.classList.remove("is-visible");
         }
       } else {
         audio.syncDuel(null, nowPerf);
@@ -2896,22 +2996,17 @@
       requestAnimationFrame(tick);
     }
 
-    syncControlUI();
-    // Populate initial cozy voice card preview without sound
-    if (voiceSpokenEl) voiceSpokenEl.textContent = VOICE_DEMOS[0].spoken;
-    if (voiceOutputEl) voiceOutputEl.textContent = VOICE_DEMOS[0].output;
-    if (voiceTagEl) voiceTagEl.textContent = `✨ 开口秒变好字 · ${VOICE_DEMOS[0].tag}`;
-
     requestAnimationFrame(tick);
 
     return {
-      switchBreed,
-      playVoiceDemo,
+      startAct,
       setMotionPaused(paused) {
         settings.reducedMotion = paused;
         if (paused && handover) {
           handover = null;
           audio.syncDuel(null, performance.now());
+        } else if (!paused) {
+          startAct(currentActIdx);
         }
       }
     };
