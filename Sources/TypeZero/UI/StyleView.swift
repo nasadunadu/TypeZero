@@ -310,12 +310,14 @@ struct StyleView: View {
     private var customStyleSection: some View {
         let charCount = appState.llmConfig.customStylePrompt.count
         let maxChars = LLMConfig.maxCustomStylePromptLength
+        let softWarnChars = LLMConfig.customStyleSoftWarningLength
+        let isLongStyle = charCount >= softWarnChars
 
         return TZGroupedSection(title: "我的个人说话风格（留空即使用默认）") {
             HStack(spacing: 10) {
                 Text("\(charCount) / \(maxChars)")
                     .font(TZFont.mono(11, weight: .medium))
-                    .foregroundStyle(charCount >= maxChars ? TZTheme.amber : TZTheme.inkMuted)
+                    .foregroundStyle(charCount >= maxChars ? TZTheme.crimson : (isLongStyle ? TZTheme.amber : TZTheme.inkMuted))
 
                 if !appState.llmConfig.customStylePrompt.isEmpty {
                     Button("清空") {
@@ -362,7 +364,7 @@ struct StyleView: View {
 
                 ZStack(alignment: .topLeading) {
                     if appState.llmConfig.customStylePrompt.isEmpty {
-                        Text("这里默认留空，可按需填写你个人的说话风格、措辞习惯或排版偏好。例如：\n• 说话直接干练，去掉客套废话，优先使用短句\n• 保持聊天松弛感，少用感叹号，保留“好的/没问题”等自然回应\n• 多条事项优先用简短清单呈现，英文术语保持原样")
+                        Text("这里默认留空，可按需填写你个人的说话风格、措辞习惯或排版偏好（最高支持 5,000 字）。例如：\n• 说话直接干练，去掉客套废话，优先使用短句\n• 保持聊天松弛感，少用感叹号，保留“好的/没问题”等自然回应\n• 多条事项优先用简短清单呈现，英文术语保持原样")
                             .font(.system(size: 12.5))
                             .lineSpacing(3.5)
                             .foregroundStyle(TZTheme.inkMuted)
@@ -386,20 +388,27 @@ struct StyleView: View {
                     .foregroundStyle(TZTheme.inkPrimary)
                     .scrollContentBackground(.hidden)
                     .padding(6)
-                    .frame(minHeight: 116, maxHeight: 168)
+                    .frame(minHeight: 136, maxHeight: 280)
                 }
                 .background(TZTheme.recessedWell)
                 .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .strokeBorder(hasCustomStyle ? TZTheme.accent.opacity(0.32) : TZTheme.cardBorder, lineWidth: 1)
+                        .strokeBorder(isLongStyle ? TZTheme.amber.opacity(0.45) : (hasCustomStyle ? TZTheme.accent.opacity(0.32) : TZTheme.cardBorder), lineWidth: 1)
                 )
+
+                if isLongStyle {
+                    TZInlineFeedbackBanner(
+                        message: "⚠️ 当前自定义风格已达 \(charCount) 字（建议 \(softWarnChars) 字内）：过长的自定义规则会明显增加大模型首包推理耗时、损害上屏速度，若感觉变慢请适当精简（最高支持 5,000 字）。",
+                        isWarning: true
+                    )
+                }
 
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.shield.fill")
                         .font(.system(size: 11))
                         .foregroundStyle(TZTheme.emerald)
-                    Text("输入即自动保存并全局生效；系统的「只整理不回答」与「原语种反翻译保护」底线始终开启。")
+                    Text("输入即自动保存并全局生效（上限 5,000 字；过长自定义会损害上屏速度，建议精简）；「只整理不回答」与「反翻译保护」底线始终开启。")
                         .font(.system(size: 11.5))
                         .foregroundStyle(TZTheme.inkMuted)
                 }

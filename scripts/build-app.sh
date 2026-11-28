@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 APP_NAME="TypeZero"
-VERSION="0.6.4"
+VERSION="0.6.5"
 # Use .noindex suffix so macOS Spotlight / Apps Launcher never indexes local build artifacts as duplicate apps
 BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build.noindex}"
 APP_BUNDLE="$BUILD_DIR/${APP_NAME}.app"
@@ -72,7 +72,7 @@ cat > "$CONTENTS_DIR/Info.plist" <<EOF
     <key>CFBundleShortVersionString</key>
     <string>${VERSION}</string>
     <key>CFBundleVersion</key>
-    <string>27</string>
+    <string>28</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSUIElement</key>

@@ -9,8 +9,8 @@ public final class PolishEngine {
 
     public init() {
         let proxyConfig = URLSessionConfiguration.default
-        proxyConfig.timeoutIntervalForRequest = 8.0
-        proxyConfig.timeoutIntervalForResource = 10.0
+        proxyConfig.timeoutIntervalForRequest = 10.0
+        proxyConfig.timeoutIntervalForResource = 15.0
         proxyConfig.httpMaximumConnectionsPerHost = 6
         proxyConfig.requestCachePolicy = .reloadIgnoringLocalCacheData
         proxyConfig.urlCache = nil
@@ -18,8 +18,8 @@ public final class PolishEngine {
 
         let directConfig = URLSessionConfiguration.ephemeral
         directConfig.connectionProxyDictionary = [:]
-        directConfig.timeoutIntervalForRequest = 8.0
-        directConfig.timeoutIntervalForResource = 10.0
+        directConfig.timeoutIntervalForRequest = 10.0
+        directConfig.timeoutIntervalForResource = 15.0
         directConfig.httpMaximumConnectionsPerHost = 6
         directConfig.requestCachePolicy = .reloadIgnoringLocalCacheData
         directConfig.urlCache = nil
@@ -169,10 +169,43 @@ public final class PolishEngine {
         return u.contains("deepseek.com") || u.contains("openai.com")
     }
 
-    public static func cacheWarmSignature(baseURL: String, model: String, formattingStyle: FormattingStyle) -> String {
+    private static func stableFNV1aHex(_ text: String) -> String {
+        guard !text.isEmpty else { return "0" }
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in text.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x100000001b3
+        }
+        return String(hash, radix: 16)
+    }
+
+    /// Composes the dictation System Prompt while preserving 100% KV Prefix Cache reuse:
+    /// - When `userStyle` is empty, returns the untouched static base prompt (shared across all default calls).
+    /// - When `userStyle` is non-empty (up to 5,000 chars), appends `<user_style>` at the tail of the System Prompt
+    ///   so long custom styles ALSO hit DeepSeek/OpenAI KV Prefix Cache across utterances instead of re-prefilling every turn!
+    public static func composeDictateSystemPrompt(
+        formattingStyle: FormattingStyle,
+        userStyle: String
+    ) -> String {
+        let base = (formattingStyle == .structured)
+            ? structuredStaticSystemPrompt
+            : lightStaticSystemPrompt
+        let sanitized = sanitizedUserStyleBlock(userStyle)
+        guard sanitized != "无" else { return base }
+        return "\(base)\n\n<user_style>\n\(sanitized)\n</user_style>"
+    }
+
+    public static func cacheWarmSignature(
+        baseURL: String,
+        model: String,
+        formattingStyle: FormattingStyle,
+        userStyle: String = ""
+    ) -> String {
         let cleanURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let cleanModel = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return "\(cleanURL)|\(cleanModel)|\(formattingStyle.rawValue)"
+        let sanitizedStyle = sanitizedUserStyleBlock(userStyle)
+        let styleKey = (sanitizedStyle == "无") ? "default" : stableFNV1aHex(sanitizedStyle)
+        return "\(cleanURL)|\(cleanModel)|\(formattingStyle.rawValue)|\(styleKey)"
     }
 
     public static func shouldPrewarmPrefixCache(
@@ -183,6 +216,7 @@ public final class PolishEngine {
         isCloudTrialRelay: Bool,
         lastWarmKey: String,
         lastWarmAgeSeconds: TimeInterval,
+        userStyle: String = "",
         cooldownSeconds: TimeInterval = 150.0
     ) -> Bool {
         guard !isCloudTrialRelay,
@@ -191,20 +225,25 @@ public final class PolishEngine {
               supportsImplicitPrefixCachePrewarm(baseURL: baseURL) else {
             return false
         }
-        let sig = cacheWarmSignature(baseURL: baseURL, model: model, formattingStyle: formattingStyle)
+        let sig = cacheWarmSignature(baseURL: baseURL, model: model, formattingStyle: formattingStyle, userStyle: userStyle)
         return sig != lastWarmKey || lastWarmAgeSeconds >= cooldownSeconds
     }
 
-    private func markPrefixCacheWarm(baseURL: String, model: String, formattingStyle: FormattingStyle) {
-        let sig = Self.cacheWarmSignature(baseURL: baseURL, model: model, formattingStyle: formattingStyle)
+    private func markPrefixCacheWarm(
+        baseURL: String,
+        model: String,
+        formattingStyle: FormattingStyle,
+        userStyle: String = ""
+    ) {
+        let sig = Self.cacheWarmSignature(baseURL: baseURL, model: model, formattingStyle: formattingStyle, userStyle: userStyle)
         cacheWarmLock.lock()
         lastCacheWarmKey = sig
         lastCacheWarmAt = Date()
         cacheWarmLock.unlock()
     }
 
-    /// Lossless KV Prefix Cache pre-warmer: sends the untouched full 3,826-char `structuredStaticSystemPrompt`
-    /// with `max_tokens: 1` WHILE the user is speaking (only if cold >150s), eliminating ~500ms cold-prefill penalty with 0% accuracy change!
+    /// Lossless KV Prefix Cache pre-warmer: sends the exact system prompt (including any user custom style tail)
+    /// with `max_tokens: 1` WHILE the user is speaking (only if cold >150s), eliminating cold-prefill penalty with 0% accuracy change!
     @discardableResult
     public func prewarmPrefixCacheIfNeeded(
         config: LLMConfig,
@@ -212,6 +251,7 @@ public final class PolishEngine {
         isCloudTrialRelay: Bool = false
     ) -> Bool {
         let cleanKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let activeStyle = config.normalizedCustomStylePrompt
         let now = Date()
         cacheWarmLock.lock()
         let prevKey = lastCacheWarmKey
@@ -223,13 +263,15 @@ public final class PolishEngine {
             apiKey: cleanKey,
             isCloudTrialRelay: isCloudTrialRelay,
             lastWarmKey: prevKey,
-            lastWarmAgeSeconds: prevAge
+            lastWarmAgeSeconds: prevAge,
+            userStyle: activeStyle
         )
         if shouldWarm {
             lastCacheWarmKey = Self.cacheWarmSignature(
                 baseURL: config.baseURL,
                 model: config.modelName,
-                formattingStyle: config.formattingStyle
+                formattingStyle: config.formattingStyle,
+                userStyle: activeStyle
             )
             lastCacheWarmAt = now
         }
@@ -238,9 +280,10 @@ public final class PolishEngine {
 
         let endpoint = Self.normalizeChatCompletionsEndpoint(config.baseURL)
         guard let url = URL(string: endpoint) else { return false }
-        let systemPrompt = (config.formattingStyle == .structured)
-            ? Self.structuredStaticSystemPrompt
-            : Self.lightStaticSystemPrompt
+        let systemPrompt = Self.composeDictateSystemPrompt(
+            formattingStyle: config.formattingStyle,
+            userStyle: activeStyle
+        )
         let payload = Self.buildOpenAICompatiblePayload(
             endpoint: endpoint,
             model: config.modelName,
@@ -256,7 +299,7 @@ public final class PolishEngine {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("Bearer \(cleanKey)", forHTTPHeaderField: "Authorization")
         req.httpBody = body
-        req.timeoutInterval = 4.0
+        req.timeoutInterval = 6.0
         transportSession(for: config.baseURL).dataTask(with: req) { _, _, _ in }.resume()
         return true
     }
@@ -371,11 +414,14 @@ public final class PolishEngine {
         recentContext: String,
         precedingText: String,
         lexicon: String,
-        userStyle: String,
+        userStyle: String = "",
         rawSpeech: String
     ) -> String {
         let styleBlock = sanitizedUserStyleBlock(userStyle)
-        return "<scene>\(scene)</scene>\n<recent_context>\(recentContext)</recent_context>\n<preceding_text>\(precedingText)</preceding_text>\n<lexicon>\(lexicon)</lexicon>\n<user_style>\(styleBlock)</user_style>\n<raw_speech>\(rawSpeech)</raw_speech>"
+        // Non-empty personal style is mounted at the tail of the System Prompt for KV Prefix Cache hits;
+        // avoid re-sending up to 5,000 duplicate characters in the dynamic user turn.
+        let styleRef = (styleBlock == "无") ? "无" : "已载入系统指令末尾的 <user_style>"
+        return "<scene>\(scene)</scene>\n<recent_context>\(recentContext)</recent_context>\n<preceding_text>\(precedingText)</preceding_text>\n<lexicon>\(lexicon)</lexicon>\n<user_style>\(styleRef)</user_style>\n<raw_speech>\(rawSpeech)</raw_speech>"
     }
 
     /// Deterministic check for whether a spoken sentence is already clean enough to skip Pass-2 LLM (`0ms` direct paste!).
@@ -490,9 +536,10 @@ public final class PolishEngine {
 
         switch mode {
         case .dictate:
-            systemPrompt = (config.formattingStyle == .structured)
-                ? Self.structuredStaticSystemPrompt
-                : Self.lightStaticSystemPrompt
+            systemPrompt = Self.composeDictateSystemPrompt(
+                formattingStyle: config.formattingStyle,
+                userStyle: config.normalizedCustomStylePrompt
+            )
             userContent = Self.buildDictateUserContent(
                 scene: screenContext.toneProfile.rawValue,
                 recentContext: recentTag,
@@ -520,7 +567,12 @@ public final class PolishEngine {
                 onStreamChunk: onStreamChunk
             )
             if mode == .dictate {
-                markPrefixCacheWarm(baseURL: config.baseURL, model: config.modelName, formattingStyle: config.formattingStyle)
+                markPrefixCacheWarm(
+                    baseURL: config.baseURL,
+                    model: config.modelName,
+                    formattingStyle: config.formattingStyle,
+                    userStyle: config.normalizedCustomStylePrompt
+                )
             }
             let guarded = (mode == .dictate)
                 ? Self.guardAgainstUnexpectedTranslation(rawInput: locallyFixed, llmOutput: result)
@@ -656,9 +708,10 @@ public final class PolishEngine {
             entry.aliases.isEmpty ? entry.term : "\(entry.term)(误听:\(entry.aliases.prefix(4).joined(separator: "/")))"
         }.joined(separator: "；")
 
-        let systemPrompt = (config.formattingStyle == .structured)
-            ? Self.structuredStaticSystemPrompt
-            : Self.lightStaticSystemPrompt
+        let systemPrompt = Self.composeDictateSystemPrompt(
+            formattingStyle: config.formattingStyle,
+            userStyle: config.normalizedCustomStylePrompt
+        )
         let userContent = Self.buildDictateUserContent(
             scene: sceneContext.toneProfile.rawValue,
             recentContext: "无",
@@ -680,7 +733,12 @@ public final class PolishEngine {
             config: config,
             onStreamChunk: nil
         )
-        markPrefixCacheWarm(baseURL: config.baseURL, model: config.modelName, formattingStyle: config.formattingStyle)
+        markPrefixCacheWarm(
+            baseURL: config.baseURL,
+            model: config.modelName,
+            formattingStyle: config.formattingStyle,
+            userStyle: config.normalizedCustomStylePrompt
+        )
 
         let guarded = Self.guardAgainstUnexpectedTranslation(rawInput: locallyFixed, llmOutput: rawOut)
         let formatted = Self.applyPostFormattingRules(guarded, context: sceneContext, config: config)

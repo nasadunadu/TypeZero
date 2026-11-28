@@ -452,7 +452,8 @@ public struct LLMConfig: Codable, Equatable {
     public var floatingPillStyle: FloatingPillStyleOption
     public var customStylePrompt: String
 
-    public static let maxCustomStylePromptLength = 600
+    public static let maxCustomStylePromptLength = 5000
+    public static let customStyleSoftWarningLength = 800
     public static let `default` = LLMConfig()
 
     public var normalizedCustomStylePrompt: String {
