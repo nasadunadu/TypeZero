@@ -235,10 +235,11 @@ cmd_check() {
 
 cmd_merge() {
     local slug=""
-    local keep=false
+    local keep=true
     while [ $# -gt 0 ]; do
         case "$1" in
-            --keep) keep=true; shift ;;
+            --keep)  keep=true; shift ;;
+            --close) keep=false; shift ;;
             *) slug="$(normalize_slug "$1")"; shift ;;
         esac
     done
@@ -273,6 +274,9 @@ cmd_merge() {
 
     if [ "$keep" = false ]; then
         cmd_close "$slug"
+    else
+        git -C "$wt_dir" merge --ff-only main
+        echo "==> Lane '$slug' fast-forwarded to 'main' and kept ready for follow-up iterations (pass --close to remove)."
     fi
     echo "==> ✓ Successfully merged '$branch' into 'main'!"
 }
