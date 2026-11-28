@@ -36,12 +36,15 @@ async function run() {
   const base = `http://127.0.0.1:${port}`;
 
   try {
-    // 1. Health endpoint
+    // 1. Health endpoint reflects ¥3.00 / 30 days / 300 min / 1500 LLM defaults
     const healthRes = await fetch(`${base}/api/health`);
     assert.equal(healthRes.status, 200);
     const health = await healthRes.json();
     assert.equal(health.ok, true);
-    assert.equal(health.trialBonusCny, 1);
+    assert.equal(health.trialBonusCny, 3);
+    assert.equal(health.trialDurationDays, 30);
+    assert.equal(health.trialAsrMinutes, 300);
+    assert.equal(health.trialLlmCount, 1500);
 
     // 2. Reject disposable email
     const dispRes = await fetch(`${base}/api/auth/email/send-code`, {
@@ -51,7 +54,7 @@ async function run() {
     });
     assert.equal(dispRes.status, 403);
 
-    // 3. First user email OTP verify -> gets ¥1.00 trial on device A
+    // 3. First user email OTP verify -> gets 30-day / 300min / 1500 LLM / ¥3.00 trial on device A
     const email1 = "alice@gmail.com";
     const code1 = "123456";
     db.exec(
@@ -67,7 +70,12 @@ async function run() {
     const v1 = await v1Res.json();
     assert.equal(v1.ok, true);
     assert.equal(v1.grantedTrial, true);
-    assert.equal(v1.user.balanceCny, 1);
+    assert.equal(v1.user.balanceCny, 3);
+    assert.equal(v1.user.trial.status, "active");
+    assert.equal(v1.user.trial.remainingPercent, 100);
+    assert.equal(v1.user.trial.asrQuotaMinutes, 300);
+    assert.equal(v1.user.trial.llmQuotaCount, 1500);
+    assert.ok(v1.user.trial.daysRemaining >= 29 && v1.user.trial.daysRemaining <= 30);
     assert.ok(v1.token);
 
     // 4. Second email on SAME device A -> 0 trial grant (anti-abuse device fingerprint lock)
@@ -86,14 +94,23 @@ async function run() {
     const v2 = await v2Res.json();
     assert.equal(v2.grantedTrial, false);
     assert.equal(v2.user.balanceCny, 0);
+    assert.equal(v2.user.trial.status, "not_granted");
 
-    // 5. /api/me works with valid JWT, rejects tampered JWT cleanly (no throw)
+    // 5. /api/me & desensitized /api/llm/v1/models
     const meRes = await fetch(`${base}/api/me`, {
       headers: { Authorization: `Bearer ${v1.token}` },
     });
     assert.equal(meRes.status, 200);
     const me = await meRes.json();
     assert.equal(me.user.email, email1);
+    assert.equal(me.user.trial.remainingPercent, 100);
+
+    const modelsRes = await fetch(`${base}/api/llm/v1/models`, {
+      headers: { Authorization: `Bearer ${v1.token}` },
+    });
+    assert.equal(modelsRes.status, 200);
+    const modelsJson = await modelsRes.json();
+    assert.equal(modelsJson.data[0].id, "typezero-engine");
 
     const badJwtRes = await fetch(`${base}/api/me`, {
       headers: { Authorization: "Bearer a.b.c" },
@@ -117,7 +134,7 @@ async function run() {
     });
     assert.equal(abuseLlmRes.status, 403);
 
-    // 7. Zero-balance user gets HTTP 402 on LLM proxy
+    // 7. Zero-balance user gets HTTP 402 with structured TRIAL_EXHAUSTED code & desensitized error message
     const zeroLlmRes = await fetch(`${base}/api/llm/v1/chat/completions`, {
       method: "POST",
       headers: {
@@ -125,7 +142,7 @@ async function run() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "deepseek-flash",
+        model: "typezero-engine",
         messages: [
           { role: "system", content: "TypeZero 语音转写智能润色器" },
           { role: "user", content: "<raw_speech>测试一下语音润色</raw_speech>" },
@@ -133,8 +150,36 @@ async function run() {
       }),
     });
     assert.equal(zeroLlmRes.status, 402);
+    const zeroBody = await zeroLlmRes.json();
+    assert.equal(zeroBody.error.code, "TRIAL_EXHAUSTED");
+    assert.ok(!zeroBody.error.message.includes("DeepSeek") && !zeroBody.error.message.includes("豆包"));
 
-    // 8. Admin API: overview, grant +¥2.00 to bob, ban & unban, update daily budget
+    // 7b. Expired user gets TRIAL_EXPIRED even if balance > 0
+    db.exec("UPDATE users SET trial_expires_at = ? WHERE id = ?", [
+      new Date(Date.now() - 3600_000).toISOString(),
+      v1.user.id,
+    ]);
+    const expLlmRes = await fetch(`${base}/api/llm/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${v1.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "typezero-engine",
+        messages: [{ role: "user", content: "<raw_speech>已到期测试</raw_speech>" }],
+      }),
+    });
+    assert.equal(expLlmRes.status, 402);
+    const expBody = await expLlmRes.json();
+    assert.equal(expBody.error.code, "TRIAL_EXPIRED");
+    // Restore alice expiry for subsequent tests
+    db.exec("UPDATE users SET trial_expires_at = ? WHERE id = ?", [
+      new Date(Date.now() + 30 * 86400_000).toISOString(),
+      v1.user.id,
+    ]);
+
+    // 8. Admin API: overview, grant +¥3.00 to bob (also extends expiry & quotas), ban & unban
     const unauthAdmin = await fetch(`${base}/api/admin/overview`);
     assert.equal(unauthAdmin.status, 401);
 
@@ -151,11 +196,14 @@ async function run() {
         "X-Admin-Token": process.env.ADMIN_TOKEN,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ amountCny: 2.0 }),
+      body: JSON.stringify({ amountCny: 3.0 }),
     });
     assert.equal(grantRes.status, 200);
     const granted = await grantRes.json();
-    assert.equal(granted.user.balanceCny, 2);
+    assert.equal(granted.user.balanceCny, 3);
+    assert.equal(granted.user.trial.status, "active");
+    assert.equal(granted.user.trial.asrQuotaMinutes, 300);
+    assert.equal(granted.user.trial.llmQuotaCount, 1500);
 
     const banRes = await fetch(`${base}/api/admin/users/${v2.user.id}/ban`, {
       method: "POST",
@@ -242,7 +290,25 @@ async function run() {
     assert.ok(verBody.macos.dmgUrl.includes("TypeZero-v0.5.6"));
     assert.ok(verBody.windows.setupUrl.includes("TypeZero-v0.5.6"));
 
-    console.log("✅ All 11 TypeZero Cloud backend test suites passed!");
+    // 12. Progress bar consistency & budget alert dedup check
+    db.deductUsage({
+      userId: v1.user.id,
+      email: email1,
+      service: "asr",
+      model: "volc.seedasr.sauc.duration",
+      units: 14_400, // 240 / 300 min (80% used -> 20% left -> low)
+      costMicroCny: 201_600,
+    });
+    const meLowRes = await fetch(`${base}/api/me`, {
+      headers: { Authorization: `Bearer ${v1.token}` },
+    });
+    const meLow = await meLowRes.json();
+    assert.equal(meLow.user.trial.status, "low");
+    assert.equal(meLow.user.trial.remainingPercent, 20);
+    assert.equal(meLow.user.trial.asrUsedMinutes, 240);
+    assert.equal(meLow.user.trial.asrRemainingMinutes, 60);
+
+    console.log("✅ All 12 TypeZero Cloud backend test suites passed!");
   } finally {
     server.close();
     db.flushSync();

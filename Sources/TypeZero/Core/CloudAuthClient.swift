@@ -1,4 +1,38 @@
 import Foundation
+import CryptoKit
+import IOKit
+
+public struct CloudTrialSummary: Codable, Equatable, Sendable {
+    public let status: String // "active" | "low" | "exhausted" | "expired" | "not_granted"
+    public let canUseAsr: Bool?
+    public let canUseLlm: Bool?
+    public let remainingPercent: Int
+    public let daysRemaining: Int?
+    public let expiresAt: String?
+    public let asrUsedMinutes: Double
+    public let asrQuotaMinutes: Int
+    public let asrRemainingMinutes: Double
+    public let llmUsedCount: Int
+    public let llmQuotaCount: Int
+    public let llmRemainingCount: Int
+
+    public var isUsable: Bool {
+        if let asr = canUseAsr { return asr }
+        return status == "active" || status == "low"
+    }
+
+    public var isLow: Bool {
+        status == "low"
+    }
+
+    public var isEnded: Bool {
+        status == "exhausted" || status == "expired"
+    }
+
+    public var isExpired: Bool {
+        status == "expired"
+    }
+}
 
 public struct CloudUserProfile: Codable, Equatable, Sendable {
     public let id: String
@@ -10,7 +44,59 @@ public struct CloudUserProfile: Codable, Equatable, Sendable {
     public let llmRequestsUsed: Int
     public let trialGranted: Bool
     public let isBanned: Bool
-    public let createdAt: Int64?
+    public let createdAt: String?
+    public let trial: CloudTrialSummary?
+
+    enum CodingKeys: String, CodingKey {
+        case id, email, balanceCny, balanceMicroCny, totalUsedCny
+        case asrSecondsUsed, llmRequestsUsed, trialGranted, isBanned, createdAt, trial
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        email = try c.decode(String.self, forKey: .email)
+        balanceCny = try c.decode(Double.self, forKey: .balanceCny)
+        balanceMicroCny = try c.decodeIfPresent(Int64.self, forKey: .balanceMicroCny)
+        totalUsedCny = try c.decode(Double.self, forKey: .totalUsedCny)
+        asrSecondsUsed = try c.decode(Int.self, forKey: .asrSecondsUsed)
+        llmRequestsUsed = try c.decode(Int.self, forKey: .llmRequestsUsed)
+        trialGranted = try c.decode(Bool.self, forKey: .trialGranted)
+        isBanned = try c.decode(Bool.self, forKey: .isBanned)
+        if let str = try? c.decodeIfPresent(String.self, forKey: .createdAt) {
+            createdAt = str
+        } else if let ts = try? c.decodeIfPresent(Int64.self, forKey: .createdAt) {
+            createdAt = String(ts)
+        } else {
+            createdAt = nil
+        }
+        trial = try c.decodeIfPresent(CloudTrialSummary.self, forKey: .trial)
+    }
+
+    /// Unified semantic trial view — uses server `trial` payload when present and gracefully falls back for older gateways.
+    public var effectiveTrial: CloudTrialSummary {
+        if let trial { return trial }
+        if !trialGranted && balanceCny <= 0 {
+            return CloudTrialSummary(
+                status: "not_granted", canUseAsr: false, canUseLlm: false,
+                remainingPercent: 0, daysRemaining: 0, expiresAt: nil,
+                asrUsedMinutes: Double(asrSecondsUsed) / 60.0, asrQuotaMinutes: 300, asrRemainingMinutes: 0,
+                llmUsedCount: llmRequestsUsed, llmQuotaCount: 1500, llmRemainingCount: 0
+            )
+        }
+        let totalCny = max(balanceCny + totalUsedCny, 3.0)
+        let pct = balanceCny <= 0 ? 0 : max(1, min(100, Int((balanceCny / totalCny * 100.0).rounded())))
+        let usedMin = Double(asrSecondsUsed) / 60.0
+        let remMin = max(0, 300.0 - usedMin)
+        let remLlm = max(0, 1500 - llmRequestsUsed)
+        let st = (balanceCny <= 0 || isBanned) ? "exhausted" : (pct <= 20 ? "low" : "active")
+        return CloudTrialSummary(
+            status: st, canUseAsr: balanceCny > 0 && !isBanned, canUseLlm: balanceCny > 0 && !isBanned,
+            remainingPercent: pct, daysRemaining: nil, expiresAt: nil,
+            asrUsedMinutes: usedMin, asrQuotaMinutes: 300, asrRemainingMinutes: remMin,
+            llmUsedCount: llmRequestsUsed, llmQuotaCount: 1500, llmRemainingCount: remLlm
+        )
+    }
 }
 
 public struct CloudCapabilities: Codable, Equatable, Sendable {
@@ -19,8 +105,12 @@ public struct CloudCapabilities: Codable, Equatable, Sendable {
     public let smtpEnabled: Bool
     public let volcAsrReady: Bool
     public let deepseekReady: Bool
+    public let cloudEngineReady: Bool?
     public let trialSignupEnabled: Bool
     public let trialBonusCny: Double
+    public let trialDurationDays: Int?
+    public let trialAsrMinutes: Int?
+    public let trialLlmCount: Int?
 }
 
 public struct CloudAuthSuccess: Codable, Sendable {
@@ -93,15 +183,38 @@ public enum CloudAuthClient {
     public static let cloudASRWSURL = "wss://typezero.mykkai.com/api/asr/ws"
     public static let cloudLLMBaseURL = "https://typezero.mykkai.com/api/llm/v1"
 
+    // Official website BYOK onboarding guides (deep-link anchors)
+    public static let byokGuideURL = URL(string: "https://typezero.mykkai.com/guide/")!
+    public static let doubaoGuideURL = URL(string: "https://typezero.mykkai.com/guide/#doubao")!
+    public static let deepseekGuideURL = URL(string: "https://typezero.mykkai.com/guide/#deepseek")!
+    public static let byokFAQURL = URL(string: "https://typezero.mykkai.com/guide/#faq")!
+
     private static let deviceIdKey = "tz_cloud_device_fingerprint_v1"
 
+    /// Stable, one-way hashed hardware fingerprint (`IOPlatformUUID` -> SHA-256) to prevent repeated free-trial farming
+    /// by deleting UserDefaults. Falls back to persisted random UUID only if hardware UUID is unavailable.
     public static var persistentDeviceId: String {
+        if let hwUUID = readHardwarePlatformUUID(), !hwUUID.isEmpty {
+            let digest = SHA256.hash(data: Data("typezero-mac-hw-v2:\(hwUUID)".utf8))
+            let hex = digest.map { String(format: "%02x", $0) }.joined()
+            return "mac-hw-" + String(hex.prefix(40))
+        }
         if let existing = UserDefaults.standard.string(forKey: deviceIdKey), !existing.isEmpty {
             return existing
         }
         let fresh = "mac-" + UUID().uuidString.lowercased()
         UserDefaults.standard.set(fresh, forKey: deviceIdKey)
         return fresh
+    }
+
+    private static func readHardwarePlatformUUID() -> String? {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPlatformExpertDevice"))
+        guard service != 0 else { return nil }
+        defer { IOObjectRelease(service) }
+        guard let prop = IORegistryEntryCreateCFProperty(service, kIOPlatformUUIDKey as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? String else {
+            return nil
+        }
+        return prop.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static let session: URLSession = {

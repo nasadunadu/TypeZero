@@ -41,9 +41,13 @@ class CloudDB {
         platform TEXT DEFAULT '',
         device_id TEXT DEFAULT '',
         balance_micro_cny INTEGER NOT NULL DEFAULT 0,
+        trial_initial_micro_cny INTEGER NOT NULL DEFAULT 0,
         total_used_micro_cny INTEGER NOT NULL DEFAULT 0,
         asr_seconds_used REAL NOT NULL DEFAULT 0,
         llm_requests_used INTEGER NOT NULL DEFAULT 0,
+        trial_asr_quota_sec REAL NOT NULL DEFAULT 18000,
+        trial_llm_quota_count INTEGER NOT NULL DEFAULT 1500,
+        trial_expires_at TEXT,
         trial_granted INTEGER NOT NULL DEFAULT 0,
         is_banned INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
@@ -54,6 +58,13 @@ class CloudDB {
         device_id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
         claimed_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS ip_trial_claims (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ip TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        created_at INTEGER NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS email_otps (
@@ -95,23 +106,40 @@ class CloudDB {
       CREATE INDEX IF NOT EXISTS idx_usage_user ON usage_logs(user_id);
       CREATE INDEX IF NOT EXISTS idx_otp_email ON email_otps(email);
       CREATE INDEX IF NOT EXISTS idx_voucher_created ON voucher_codes(created_at);
+      CREATE INDEX IF NOT EXISTS idx_ip_claims_ip ON ip_trial_claims(ip, created_at);
     `);
 
-    // Safe forward migration for existing DBs created before activated_at existed
-    try {
-      this.db.run("ALTER TABLE voucher_codes ADD COLUMN activated_at TEXT");
-    } catch (_) {
-      // Column already exists
+    // Safe forward migrations for existing DBs
+    const migrations = [
+      "ALTER TABLE voucher_codes ADD COLUMN activated_at TEXT",
+      "ALTER TABLE users ADD COLUMN trial_initial_micro_cny INTEGER NOT NULL DEFAULT 0",
+      "ALTER TABLE users ADD COLUMN trial_asr_quota_sec REAL NOT NULL DEFAULT 18000",
+      "ALTER TABLE users ADD COLUMN trial_llm_quota_count INTEGER NOT NULL DEFAULT 1500",
+      "ALTER TABLE users ADD COLUMN trial_expires_at TEXT",
+    ];
+    for (const sql of migrations) {
+      try {
+        this.db.run(sql);
+      } catch (_) {
+        // Column already exists
+      }
     }
 
     const defaults = {
-      trial_bonus_micro_cny: String(100_000), // ¥1.00
-      daily_budget_micro_cny: String(3_000_000), // ¥30.00 / day
-      total_budget_micro_cny: String(50_000_000), // ¥500.00 total
+      trial_bonus_micro_cny: String(300_000), // ¥3.00 hard cost cap per user
+      trial_duration_days: "30",
+      trial_asr_quota_sec: String(300 * 60), // 300 minutes
+      trial_llm_quota_count: "1500",
+      daily_budget_micro_cny: String(5_000_000), // ¥50.00 / day
+      total_budget_micro_cny: String(100_000_000), // ¥1000.00 total
       trial_signup_enabled: "1",
       relay_enabled: "1",
       feishu_webhook_url: "",
       feishu_webhook_secret: "",
+      budget_alert_day_80: "",
+      budget_alert_day_100: "",
+      budget_alert_total_80: "0",
+      budget_alert_total_100: "0",
     };
     for (const [k, v] of Object.entries(defaults)) {
       this.db.run("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", [k, v]);
@@ -179,25 +207,39 @@ class CloudDB {
     const map = {};
     for (const r of rows) map[r.key] = r.value;
     return {
-      trialBonusMicroCny: Number(map.trial_bonus_micro_cny || 100_000),
-      dailyBudgetMicroCny: Number(map.daily_budget_micro_cny || 3_000_000),
-      totalBudgetMicroCny: Number(map.total_budget_micro_cny || 50_000_000),
+      trialBonusMicroCny: Number(map.trial_bonus_micro_cny || 300_000),
+      trialDurationDays: Math.max(1, Number(map.trial_duration_days || 30)),
+      trialAsrQuotaSec: Math.max(60, Number(map.trial_asr_quota_sec || 18_000)),
+      trialLlmQuotaCount: Math.max(10, Number(map.trial_llm_quota_count || 1500)),
+      dailyBudgetMicroCny: Number(map.daily_budget_micro_cny || 5_000_000),
+      totalBudgetMicroCny: Number(map.total_budget_micro_cny || 100_000_000),
       trialSignupEnabled: map.trial_signup_enabled !== "0",
       relayEnabled: map.relay_enabled !== "0",
       feishuWebhookUrl: String(map.feishu_webhook_url || "").trim(),
       feishuWebhookSecret: String(map.feishu_webhook_secret || "").trim(),
+      budgetAlertDay80: String(map.budget_alert_day_80 || ""),
+      budgetAlertDay100: String(map.budget_alert_day_100 || ""),
+      budgetAlertTotal80: map.budget_alert_total_80 === "1",
+      budgetAlertTotal100: map.budget_alert_total_100 === "1",
     };
   }
 
   updateSettings(patch) {
     const mapping = {
       trialBonusMicroCny: "trial_bonus_micro_cny",
+      trialDurationDays: "trial_duration_days",
+      trialAsrQuotaSec: "trial_asr_quota_sec",
+      trialLlmQuotaCount: "trial_llm_quota_count",
       dailyBudgetMicroCny: "daily_budget_micro_cny",
       totalBudgetMicroCny: "total_budget_micro_cny",
       trialSignupEnabled: "trial_signup_enabled",
       relayEnabled: "relay_enabled",
       feishuWebhookUrl: "feishu_webhook_url",
       feishuWebhookSecret: "feishu_webhook_secret",
+      budgetAlertDay80: "budget_alert_day_80",
+      budgetAlertDay100: "budget_alert_day_100",
+      budgetAlertTotal80: "budget_alert_total_80",
+      budgetAlertTotal100: "budget_alert_total_100",
     };
     for (const [k, dbKey] of Object.entries(mapping)) {
       if (patch[k] !== undefined) {
@@ -241,6 +283,41 @@ class CloudDB {
     };
   }
 
+  /**
+   * Checks if daily/total budget crossed 80% or 100% thresholds and returns new alert descriptors (at most once per threshold).
+   */
+  consumePendingBudgetAlerts() {
+    const b = this.getBudgetSnapshot();
+    const alerts = [];
+    const patch = {};
+
+    const dayRatio = b.dailyBudgetMicroCny > 0 ? b.todaySpentMicroCny / b.dailyBudgetMicroCny : 0;
+    const totalRatio = b.totalBudgetMicroCny > 0 ? b.totalSpentMicroCny / b.totalBudgetMicroCny : 0;
+
+    if (dayRatio >= 1 && b.budgetAlertDay100 !== b.todayKey) {
+      patch.budgetAlertDay100 = b.todayKey;
+      patch.budgetAlertDay80 = b.todayKey;
+      alerts.push({ kind: "daily_100", snapshot: b });
+    } else if (dayRatio >= 0.8 && b.budgetAlertDay80 !== b.todayKey) {
+      patch.budgetAlertDay80 = b.todayKey;
+      alerts.push({ kind: "daily_80", snapshot: b });
+    }
+
+    if (totalRatio >= 1 && !b.budgetAlertTotal100) {
+      patch.budgetAlertTotal100 = true;
+      patch.budgetAlertTotal80 = true;
+      alerts.push({ kind: "total_100", snapshot: b });
+    } else if (totalRatio >= 0.8 && !b.budgetAlertTotal80) {
+      patch.budgetAlertTotal80 = true;
+      alerts.push({ kind: "total_80", snapshot: b });
+    }
+
+    if (Object.keys(patch).length > 0) {
+      this.updateSettings(patch);
+    }
+    return alerts;
+  }
+
   findUserByEmail(email) {
     return this.queryOne("SELECT * FROM users WHERE LOWER(email) = LOWER(?)", [email.trim()]);
   }
@@ -249,9 +326,10 @@ class CloudDB {
     return this.queryOne("SELECT * FROM users WHERE id = ?", [id]);
   }
 
-  upsertUserAndMaybeGrantTrial({ id, email, googleSub = null, deviceId = "", platform = "" }) {
+  upsertUserAndMaybeGrantTrial({ id, email, googleSub = null, deviceId = "", platform = "", ip = "" }) {
     const cleanEmail = email.trim().toLowerCase();
-    const now = new Date().toISOString();
+    const nowMs = Date.now();
+    const now = new Date(nowMs).toISOString();
     let user = this.findUserByEmail(cleanEmail);
 
     if (user) {
@@ -264,6 +342,7 @@ class CloudDB {
 
     const budget = this.getBudgetSnapshot();
     const cleanDevice = (deviceId || "").trim().slice(0, 128);
+    const cleanIp = String(ip || "").trim().slice(0, 96);
     let canGrant = budget.trialSignupEnabled && budget.withinBudget;
 
     if (canGrant && cleanDevice) {
@@ -275,11 +354,48 @@ class CloudDB {
       }
     }
 
+    // Soft IP anti-abuse guard: at most 3 distinct new-device trial grants per IP within 24h
+    if (canGrant && cleanIp && cleanIp !== "unknown") {
+      const since = nowMs - 24 * 3600 * 1000;
+      const ipRow = this.queryOne(
+        "SELECT COUNT(*) AS cnt FROM ip_trial_claims WHERE ip = ? AND created_at >= ?",
+        [cleanIp, since],
+      );
+      if (Number(ipRow?.cnt || 0) >= 3) {
+        canGrant = false;
+      }
+    }
+
     const initialBalance = canGrant ? budget.trialBonusMicroCny : 0;
+    const quotaAsrSec = canGrant ? budget.trialAsrQuotaSec : 0;
+    const quotaLlmCount = canGrant ? budget.trialLlmQuotaCount : 0;
+    const expiresAt = canGrant
+      ? new Date(nowMs + budget.trialDurationDays * 86400 * 1000).toISOString()
+      : null;
+
     this.exec(
-      `INSERT INTO users (id, email, google_sub, platform, device_id, balance_micro_cny, trial_granted, created_at, last_seen_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, cleanEmail, googleSub, platform, cleanDevice, initialBalance, canGrant ? 1 : 0, now, now],
+      `INSERT INTO users (
+         id, email, google_sub, platform, device_id,
+         balance_micro_cny, trial_initial_micro_cny,
+         trial_asr_quota_sec, trial_llm_quota_count, trial_expires_at,
+         trial_granted, created_at, last_seen_at
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        cleanEmail,
+        googleSub,
+        platform,
+        cleanDevice,
+        initialBalance,
+        initialBalance,
+        quotaAsrSec,
+        quotaLlmCount,
+        expiresAt,
+        canGrant ? 1 : 0,
+        now,
+        now,
+      ],
     );
 
     if (canGrant && cleanDevice) {
@@ -288,8 +404,54 @@ class CloudDB {
         [cleanDevice, id, now],
       );
     }
+    if (canGrant && cleanIp && cleanIp !== "unknown") {
+      this.exec(
+        "INSERT INTO ip_trial_claims (ip, user_id, created_at) VALUES (?, ?, ?)",
+        [cleanIp, id, nowMs],
+      );
+    }
     this.flushSync();
     return { user: this.findUserById(id), isNew: true, grantedTrial: canGrant };
+  }
+
+  grantUserExtra({ userId, amountCny = 0, addDays = 0, addAsrMinutes = 0, addLlmCount = 0 }) {
+    const user = this.findUserById(userId);
+    if (!user) return null;
+
+    const addMicro = Math.round(Number(amountCny || 0) * MICRO_PER_CNY);
+    const nextBalance = Math.max(0, Number(user.balance_micro_cny || 0) + addMicro);
+    const prevInitial = Math.max(
+      Number(user.trial_initial_micro_cny || 0),
+      Number(user.balance_micro_cny || 0) + Number(user.total_used_micro_cny || 0),
+    );
+    const nextInitial = addMicro > 0 ? prevInitial + addMicro : prevInitial;
+
+    const derivedAsrMin = addAsrMinutes || (addMicro > 0 ? Math.round((addMicro / MICRO_PER_CNY) * 100) : 0);
+    const derivedLlm = addLlmCount || (addMicro > 0 ? Math.round((addMicro / MICRO_PER_CNY) * 500) : 0);
+    const derivedDays = addDays || (addMicro > 0 ? 30 : 0);
+
+    const nextAsrQuotaSec = Math.max(0, Number(user.trial_asr_quota_sec || 0) + derivedAsrMin * 60);
+    const nextLlmQuotaCount = Math.max(0, Number(user.trial_llm_quota_count || 0) + derivedLlm);
+
+    let nextExpiresAt = user.trial_expires_at || null;
+    if (derivedDays > 0) {
+      const baseMs = Math.max(Date.now(), nextExpiresAt ? Date.parse(nextExpiresAt) || 0 : 0);
+      nextExpiresAt = new Date(baseMs + derivedDays * 86400 * 1000).toISOString();
+    }
+
+    this.exec(
+      `UPDATE users
+       SET balance_micro_cny = ?,
+           trial_initial_micro_cny = ?,
+           trial_asr_quota_sec = ?,
+           trial_llm_quota_count = ?,
+           trial_expires_at = ?,
+           trial_granted = CASE WHEN ? > 0 THEN 1 ELSE trial_granted END
+       WHERE id = ?`,
+      [nextBalance, nextInitial, nextAsrQuotaSec, nextLlmQuotaCount, nextExpiresAt, nextBalance, user.id],
+    );
+    this.flushSync();
+    return this.findUserById(user.id);
   }
 
   deductUsage({ userId, email, service, model, units, costMicroCny }) {

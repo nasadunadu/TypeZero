@@ -80,6 +80,8 @@ public final class AppState: ObservableObject {
     @Published public var llmActivationErrors: [LLMProviderOption: String] = [:]
     @Published public var llmProviderBenchmarkSummaries: [LLMProviderOption: String] = [:]
     @Published public var showOnboardingSheet: Bool = false
+    @Published public var showTrialExhaustedSheet: Bool = false
+    @Published public var lowTrialBannerDismissed: Bool = false
     @Published public var isDownloadingOfflineModel: Bool = false
     @Published public var offlineDownloadProgress: Double = 0.0
     @Published public var offlineDownloadStatusText: String = ""
@@ -152,12 +154,46 @@ public final class AppState: ObservableObject {
         return isInstallingUpdate || upd.version != skippedUpdateVersion
     }
 
+    public var activeCloudTrial: CloudTrialSummary? {
+        cloudUser?.effectiveTrial
+    }
+
     public var isOfficialCloudTrialActive: Bool {
         guard llmConfig.useOfficialCloudTrial else { return false }
         let token = KeychainHelper.loadCloudJWT().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else { return false }
-        if let u = cloudUser, u.balanceCny <= 0 || u.isBanned { return false }
+        if let u = cloudUser {
+            return !u.isBanned && u.effectiveTrial.isUsable
+        }
         return true
+    }
+
+    public var isCloudTrialLow: Bool {
+        isOfficialCloudTrialActive && (activeCloudTrial?.isLow == true)
+    }
+
+    public var isCloudTrialEnded: Bool {
+        guard let u = cloudUser else { return false }
+        return !u.isBanned && u.effectiveTrial.isEnded
+    }
+
+    /// True if user has already configured a personal BYOK speech credential (for zero-interruption failover).
+    public var hasPersonalBYOKASRReady: Bool {
+        hasOwnVolcSpeechKey
+            || (hasDoubaoVoucher && !isDoubaoVoucherExhaustedOrRevoked)
+            || hasEffectiveOpenAIASRKey
+    }
+
+    /// True if any dictation engine (official cloud, personal BYOK, or ready offline pack) can serve speech now.
+    public var hasAnyEngineReady: Bool {
+        isOfficialCloudTrialActive
+            || hasPersonalBYOKASRReady
+            || (llmConfig.asrProvider == .localSenseVoice && senseVoiceLoaded)
+    }
+
+    /// Estimated typing hours saved assuming 3,600 dictated characters ≈ 1 net hour saved vs manual keyboard typing.
+    public var estimatedTimeSavedHours: Double {
+        Double(totalCharactersDictated) / 3600.0
     }
 
     public let lexiconStore = PersonalLexiconStore()
@@ -276,16 +312,28 @@ public final class AppState: ObservableObject {
                 }
             }
 
-            // First-run colleague onboarding check:
-            // Auto-complete silently on already-configured machines; open 3-step setup guide on a brand-new colleague's Mac!
-            if !UserDefaults.standard.bool(forKey: "tz_onboarding_done_v1") {
-                let hasAnyASRReady = self.hasAnyVolcSpeechCredential
+            // First-run onboarding check & explicit preview launch flags:
+            if CommandLine.arguments.contains("--preview-onboarding") {
+                self.showOnboardingSheet = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    TypeZeroAppDelegate.openMainWindowAction?()
+                }
+            } else if CommandLine.arguments.contains("--preview-graduation") {
+                self.showTrialExhaustedSheet = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    TypeZeroAppDelegate.openMainWindowAction?()
+                }
+            } else if !UserDefaults.standard.bool(forKey: "tz_onboarding_done_v1") {
+                let hasCloudOrPersonalKey = !KeychainHelper.loadCloudJWT().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || self.hasAnyVolcSpeechCredential
                     || self.hasEffectiveOpenAIASRKey
-                    || StreamingASREngine.senseVoiceModelPaths() != nil
-                if self.micAuthorized && self.accessibilityGranted && hasAnyASRReady {
+                if self.micAuthorized && self.accessibilityGranted && hasCloudOrPersonalKey {
                     UserDefaults.standard.set(true, forKey: "tz_onboarding_done_v1")
                 } else {
                     self.showOnboardingSheet = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        TypeZeroAppDelegate.openMainWindowAction?()
+                    }
                 }
             }
         }
@@ -703,7 +751,7 @@ public final class AppState: ObservableObject {
         }
     }
 
-    public func refreshCloudAccount() async {
+    public func refreshCloudAccount(triggerGraduationIfEnded: Bool = false) async {
         if let caps = try? await CloudAuthClient.fetchCapabilities() {
             cloudCapabilities = caps
         }
@@ -713,12 +761,28 @@ public final class AppState: ObservableObject {
             syncASREngineConfig()
             return
         }
+        let wasUsingOfficial = llmConfig.useOfficialCloudTrial
         do {
             let profile = try await CloudAuthClient.fetchProfile(token: token)
             cloudUser = profile
-            if profile.balanceCny <= 0 && llmConfig.useOfficialCloudTrial {
+            let trial = profile.effectiveTrial
+            if !trial.isUsable && wasUsingOfficial {
                 llmConfig.useOfficialCloudTrial = false
-                cloudAuthMessage = "体验额度已用完，已自动切回个人 API Key 模式"
+                if hasPersonalBYOKASRReady {
+                    // Pre-configured personal key seamlessly takes over with zero interruption!
+                    let msg = trial.isExpired
+                        ? "🎉 1 个月 TypeZero 自研云端引擎体验期已满，已自动无缝切换至你预置的个人引擎！"
+                        : "🎉 TypeZero 自研云端引擎免费体验额度已用完，已自动无缝切换至你预置的个人引擎！"
+                    cloudAuthMessage = msg
+                    statusBanner = msg
+                } else {
+                    cloudAuthMessage = trial.isExpired
+                        ? "1 个月 TypeZero 自研云端引擎体验已到期，绑定个人 API Key 或切本机离线即可继续使用"
+                        : "TypeZero 自研云端引擎免费体验额度已用完，绑定个人 API Key 或切本机离线即可继续使用"
+                    if triggerGraduationIfEnded {
+                        presentTrialGraduationSheetOnceIfNeeded(for: profile.email)
+                    }
+                }
             }
             syncASREngineConfig()
         } catch {
@@ -730,6 +794,39 @@ public final class AppState: ObservableObject {
                 llmConfig.useOfficialCloudTrial = false
                 syncASREngineConfig()
             }
+        }
+    }
+
+    private func presentTrialGraduationSheetOnceIfNeeded(for email: String) {
+        let key = "tz_trial_graduated_shown_\(email.lowercased())"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 650_000_000)
+            self?.showTrialExhaustedSheet = true
+        }
+    }
+
+    public func openCustomEngineSetup() {
+        showTrialExhaustedSheet = false
+        showOnboardingSheet = false
+        llmConfig.useOfficialCloudTrial = false
+        syncASREngineConfig()
+        selectedSettingsTab = .engines
+        selectedTab = .settings
+    }
+
+    public func switchToLocalOfflineEngine() {
+        showTrialExhaustedSheet = false
+        showOnboardingSheet = false
+        llmConfig.useOfficialCloudTrial = false
+        llmConfig.selectASRProvider(.localSenseVoice)
+        syncASREngineConfig()
+        if !senseVoiceFullFP32 && !isDownloadingOfflineModel {
+            startOfflineModelDownload()
+            statusBanner = "🔒 已切换至本机离线引擎，正在后台下载 886MB 离线满血模型…"
+        } else {
+            statusBanner = "🔒 已切换至 100% 本机离线引擎（永久免费、零联网）"
         }
     }
 
@@ -814,30 +911,39 @@ public final class AppState: ObservableObject {
     private func applyCloudAuthSuccess(token: String, user: CloudUserProfile, grantedTrial: Bool) {
         KeychainHelper.saveCloudJWT(token)
         cloudUser = user
-        if user.balanceCny > 0 {
+        let trial = user.effectiveTrial
+        if trial.isUsable {
             llmConfig.useOfficialCloudTrial = true
             llmConfig.selectASRProvider(.volcSeedASR)
+            UserDefaults.standard.removeObject(forKey: "tz_trial_graduated_shown_\(user.email.lowercased())")
         }
         syncASREngineConfig()
-        let bonusNote = grantedTrial
-            ? String(format: "🎁 新用户已自动获赠 ¥%.2f 免费体验额度，现在即可直接按快捷键说话！", user.balanceCny)
-            : String(format: "✅ 登录成功，当前体验余额 ¥%.2f", user.balanceCny)
+        let bonusNote: String
+        if grantedTrial {
+            bonusNote = "👑 恭喜！超级 VIP 1 个月已免费到账，现在即可按快捷键开口成稿！"
+        } else if trial.isUsable {
+            bonusNote = "✅ 登录成功，超级 VIP 生效中（剩余额度 \(trial.remainingPercent)%）"
+        } else if trial.isExpired {
+            bonusNote = "登录成功，1 个月超级 VIP 已到期，可绑定自有 API 或使用本机离线继续畅用"
+        } else {
+            bonusNote = "登录成功，当前账号无可用 VIP 额度，可绑定自有 API 或使用本机离线继续畅用"
+        }
         cloudAuthMessage = bonusNote
         statusBanner = bonusNote
     }
 
     public func setUseOfficialCloudTrial(_ enabled: Bool) {
         if enabled {
-            guard let u = cloudUser, u.balanceCny > 0 else {
-                cloudAuthMessage = "体验余额不足，请配置您自己的 API Key"
+            guard let u = cloudUser, u.effectiveTrial.isUsable else {
+                cloudAuthMessage = "当前免费体验额度不可用，请在下方配置个人 API Key 或切换本机离线"
                 return
             }
             llmConfig.useOfficialCloudTrial = true
             llmConfig.selectASRProvider(.volcSeedASR)
-            statusBanner = "☁️ 已切换至官方免费体验通道（豆包 2.0 + DeepSeek 4 Flash）"
+            statusBanner = "✦ 已切换至 TypeZero 自研云端引擎（免配置极速模式）"
         } else {
             llmConfig.useOfficialCloudTrial = false
-            statusBanner = "🔑 已切换至个人 API Key（BYOK）模式"
+            statusBanner = "🔑 已切换至自定义引擎模式（个人 API Key / 本机离线）"
         }
         syncASREngineConfig()
     }
@@ -848,7 +954,7 @@ public final class AppState: ObservableObject {
         KeychainHelper.saveCloudJWT("")
         cloudUser = nil
         llmConfig.useOfficialCloudTrial = false
-        cloudAuthMessage = "已退出云端账号"
+        cloudAuthMessage = "已退出当前账号"
         syncASREngineConfig()
     }
 
@@ -1474,7 +1580,7 @@ public final class AppState: ObservableObject {
         if isOfficialCloudTrialActive {
             effectiveConfig.selectedProvider = .deepseek
             effectiveConfig.baseURL = CloudAuthClient.cloudLLMBaseURL
-            effectiveConfig.modelName = "deepseek-flash"
+            effectiveConfig.modelName = "typezero-engine"
             key = KeychainHelper.loadCloudJWT().trimmingCharacters(in: .whitespacesAndNewlines)
         } else if key.isEmpty {
             key = KeychainHelper.loadAPIKey(for: effectiveConfig.selectedProvider)
@@ -1668,7 +1774,7 @@ public final class AppState: ObservableObject {
         if isOfficialCloudTrialActive {
             effectiveConfig.selectedProvider = .deepseek
             effectiveConfig.baseURL = CloudAuthClient.cloudLLMBaseURL
-            effectiveConfig.modelName = "deepseek-flash"
+            effectiveConfig.modelName = "typezero-engine"
             key = KeychainHelper.loadCloudJWT().trimmingCharacters(in: .whitespacesAndNewlines)
         } else if key.isEmpty {
             key = KeychainHelper.loadAPIKey(for: effectiveConfig.selectedProvider)
@@ -1913,7 +2019,7 @@ public final class AppState: ObservableObject {
 
         if isOfficialCloudTrialActive {
             Task { [weak self] in
-                await self?.refreshCloudAccount()
+                await self?.refreshCloudAccount(triggerGraduationIfEnded: true)
             }
         } else if isUsingDoubaoVoucher && llmConfig.asrProvider == .volcSeedASR {
             Task { [weak self] in

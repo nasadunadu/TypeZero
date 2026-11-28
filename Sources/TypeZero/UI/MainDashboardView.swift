@@ -37,6 +37,9 @@ public struct MainDashboardView: View {
         .sheet(isPresented: $appState.showOnboardingSheet) {
             OnboardingSheetView(appState: appState)
         }
+        .sheet(isPresented: $appState.showTrialExhaustedSheet) {
+            TrialExhaustedSheetView(appState: appState)
+        }
     }
 
     // MARK: Full-Height Translucent Silk-Glass Sidebar (Powered by sidebar-silk-light/dark.png!)
@@ -218,29 +221,24 @@ public struct MainDashboardView: View {
                 TZKeycapView(label: compactSidebarKeyLabel, size: .small)
 
                 Button {
-                    appState.selectedSettingsTab = .account
-                    appState.selectedTab = .settings
-                } label: {
-                    if let user = appState.cloudUser {
-                        Text(String(format: "¥%.2f", user.balanceCny))
-                            .font(TZFont.mono(10.5, weight: .semibold))
-                            .foregroundStyle(user.balanceCny > 0 ? TZTheme.inkPrimary : TZTheme.amber)
-                            .padding(.horizontal, 6.5)
-                            .padding(.vertical, 3.5)
-                            .background(TZTheme.recessedWell.opacity(0.85))
-                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    if appState.cloudUser == nil && !appState.hasPersonalBYOKASRReady && !(appState.llmConfig.asrProvider == .localSenseVoice && appState.senseVoiceLoaded) {
+                        appState.showOnboardingSheet = true
                     } else {
-                        Text("领 ¥1")
-                            .font(TZFont.mono(10.5, weight: .semibold))
-                            .foregroundStyle(TZTheme.accent)
-                            .padding(.horizontal, 6.5)
-                            .padding(.vertical, 3.5)
-                            .background(TZTheme.accentSoft)
-                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        appState.selectedSettingsTab = .engines
+                        appState.selectedTab = .settings
                     }
+                } label: {
+                    Text(sidebarEngineBadge.text)
+                        .font(TZFont.mono(10, weight: .semibold))
+                        .foregroundStyle(sidebarEngineBadge.fg)
+                        .padding(.horizontal, 6.5)
+                        .padding(.vertical, 3.5)
+                        .background(sidebarEngineBadge.bg)
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .lineLimit(1)
                 }
                 .buttonStyle(.plain)
-                .help("查看云端体验额度与账户")
+                .help(sidebarEngineBadge.tooltip)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8.5)
@@ -393,6 +391,27 @@ public struct MainDashboardView: View {
 
     private var effectiveScheme: ColorScheme {
         appState.llmConfig.appearance.colorScheme ?? systemScheme
+    }
+
+    private var sidebarEngineBadge: (text: String, fg: Color, bg: Color, tooltip: String) {
+        if appState.isOfficialCloudTrialActive, let trial = appState.activeCloudTrial {
+            let daysNote = trial.daysRemaining.map { "剩余 \($0) 天" } ?? "生效中"
+            let tip = "超级 VIP（自研大模型）· \(daysNote)"
+            if trial.isLow {
+                return ("VIP \(trial.remainingPercent)%", TZTheme.amber, TZTheme.amber.opacity(0.14), tip)
+            }
+            return ("超级 VIP", TZTheme.emerald, TZTheme.emeraldSoft, tip)
+        }
+        if appState.llmConfig.asrProvider == .localSenseVoice && appState.senseVoiceLoaded {
+            return ("本机离线", TZTheme.emerald, TZTheme.emeraldSoft, "100% 本机离线引擎运行中（永久免费）")
+        }
+        if appState.hasPersonalBYOKASRReady {
+            return ("自有引擎", TZTheme.inkPrimary, TZTheme.recessedWell.opacity(0.85), "个人 API Key 引擎直连运行中")
+        }
+        if appState.isCloudTrialEnded {
+            return ("绑定 API", TZTheme.amber, TZTheme.amber.opacity(0.14), "1 个月超级 VIP 已到期，点击绑定自有 API 无限续用")
+        }
+        return ("领超级 VIP", TZTheme.accent, TZTheme.accentSoft, "注册免费领 1 个月超级 VIP（自研大模型）")
     }
 
     private var compactSidebarKeyLabel: String {

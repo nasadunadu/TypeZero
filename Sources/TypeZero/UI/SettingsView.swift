@@ -1,11 +1,18 @@
 import SwiftUI
+import AppKit
 
-// MARK: - Settings View (V2 High-Craft Sequoia Control Center — Refined Mini Previews & Tactile Engine Cards)
+// MARK: - Settings View (V3 Dual-Mode Engine Architecture · Self-Developed Cloud vs Custom BYOK/Offline)
+
+private enum EnginePanelMode {
+    case official
+    case custom
+}
 
 struct SettingsView: View {
     @ObservedObject var appState: AppState
     @Environment(\.colorScheme) private var scheme
 
+    @State private var inspectedMode: EnginePanelMode = .official
     @State private var inspectedASR: ASRProviderOption = .volcSeedASR
     @State private var inspectedLLM: LLMProviderOption = .deepseek
     @State private var showVoucherDrawer: Bool = false
@@ -50,9 +57,15 @@ struct SettingsView: View {
             }
         }
         .onAppear {
+            syncInspectedModeFromState()
             inspectedASR = appState.llmConfig.asrProvider
             inspectedLLM = appState.llmConfig.selectedProvider
             loadLLMDraft(for: inspectedLLM)
+        }
+        .onChange(of: appState.isOfficialCloudTrialActive) { _, isOfficial in
+            if isOfficial {
+                inspectedMode = .official
+            }
         }
         .onChange(of: inspectedLLM) { _, next in
             loadLLMDraft(for: next)
@@ -63,6 +76,18 @@ struct SettingsView: View {
             }
             cooldownTimer?.invalidate()
             cooldownTimer = nil
+        }
+    }
+
+    private func syncInspectedModeFromState() {
+        if appState.isOfficialCloudTrialActive {
+            inspectedMode = .official
+        } else if appState.hasPersonalBYOKASRReady
+                    || (appState.llmConfig.asrProvider == .localSenseVoice && appState.senseVoiceLoaded)
+                    || appState.isCloudTrialEnded {
+            inspectedMode = .custom
+        } else {
+            inspectedMode = .official
         }
     }
 
@@ -497,47 +522,136 @@ struct SettingsView: View {
         .shadow(color: Color.black.opacity(isLightPill ? 0.12 : 0.28), radius: 6, x: 0, y: 3)
     }
 
-    // MARK: - Tab 2: 语音与模型
+    // MARK: - Tab 2: 语音与引擎 (Dual-Mode Master Switch)
 
     private var enginesTabContent: some View {
         VStack(alignment: .leading, spacing: 18) {
-            // Group 1: ASR Engine Selector + Unified Config Drawer
-            TZGroupedSection(title: "语音识别引擎 (ASR)") {
-                Text("校验通过后切换 · 唯一生效")
-                    .font(.system(size: 11))
+            // Master Mode Selector: TypeZero Self-Developed Cloud Engine vs Custom BYOK / Offline
+            TZGroupedSection(title: "运行模式") {
+                Text(appState.isOfficialCloudTrialActive ? "当前：超级 VIP（自研大模型）" : "当前：自定义引擎")
+                    .font(TZFont.mono(11))
                     .foregroundStyle(TZTheme.inkMuted)
             } content: {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(spacing: 10) {
-                        asrSelectorCard(
-                            provider: .volcSeedASR,
-                            title: "豆包 2.0",
-                            subtitle: "字节双向流 · 中文首选",
-                            icon: "waveform",
-                            gradient: [Color(red: 0.44, green: 0.36, blue: 1.0), Color(red: 0.28, green: 0.46, blue: 0.98)]
+                        engineModeCard(
+                            mode: .official,
+                            title: "超级 VIP · 自研大模型",
+                            subtitle: "注册免费送 1 个月 · 超快转换 · 智能整理去语病",
+                            icon: "crown.fill",
+                            isActive: appState.isOfficialCloudTrialActive,
+                            gradient: [Color(red: 0.44, green: 0.36, blue: 1.0), Color(red: 0.06, green: 0.72, blue: 0.64)]
                         )
-                        asrSelectorCard(
-                            provider: .openAIWhisper,
-                            title: "OpenAI / Groq",
-                            subtitle: "多语云端大模型",
-                            icon: "cloud.fill",
-                            gradient: [Color(red: 0.06, green: 0.65, blue: 0.92), Color(red: 0.12, green: 0.44, blue: 0.94)]
-                        )
-                        asrSelectorCard(
-                            provider: .localSenseVoice,
-                            title: "本地离线",
-                            subtitle: appState.senseVoiceFullFP32 ? "886MB FP32 已就绪" : "零联网隐私引擎",
-                            icon: "cpu.fill",
-                            gradient: [Color(red: 0.08, green: 0.72, blue: 0.45), Color(red: 0.04, green: 0.54, blue: 0.34)]
+                        engineModeCard(
+                            mode: .custom,
+                            title: "自定义引擎（BYOK / 离线）",
+                            subtitle: "绑定个人 API Key 无限用 · 或纯本机离线",
+                            icon: "key.fill",
+                            isActive: !appState.isOfficialCloudTrialActive,
+                            gradient: [Color(red: 0.14, green: 0.56, blue: 0.96), Color(red: 0.36, green: 0.32, blue: 0.92)]
                         )
                     }
 
                     TZHairline()
 
-                    inspectedASRDetailPane
+                    if inspectedMode == .official {
+                        officialCloudEnginePane
+                    } else {
+                        customEngineOverviewBar
+                    }
+                }
+                .padding(16)
+            }
 
-                    TZHairline()
+            if inspectedMode == .custom {
+                // Group 1: Custom ASR Engine Selector
+                TZGroupedSection(title: "语音识别引擎 (ASR)") {
+                    Button {
+                        NSWorkspace.shared.open(CloudAuthClient.doubaoGuideURL)
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text("豆包语音开通教程")
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 9.5, weight: .semibold))
+                        }
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(TZTheme.accent)
+                    }
+                    .buttonStyle(.plain)
+                } content: {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack(spacing: 10) {
+                            asrSelectorCard(
+                                provider: .volcSeedASR,
+                                title: "豆包 2.0",
+                                subtitle: "中文首选 · 推荐组合",
+                                icon: "waveform",
+                                gradient: [Color(red: 0.44, green: 0.36, blue: 1.0), Color(red: 0.28, green: 0.46, blue: 0.98)]
+                            )
+                            asrSelectorCard(
+                                provider: .openAIWhisper,
+                                title: "OpenAI / Groq",
+                                subtitle: "多语云端大模型",
+                                icon: "cloud.fill",
+                                gradient: [Color(red: 0.06, green: 0.65, blue: 0.92), Color(red: 0.12, green: 0.44, blue: 0.94)]
+                            )
+                            asrSelectorCard(
+                                provider: .localSenseVoice,
+                                title: "本地离线",
+                                subtitle: appState.senseVoiceFullFP32 ? "886MB FP32 已就绪" : "永久 ¥0 零联网",
+                                icon: "cpu.fill",
+                                gradient: [Color(red: 0.08, green: 0.72, blue: 0.45), Color(red: 0.04, green: 0.54, blue: 0.34)]
+                            )
+                        }
 
+                        TZHairline()
+
+                        inspectedASRDetailPane
+                    }
+                    .padding(16)
+                }
+
+                // Group 2: Custom AI Formatting LLM Engine
+                TZGroupedSection(title: "AI 智能成文 (LLM)") {
+                    Button {
+                        NSWorkspace.shared.open(CloudAuthClient.deepseekGuideURL)
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text("DeepSeek 开通教程")
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 9.5, weight: .semibold))
+                        }
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(TZTheme.accent)
+                    }
+                    .buttonStyle(.plain)
+                } content: {
+                    VStack(alignment: .leading, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("模型服务商")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(TZTheme.inkSecondary)
+
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 8)], spacing: 8) {
+                                ForEach(LLMProviderOption.allCases) { p in
+                                    llmProviderPill(p)
+                                }
+                            }
+                        }
+
+                        inspectedLLMDetailPane
+                    }
+                    .padding(16)
+                }
+            }
+
+            // Shared Preferences Across Both Modes: Language & Formatting Strength
+            TZGroupedSection(title: "识别与成文偏好") {
+                Text("双模式通用生效")
+                    .font(.system(size: 11))
+                    .foregroundStyle(TZTheme.inkMuted)
+            } content: {
+                VStack(alignment: .leading, spacing: 14) {
                     HStack(spacing: 12) {
                         Text("识别语言")
                             .font(.system(size: 12.5, weight: .semibold))
@@ -559,17 +673,9 @@ struct SettingsView: View {
                         )
                         .frame(width: 280)
                     }
-                }
-                .padding(16)
-            }
 
-            // Group 2: AI Formatting LLM Engine
-            TZGroupedSection(title: "AI 智能润色 (LLM)") {
-                Text("当前：\(appState.llmConfig.formattingStyle == .verbatimLocal ? "原声直出" : appState.llmConfig.selectedProvider.shortName)")
-                    .font(TZFont.mono(11))
-                    .foregroundStyle(TZTheme.inkMuted)
-            } content: {
-                VStack(alignment: .leading, spacing: 14) {
+                    TZHairline()
+
                     HStack(spacing: 12) {
                         Text("整理力度")
                             .font(.system(size: 12.5, weight: .semibold))
@@ -593,28 +699,369 @@ struct SettingsView: View {
                     }
 
                     if appState.llmConfig.formattingStyle == .verbatimLocal {
-                        TZInlineFeedbackBanner(message: "当前为「原声直出」，听写经本地词库修词后直接上屏，不调用下方云端大模型。", isWarning: true)
+                        TZInlineFeedbackBanner(message: "当前为「原声直出」，听写经本地词库修词后直接上屏，不调用云端成文润色。", isWarning: true)
                     }
-
-                    TZHairline()
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("模型服务商")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(TZTheme.inkSecondary)
-
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 8)], spacing: 8) {
-                            ForEach(LLMProviderOption.allCases) { p in
-                                llmProviderPill(p)
-                            }
-                        }
-                    }
-
-                    inspectedLLMDetailPane
                 }
                 .padding(16)
             }
         }
+    }
+
+    private func engineModeCard(
+        mode: EnginePanelMode,
+        title: String,
+        subtitle: String,
+        icon: String,
+        isActive: Bool,
+        gradient: [Color]
+    ) -> some View {
+        let isInspected = (inspectedMode == mode)
+        let isDarkUI = (scheme == .dark)
+
+        return Button {
+            withAnimation(.easeOut(duration: 0.15)) {
+                inspectedMode = mode
+            }
+            if mode == .official, let u = appState.cloudUser, u.effectiveTrial.isUsable, !appState.llmConfig.useOfficialCloudTrial {
+                appState.setUseOfficialCloudTrial(true)
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(alignment: .center) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8.5, style: .continuous)
+                            .fill(LinearGradient(colors: gradient, startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .shadow(color: gradient[0].opacity(isInspected || isActive ? 0.30 : 0.12), radius: 4, y: 2)
+                        Image(systemName: icon)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                    }
+                    .frame(width: 30, height: 30)
+
+                    Spacer()
+
+                    if isActive {
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(TZTheme.emerald)
+                                .frame(width: 6, height: 6)
+                                .shadow(color: TZTheme.emerald.opacity(0.6), radius: 3)
+                            Text("生效中")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(TZTheme.emerald)
+                        }
+                        .padding(.horizontal, 7.5)
+                        .padding(.vertical, 3)
+                        .background(TZTheme.emeraldSoft)
+                        .clipShape(Capsule())
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 2.5) {
+                    Text(title)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(TZTheme.inkPrimary)
+                    Text(subtitle)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(TZTheme.inkMuted)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(13)
+            .background(
+                isInspected
+                    ? (isDarkUI ? Color(red: 0.15, green: 0.15, blue: 0.26) : Color(red: 0.955, green: 0.950, blue: 1.000))
+                    : TZTheme.recessedWell.opacity(0.50)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .strokeBorder(
+                        isInspected
+                            ? TZTheme.accent.opacity(0.80)
+                            : (isActive ? TZTheme.emerald.opacity(0.45) : TZTheme.cardBorder),
+                        lineWidth: isInspected ? 1.5 : 1
+                    )
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var officialCloudEnginePane: some View {
+        if let user = appState.cloudUser {
+            let trial = user.effectiveTrial
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 7) {
+                            Circle()
+                                .fill(trial.isUsable ? (trial.isLow ? TZTheme.amber : TZTheme.emerald) : TZTheme.inkMuted)
+                                .frame(width: 7.5, height: 7.5)
+                            Text(user.email)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(TZTheme.inkPrimary)
+                        }
+                        Text(trial.isUsable
+                             ? "TypeZero 自研云端语音 + 智能成文双引擎运行中 · 音频流式即用即焚"
+                             : (trial.isExpired ? "1 个月免费体验已到期 · 词库与个人风格已完整保留" : "免费体验包已用完 · 词库与个人风格已完整保留"))
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(TZTheme.inkSecondary)
+                    }
+
+                    Spacer()
+
+                    if let days = trial.daysRemaining, trial.isUsable {
+                        Text("剩余 \(days) 天")
+                            .font(TZFont.mono(11.5, weight: .semibold))
+                            .foregroundStyle(days <= 5 ? TZTheme.amber : TZTheme.accent)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 4)
+                            .background(days <= 5 ? TZTheme.amber.opacity(0.14) : TZTheme.accentSoft)
+                            .clipShape(Capsule())
+                    }
+                }
+
+                if trial.isUsable {
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack {
+                            Text("免费体验包剩余")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(TZTheme.inkSecondary)
+                            Spacer()
+                            Text("\(trial.remainingPercent)%")
+                                .font(TZFont.metric(18))
+                                .foregroundStyle(trial.isLow ? TZTheme.amber : TZTheme.emerald)
+                        }
+
+                        ProgressView(value: Double(trial.remainingPercent) / 100.0)
+                            .tint(trial.isLow ? TZTheme.amber : TZTheme.accent)
+
+                        HStack(spacing: 16) {
+                            Label(
+                                String(format: "语音识别：已用 %.1f / %d 分钟", trial.asrUsedMinutes, trial.asrQuotaMinutes),
+                                systemImage: "mic.fill"
+                            )
+                            Label(
+                                "智能成文：已用 \(trial.llmUsedCount) / \(trial.llmQuotaCount) 次",
+                                systemImage: "sparkles"
+                            )
+                            Spacer()
+                        }
+                        .font(TZFont.mono(11))
+                        .foregroundStyle(TZTheme.inkMuted)
+                    }
+                    .padding(12)
+                    .background(TZTheme.recessedWell.opacity(0.55))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                    HStack(spacing: 10) {
+                        if !appState.llmConfig.useOfficialCloudTrial {
+                            Button("启用自研云端引擎") {
+                                appState.setUseOfficialCloudTrial(true)
+                            }
+                            .buttonStyle(TZAccentButtonStyle(compact: true, capsule: false))
+                        }
+
+                        Text(appState.hasPersonalBYOKASRReady
+                             ? "✓ 已预置个人引擎：免费体验用完后将自动无感无缝切换"
+                             : "💡 提前填好个人 API Key 后，仍优先用完免费额度，用完自动无感接管")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(appState.hasPersonalBYOKASRReady ? TZTheme.emerald : TZTheme.inkSecondary)
+                            .lineLimit(2)
+
+                        Spacer()
+
+                        if !appState.hasPersonalBYOKASRReady {
+                            Button("提前配置 Key →") {
+                                withAnimation(.easeOut(duration: 0.15)) { inspectedMode = .custom }
+                            }
+                            .buttonStyle(TZSecondaryButtonStyle(compact: true))
+                        }
+
+                        Button("刷新") {
+                            Task { await appState.refreshCloudAccount() }
+                        }
+                        .buttonStyle(TZSecondaryButtonStyle(compact: true))
+                    }
+                } else {
+                    // Ended / Expired CTA Card inside Official Mode
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("TypeZero 软件永久免费，无需会员订阅。2 分钟绑定个人 API Key（推荐豆包语音 + DeepSeek，日常每天仅约 5 分钱），或切本机离线永久 ¥0。")
+                            .font(.system(size: 12))
+                            .foregroundStyle(TZTheme.inkSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        HStack(spacing: 8) {
+                            Button("去绑定个人 API Key →") {
+                                appState.openCustomEngineSetup()
+                                inspectedMode = .custom
+                            }
+                            .buttonStyle(TZPrimaryButtonStyle(compact: true, capsule: true))
+
+                            Button("查看豆包 & DeepSeek 开通教程 ↗") {
+                                NSWorkspace.shared.open(CloudAuthClient.byokGuideURL)
+                            }
+                            .buttonStyle(TZSecondaryButtonStyle(compact: true, capsule: true))
+
+                            Button("切本机离线（永久 ¥0）") {
+                                appState.switchToLocalOfflineEngine()
+                                inspectedMode = .custom
+                            }
+                            .buttonStyle(TZSecondaryButtonStyle(compact: true, capsule: true))
+                        }
+                    }
+                    .padding(12)
+                    .background(TZTheme.amber.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(TZTheme.amber.opacity(0.28), lineWidth: 1))
+                }
+
+                if justClaimedTrial {
+                    Text("✓ 1 个月 TypeZero 自研云端引擎已免费激活，现在即可按快捷键开口！")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(TZTheme.emerald)
+                }
+            }
+        } else {
+            // Not signed in yet: inline 15-second registration card
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("邮箱注册，免费领取 1 个月超级 VIP")
+                        .font(.system(size: 14.5, weight: .bold))
+                        .foregroundStyle(TZTheme.inkPrimary)
+                    Text("包含自研大模型、超快语音转换、智能分段整理与自动去语病，零配置开箱即用。")
+                        .font(.system(size: 12))
+                        .foregroundStyle(TZTheme.inkSecondary)
+                }
+
+                if !appState.cloudCodeSent {
+                    HStack(spacing: 8) {
+                        TextField("输入常用邮箱（QQ / 163 / Gmail / Outlook）", text: $appState.cloudEmailInput)
+                            .tzRecessedInput()
+                            .onSubmit { triggerSendCode() }
+                        Button(appState.isCloudAuthBusy ? "发送中…" : "获取验证码") {
+                            triggerSendCode()
+                        }
+                        .buttonStyle(TZPrimaryButtonStyle(compact: false, capsule: false))
+                        .disabled(appState.isCloudAuthBusy)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 9) {
+                        HStack {
+                            Text("6 位验证码已发送至 \(appState.cloudEmailInput)")
+                                .font(.system(size: 12))
+                                .foregroundStyle(TZTheme.inkSecondary)
+                            Spacer()
+                            Button("换邮箱") {
+                                appState.cloudCodeSent = false
+                                appState.cloudCodeInput = ""
+                            }
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(TZTheme.inkMuted)
+                            .buttonStyle(.plain)
+                            Button(resendCooldown > 0 ? "\(resendCooldown)s 后重发" : "重发") {
+                                triggerSendCode()
+                            }
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(resendCooldown > 0 ? TZTheme.inkMuted : TZTheme.accent)
+                            .buttonStyle(.plain)
+                            .disabled(resendCooldown > 0 || appState.isCloudAuthBusy)
+                        }
+
+                        HStack(spacing: 8) {
+                            TextField("输入 6 位数字验证码", text: $appState.cloudCodeInput)
+                                .tzRecessedInput()
+                                .font(TZFont.mono(14, weight: .bold))
+                                .frame(maxWidth: 220)
+                                .onSubmit { triggerVerifyCode() }
+                            Button(appState.isCloudAuthBusy ? "激活中…" : "验证并免费领取 1 个月") {
+                                triggerVerifyCode()
+                            }
+                            .buttonStyle(TZAccentButtonStyle(compact: false, capsule: false))
+                            .disabled(appState.isCloudAuthBusy)
+                        }
+                    }
+                }
+
+                if !appState.cloudAuthMessage.isEmpty {
+                    TZInlineFeedbackBanner(message: appState.cloudAuthMessage)
+                }
+            }
+        }
+    }
+
+    private var customEngineOverviewBar: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "lightbulb.fill")
+                    .font(.system(size: 13.5))
+                    .foregroundStyle(TZTheme.accent)
+                    .padding(.top, 1)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("官方最省心推荐组合：豆包语音 2.0 + DeepSeek（每天约 5 分钱 · 充 ¥10 用半年）")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(TZTheme.inkPrimary)
+                    Text("TypeZero 软件本体永久 ¥0 订阅费；个人 API Key 仅存本机 Keychain 并直连官方，零中转更安心。")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(TZTheme.inkSecondary)
+                }
+                Spacer()
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    NSWorkspace.shared.open(CloudAuthClient.doubaoGuideURL)
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("🎙️ 豆包语音开通教程")
+                        Image(systemName: "arrow.up.right").font(.system(size: 9.5, weight: .semibold))
+                    }
+                }
+                .buttonStyle(TZSecondaryButtonStyle(compact: true, capsule: true))
+
+                Button {
+                    NSWorkspace.shared.open(CloudAuthClient.deepseekGuideURL)
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("✨ DeepSeek 开通教程")
+                        Image(systemName: "arrow.up.right").font(.system(size: 9.5, weight: .semibold))
+                    }
+                }
+                .buttonStyle(TZSecondaryButtonStyle(compact: true, capsule: true))
+
+                Button {
+                    NSWorkspace.shared.open(CloudAuthClient.byokGuideURL)
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("费用对比 & 排障")
+                        Image(systemName: "arrow.up.right").font(.system(size: 9.5, weight: .semibold))
+                    }
+                }
+                .buttonStyle(TZSecondaryButtonStyle(compact: true, capsule: true))
+
+                Spacer()
+
+                if appState.isOfficialCloudTrialActive {
+                    Button("立即切自定义模式") {
+                        appState.setUseOfficialCloudTrial(false)
+                    }
+                    .buttonStyle(TZAccentButtonStyle(compact: true, capsule: true))
+                }
+            }
+
+            if appState.isOfficialCloudTrialActive {
+                Text("💡 提示：你当前仍在使用免费「自研云端引擎」。现在填好下方个人 Key 会作为热备静默待命，免费额度用尽瞬间自动无缝切换！")
+                    .font(.system(size: 11))
+                    .foregroundStyle(TZTheme.emerald)
+            }
+        }
+        .padding(12)
+        .background(TZTheme.accentSoft.opacity(0.38))
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(TZTheme.accent.opacity(0.24), lineWidth: 1))
     }
 
     private func asrSelectorCard(
@@ -702,6 +1149,25 @@ struct SettingsView: View {
             let isActive = (appState.llmConfig.asrProvider == .volcSeedASR)
             let isActivating = (appState.activatingASRProvider == .volcSeedASR)
             VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("火山豆包流式语音 2.0")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(TZTheme.inkPrimary)
+                    Spacer()
+                    Button {
+                        NSWorkspace.shared.open(CloudAuthClient.doubaoGuideURL)
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text("如何开通豆包 API Key？看 2 分钟图文教程")
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 9.5, weight: .semibold))
+                        }
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(TZTheme.accent)
+                    }
+                    .buttonStyle(.plain)
+                }
+
                 HStack(spacing: 8) {
                     Text("API Key")
                         .font(TZFont.mono(11.5, weight: .medium))
@@ -735,7 +1201,7 @@ struct SettingsView: View {
                             withAnimation(.easeOut(duration: 0.14)) { showVoucherDrawer = true }
                         } label: {
                             HStack(spacing: 4) {
-                                Text("使用朋友赠送的豆包兑换码")
+                                Text("使用朋友赠送的官方增容码 / 兑换码")
                                 Image(systemName: "chevron.right").font(.system(size: 9.5, weight: .semibold))
                             }
                             .font(.system(size: 11.5, weight: .medium))
@@ -993,10 +1459,25 @@ struct SettingsView: View {
                         .clipShape(Capsule())
                 }
                 Spacer()
-                Text(provider.subtitle)
-                    .font(.system(size: 11))
-                    .foregroundStyle(TZTheme.inkMuted)
-                    .lineLimit(1)
+                if provider == .deepseek {
+                    Button {
+                        NSWorkspace.shared.open(CloudAuthClient.deepseekGuideURL)
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text("1 分钟开通 DeepSeek Key 教程")
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 9.5, weight: .semibold))
+                        }
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(TZTheme.accent)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Text(provider.subtitle)
+                        .font(.system(size: 11))
+                        .foregroundStyle(TZTheme.inkMuted)
+                        .lineLimit(1)
+                }
             }
 
             if provider == .custom {
@@ -1076,33 +1557,34 @@ struct SettingsView: View {
         .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(TZTheme.cardBorder, lineWidth: 1))
     }
 
-    // MARK: - Tab 3: 账户与额度
+    // MARK: - Tab 3: 账户与关于
 
     private var accountTabContent: some View {
         VStack(alignment: .leading, spacing: 18) {
-            TZGroupedSection(title: "TypeZero 云端体验账户") {
+            TZGroupedSection(title: "TypeZero 账户") {
                 if let user = appState.cloudUser {
+                    let trial = user.effectiveTrial
                     VStack(alignment: .leading, spacing: 14) {
                         HStack(alignment: .center) {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack(spacing: 7) {
                                     Circle()
-                                        .fill(appState.isOfficialCloudTrialActive ? TZTheme.emerald : TZTheme.inkMuted)
+                                        .fill(trial.isUsable ? TZTheme.emerald : TZTheme.inkMuted)
                                         .frame(width: 7.5, height: 7.5)
                                     Text(user.email)
                                         .font(.system(size: 14.5, weight: .semibold))
                                         .foregroundStyle(TZTheme.inkPrimary)
                                 }
-                                Text(String(format: "已用语音 %ds · 润色 %d 次", user.asrSecondsUsed, user.llmRequestsUsed))
+                                Text(String(format: "已累计开口成文 %d 字 · 省时约 %.1f 小时", appState.totalCharactersDictated, appState.estimatedTimeSavedHours))
                                     .font(TZFont.mono(11.5))
                                     .foregroundStyle(TZTheme.inkMuted)
                             }
                             Spacer()
                             VStack(alignment: .trailing, spacing: 2) {
-                                Text(String(format: "¥%.4f", user.balanceCny))
-                                    .font(TZFont.metric(28))
-                                    .foregroundStyle(user.balanceCny > 0 ? TZTheme.emerald : TZTheme.amber)
-                                Text("体验余额")
+                                Text(trial.isUsable ? "\(trial.remainingPercent)%" : (trial.isExpired ? "已到期" : "已用完"))
+                                    .font(TZFont.metric(24))
+                                    .foregroundStyle(trial.isUsable ? (trial.isLow ? TZTheme.amber : TZTheme.emerald) : TZTheme.amber)
+                                Text(trial.daysRemaining.map { trial.isUsable ? "自研引擎 · 剩 \($0) 天" : "1 个月体验已结束" } ?? "自研云端引擎")
                                     .font(.system(size: 11))
                                     .foregroundStyle(TZTheme.inkMuted)
                             }
@@ -1110,34 +1592,20 @@ struct SettingsView: View {
 
                         TZHairline()
 
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("启用官方免 Key 体验通道")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundStyle(TZTheme.inkPrimary)
-                                Text("直连豆包 2.0 + DeepSeek Flash，随时可关掉切回个人 Key")
-                                    .font(.system(size: 11.5))
-                                    .foregroundStyle(TZTheme.inkMuted)
-                            }
-                            Spacer()
-                            Toggle("", isOn: Binding(
-                                get: { appState.llmConfig.useOfficialCloudTrial },
-                                set: { appState.setUseOfficialCloudTrial($0) }
-                            ))
-                            .labelsHidden()
-                            .toggleStyle(.switch)
-                            .tint(TZTheme.accent)
-                            .disabled(user.balanceCny <= 0)
-                        }
-
                         HStack(spacing: 8) {
-                            if justClaimedTrial {
-                                Text("✓ ¥1.00 体验额度已到账并自动开启")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(TZTheme.emerald)
+                            Button("管理语音与引擎") {
+                                appState.selectedSettingsTab = .engines
                             }
+                            .buttonStyle(TZSecondaryButtonStyle(compact: true))
+
+                            Button("API 开通教程 ↗") {
+                                NSWorkspace.shared.open(CloudAuthClient.byokGuideURL)
+                            }
+                            .buttonStyle(TZSecondaryButtonStyle(compact: true))
+
                             Spacer()
-                            Button("刷新余额") { Task { await appState.refreshCloudAccount() } }
+
+                            Button("刷新状态") { Task { await appState.refreshCloudAccount() } }
                                 .buttonStyle(TZSecondaryButtonStyle(compact: true))
                             Button("退出登录") { appState.logoutCloudAccount() }
                                 .buttonStyle(TZSecondaryButtonStyle(compact: true, destructive: true))
@@ -1145,71 +1613,33 @@ struct SettingsView: View {
                     }
                     .padding(18)
                 } else {
-                    VStack(alignment: .leading, spacing: 13) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("邮箱登录，免费领 ¥1.00 官方体验额度")
-                                .font(.system(size: 15.5, weight: .bold))
-                                .foregroundStyle(TZTheme.inkPrimary)
-                            Text("免配置直接用约 60 分钟豆包 2.0 语音 + 300 次 DeepSeek 润色；长期自备 Key 每天约 5 分钱。")
-                                .font(.system(size: 12.5))
-                                .foregroundStyle(TZTheme.inkSecondary)
-                        }
-
-                        if !appState.cloudCodeSent {
-                            HStack(spacing: 8) {
-                                TextField("输入常用邮箱（Gmail / QQ / 163 / Outlook）", text: $appState.cloudEmailInput)
-                                    .tzRecessedInput()
-                                    .onSubmit { triggerSendCode() }
-                                Button(appState.isCloudAuthBusy ? "发送中…" : "发送验证码") {
-                                    triggerSendCode()
-                                }
-                                .buttonStyle(TZPrimaryButtonStyle(compact: false, capsule: false))
-                                .disabled(appState.isCloudAuthBusy)
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("登录账号，免费领取 1 个月 TypeZero 自研云端引擎")
+                                    .font(.system(size: 14.5, weight: .bold))
+                                    .foregroundStyle(TZTheme.inkPrimary)
+                                Text("赠送 30 天（300 分钟语音识别 + 1,500 次智能成文），零配置开箱即用")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(TZTheme.inkSecondary)
                             }
-                        } else {
-                            VStack(alignment: .leading, spacing: 9) {
-                                HStack {
-                                    Text("6 位验证码已发送至 \(appState.cloudEmailInput)")
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(TZTheme.inkSecondary)
-                                    Spacer()
-                                    Button("换邮箱") {
-                                        appState.cloudCodeSent = false
-                                        appState.cloudCodeInput = ""
-                                    }
-                                    .font(.system(size: 11.5))
-                                    .foregroundStyle(TZTheme.inkMuted)
-                                    .buttonStyle(.plain)
-                                    Button(resendCooldown > 0 ? "\(resendCooldown)s 后重发" : "重发") {
-                                        triggerSendCode()
-                                    }
-                                    .font(.system(size: 11.5, weight: .medium))
-                                    .foregroundStyle(resendCooldown > 0 ? TZTheme.inkMuted : TZTheme.accent)
-                                    .buttonStyle(.plain)
-                                    .disabled(resendCooldown > 0 || appState.isCloudAuthBusy)
-                                }
-
-                                HStack(spacing: 8) {
-                                    TextField("输入 6 位数字验证码", text: $appState.cloudCodeInput)
-                                        .tzRecessedInput()
-                                        .font(TZFont.mono(14, weight: .bold))
-                                        .frame(maxWidth: 220)
-                                        .onSubmit { triggerVerifyCode() }
-                                    Button(appState.isCloudAuthBusy ? "验证中…" : "验证并领取 ¥1.00") {
-                                        triggerVerifyCode()
-                                    }
-                                    .buttonStyle(TZAccentButtonStyle(compact: false, capsule: false))
-                                    .disabled(appState.isCloudAuthBusy)
-                                }
+                            Spacer()
+                            Button("立即去领取 →") {
+                                inspectedMode = .official
+                                appState.selectedSettingsTab = .engines
                             }
-                        }
-
-                        if !appState.cloudAuthMessage.isEmpty {
-                            TZInlineFeedbackBanner(message: appState.cloudAuthMessage)
+                            .buttonStyle(TZPrimaryButtonStyle(compact: true, capsule: true))
                         }
                     }
                     .padding(18)
                 }
+            }
+
+            TZGroupedSection(title: "官方增容码 / 老友兑换码") {
+                VStack(alignment: .leading, spacing: 10) {
+                    voucherDrawerView
+                }
+                .padding(16)
             }
 
             TZGroupedSection(title: "软件更新与关于") {
@@ -1229,6 +1659,16 @@ struct SettingsView: View {
                             .foregroundStyle(TZTheme.inkSecondary)
                     }
                     Spacer()
+                    Button("新手引导") {
+                        appState.showOnboardingSheet = true
+                    }
+                    .buttonStyle(TZSecondaryButtonStyle(compact: true, capsule: true))
+
+                    Button("API 配置教程 ↗") {
+                        NSWorkspace.shared.open(CloudAuthClient.byokGuideURL)
+                    }
+                    .buttonStyle(TZSecondaryButtonStyle(compact: true, capsule: true))
+
                     if appState.availableUpdate != nil {
                         Button(appState.isInstallingUpdate ? "更新中…" : "一键升级并重启") {
                             Task { await appState.installAvailableUpdate() }

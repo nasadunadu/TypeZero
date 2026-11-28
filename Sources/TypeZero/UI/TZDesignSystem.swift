@@ -393,8 +393,8 @@ struct TZKeycapView: View {
                         )
                         .shadow(color: isDark ? Color.black.opacity(0.55) : Color.white.opacity(0.85), radius: 1, y: 0.5)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.65)
-                        .frame(maxWidth: 46)
+                        .minimumScaleFactor(0.5)
+                        .frame(maxWidth: 50)
                         .offset(y: isDark ? -(capBox * 0.141) : -(capBox * 0.150))
                 } else {
                     RoundedRectangle(cornerRadius: 13, style: .continuous)

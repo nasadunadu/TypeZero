@@ -58,17 +58,17 @@
     {
       "@type": "Question",
       "name": "TypeZero 真的是永久免费的吗？",
-      "acceptedAnswer": { "@type": "Answer", "text": "MIT 开源永久免费，零软件订阅费。纯本机 SenseVoice FP32 完全免费；自配 OpenAI / Groq / DeepSeek / 豆包 API 按官方底价直付，每天千字仅几分钱。" }
+      "acceptedAnswer": { "@type": "Answer", "text": "MIT 开源永久免费，零软件订阅费。新用户注册即免费赠送 1 个月 TypeZero 自研云端引擎（30 天 · 300 分钟语音 + 1,500 次智能成文）；到期后可切换本机离线引擎永久 ¥0，或自绑官方 API 按底价直付，每天仅约 5 分钱。" }
     },
     {
       "@type": "Question",
       "name": "只有 OpenAI Key 可以同时做语音识别和排版吗？",
-      "acceptedAnswer": { "@type": "Answer", "text": "可以。v0.4.5 内置 OpenAI gpt-4o-mini-transcribe 与 Groq whisper-large-v3-turbo，填一次 OpenAI Key 即可自动双端复用。" }
+      "acceptedAnswer": { "@type": "Answer", "text": "可以。内置 OpenAI gpt-4o-mini-transcribe 与 Groq whisper-large-v3-turbo，填一次 OpenAI Key 即可自动双端复用。" }
     },
     {
       "@type": "Question",
-      "name": "我的语音和 API Key 会经过开发者服务器吗？",
-      "acceptedAnswer": { "@type": "Answer", "text": "不会。TypeZero 零中转服务器、零账号、零埋点。Key 加密存于 macOS Keychain，词库和历史 100% 留在本机，支持完全断网运行。" }
+      "name": "我的语音、历史记录和 API Key 隐私安全吗？",
+      "acceptedAnswer": { "@type": "Answer", "text": "安全。使用 1 个月免费自研云端引擎时采用实时流式处理，服务端不留存任何录音与转写原文；切换自定义 API Key 或本机离线引擎后 100% 零中转直连，Key 加密存于 macOS Keychain，词库与历史永远只存本机。" }
     }
   ]
 }
@@ -1805,6 +1805,7 @@ footer.knight-footer .foot-links a:hover {
       <a href="#film">宣传片</a>
       <a href="#bento">硬核亮点</a>
       <a href="#compare">对比竞品</a>
+      <a href="/guide/">API 教程</a>
       <a href="#faq">FAQ</a>
     </nav>
 
@@ -1832,7 +1833,7 @@ footer.knight-footer .foot-links a:hover {
       <div class="hero-center">
         <div class="hero-badge">
           <span class="pulse-dot" aria-hidden="true"></span>
-          <span>适用于 macOS &amp; Windows 10/11 桌面端 · MIT 开源 · 自配 API</span>
+          <span>注册即送 1 个月 TypeZero 自研云端引擎 · 零配置开箱即用 · MIT 开源</span>
         </div>
 
         <h1><span class="grad-text">市面上最好用的<br>免费开源 AI 语音输入法</span></h1>
@@ -1840,7 +1841,7 @@ footer.knight-footer .foot-links a:hover {
         <p class="hero-slogan">开口，即终稿。</p>
 
         <p class="hero-sub">
-          <strong>原生极速、零订阅费</strong> —— 121ms 实时直出，个人专属词库，100% 本地隐私。
+          <strong>注册即畅享 1 个月自研云端引擎</strong> —— 121ms 极速直出，个人专属词库，永久零订阅费。
         </p>
 
         <div class="hero-cta">
@@ -2101,9 +2102,9 @@ footer.knight-footer .foot-links a:hover {
       <article class="bento-card span-12 reveal-on-scroll">
         <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:14px">
           <div>
-            <div class="bento-meta">05 / ZERO MIDDLEMAN · 100% LOCAL PRIVACY</div>
+            <div class="bento-meta">05 / STREAMING ZERO-RETENTION · 100% LOCAL PRIVACY</div>
             <h3>密钥仅存 Keychain，断网秒切本机 886MB FP32 零丢字</h3>
-            <p class="bento-one-liner">无中转服务器、无账号、无埋点。点击右侧按钮模拟断网瞬间体验无缝热备：</p>
+            <p class="bento-one-liner">云端流式即用即焚不留存，切换自有 Key 或离线后 100% 零中转。点击右侧模拟断网热备：</p>
           </div>
           <button type="button" class="net-toggle" id="netToggle">● 当前：在线云端模式（点击模拟断网）</button>
         </div>
@@ -2253,16 +2254,16 @@ footer.knight-footer .foot-links a:hover {
 
     <div class="faq-wrap reveal-on-scroll">
       <details open>
-        <summary>永久免费开源，那 API 花费高吗？</summary>
-        <div class="faq-body">软件本体 MIT 永久免费，零订阅费。你可以用本机 886MB SenseVoice FP32 完全免费离线跑；自配 DeepSeek / OpenAI / Groq / 豆包官方 API，每天口述几千字通常仅需几分钱。</div>
+        <summary>永久免费开源，注册就能直接用吗？到期后花费高吗？</summary>
+        <div class="faq-body">软件本体 MIT 永久免费，零订阅费。新用户邮箱登录即送 <strong>1 个月 TypeZero 自研云端引擎</strong>（30 天 · 300 分钟语音 + 1,500 次智能成文），开箱即用无需配置。到期后可切本机 886MB SenseVoice 永久 ¥0 离线跑，也可按我们的 <a href="/guide/" style="color:var(--cyan);text-decoration:underline;">2 分钟 API 开通教程</a> 绑定个人 API 按底价直付，每天通常仅需约 5 分钱。</div>
       </details>
       <details>
         <summary>只有 OpenAI API Key 能不能直接开用？</summary>
-        <div class="faq-body">可以。v0.4.5 内置 OpenAI（<code>gpt-4o-mini-transcribe</code>）与 Groq（<code>whisper-large-v3-turbo</code>）云端语音卡片，填一次 OpenAI Key 自动双端复用，零额外注册门槛。</div>
+        <div class="faq-body">可以。内置 OpenAI（<code>gpt-4o-mini-transcribe</code>）与 Groq（<code>whisper-large-v3-turbo</code>）云端语音卡片，填一次 OpenAI Key 自动双端复用，零额外注册门槛。</div>
       </details>
       <details>
-        <summary>我的聊天记录和密钥真的 100% 留在本机吗？</summary>
-        <div class="faq-body">100%。无开发者中转服务器、无账号体系、无埋点统计。API Key 加密存放在 macOS Keychain，所有代码全量开源可审计。</div>
+        <summary>我的语音记录和个人密钥隐私安全吗？</summary>
+        <div class="faq-body">完全放心。词库与历史记录 100% 仅保存在你的本机；使用 1 个月免费自研云端引擎时采用实时流式转写、服务端绝不落盘任何录音与文本；切至个人 API Key 或本机离线模式后全程零中转直连，密钥加密存于 macOS Keychain。</div>
       </details>
       <details>
         <summary>支持哪些系统？macOS 和 Windows 首次打开会被拦截吗？</summary>
@@ -2312,11 +2313,11 @@ footer.knight-footer .foot-links a:hover {
   <section class="wrap">
     <div class="final-cta reveal-on-scroll">
       <h2><span class="grad-text">把打字，还给声音。</span></h2>
-      <p>TypeZero v0.6.5（macOS &amp; Windows 双端）· 邮箱登录即送 ¥1.00 体验额度 · 双端原生 · MIT 永久免费</p>
+      <p>TypeZero v0.6.5（macOS &amp; Windows 双端）· 注册即送 1 个月自研云端引擎 · 长期支持自绑 API 与本机离线 · MIT 永久免费</p>
       <div class="hero-cta" style="margin-bottom:14px">
         <a class="btn btn-glow btn-lg" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.6.5/TypeZero-v0.6.5-macOS-arm64.dmg" data-umami-event="download-dmg" data-umami-event-source="home-footer">⬇ macOS 高速下载 DMG</a>
         <a class="btn btn-glow btn-lg" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.5.7/TypeZero-v0.5.7-Windows-x64-setup.exe" data-umami-event="download-win-exe" data-umami-event-source="home-footer">⬇ Windows 一键安装包 (.exe)</a>
-        <a class="btn btn-ghost btn-lg" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.5.7/TypeZero-v0.5.7-Windows-x64-portable.zip" data-umami-event="download-win-zip" data-umami-event-source="home-footer">📦 Windows 绿色便携版 (.zip)</a>
+        <a class="btn btn-ghost btn-lg" href="/guide/">📖 2 分钟 API 开通教程</a>
       </div>
       <p style="margin:0 0 18px;font-size:12.5px;color:var(--muted);">
         无代理打不开 GitHub？点此走国内备用通道：
@@ -2348,6 +2349,7 @@ footer.knight-footer .foot-links a:hover {
         <div>TypeZero v0.6.5 · Pure Native macOS AI Voice Dictation · MIT License</div>
         <div class="foot-links">
       <a href="./index.html" hreflang="zh-Hans">中文</a>
+      <a href="/guide/">API 开通教程</a>
       <a href="/vs-typeless/">对比 Typeless</a>
       <a href="/vs-shandianshuo/">对比闪电说</a>
       <a href="./en/index.html" hreflang="en">English</a>

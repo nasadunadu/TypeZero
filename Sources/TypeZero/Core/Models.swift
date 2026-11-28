@@ -32,8 +32,8 @@ public enum SidebarTab: String, CaseIterable, Identifiable, Sendable {
 
 public enum SettingsSectionTab: String, CaseIterable, Identifiable, Sendable {
     case general = "通用与快捷键"
-    case engines = "语音与模型"
-    case account = "账户与额度"
+    case engines = "语音与引擎"
+    case account = "账户与关于"
 
     public var id: String { rawValue }
 

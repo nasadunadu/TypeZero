@@ -93,7 +93,7 @@ struct StyleView: View {
             return "原声直出（本地）"
         }
         if appState.isOfficialCloudTrialActive {
-            return "官方云端体验 · deepseek-flash"
+            return "TypeZero 自研云端引擎"
         }
         return "\(appState.llmConfig.selectedProvider.shortName) · \(appState.llmConfig.modelName)"
     }

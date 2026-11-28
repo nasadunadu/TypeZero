@@ -81,22 +81,25 @@
           <span id="feishuStatusHint" class="mono" style="color:var(--muted)"></span>
         </div>
         <div class="row">
-          <label>新用户赠送 (¥) <input id="cfgBonus" type="number" step="0.1" style="width:90px" /></label>
-          <label>每日上限 (¥) <input id="cfgDaily" type="number" step="1" style="width:95px" /></label>
-          <label>总预算熔断 (¥) <input id="cfgTotal" type="number" step="10" style="width:105px" /></label>
-          <label><input id="cfgTrial" type="checkbox" /> 开启新用户自动赠送</label>
-          <label><input id="cfgRelay" type="checkbox" /> 开启免费中转总开关</label>
-          <button onclick="saveSettings()">保存熔断配置</button>
+          <label>新用户成本封顶 (¥) <input id="cfgBonus" type="number" step="0.5" style="width:82px" /></label>
+          <label>有效期 (天) <input id="cfgDays" type="number" step="1" min="1" style="width:68px" /></label>
+          <label>语音配额 (分) <input id="cfgAsrMin" type="number" step="30" min="10" style="width:76px" /></label>
+          <label>成文配额 (次) <input id="cfgLlmCnt" type="number" step="100" min="50" style="width:82px" /></label>
+          <label>每日上限 (¥) <input id="cfgDaily" type="number" step="5" style="width:82px" /></label>
+          <label>总预算熔断 (¥) <input id="cfgTotal" type="number" step="50" style="width:92px" /></label>
+          <label><input id="cfgTrial" type="checkbox" /> 新用户自动赠送</label>
+          <label><input id="cfgRelay" type="checkbox" /> 中转总开关</label>
+          <button onclick="saveSettings()">保存配置</button>
           <button class="sec" onclick="loadOverview()">刷新数据</button>
         </div>
       </div>
 
       <div class="card">
-        <h3 style="margin:0 0 10px;font-size:15px;">注册用户与余额管理</h3>
+        <h3 style="margin:0 0 10px;font-size:15px;">注册用户与 30 天免费包管理</h3>
         <div style="overflow-x:auto">
           <table>
             <thead>
-              <tr><th>邮箱</th><th>平台</th><th>剩余余额</th><th>累计消耗</th><th>语音时长</th><th>排版次数</th><th>状态</th><th>操作</th></tr>
+              <tr><th>邮箱</th><th>平台</th><th>剩余进度 / 天数</th><th>语音 (分)</th><th>成文 (次)</th><th>成本余 / 耗 (¥)</th><th>状态</th><th>操作</th></tr>
             </thead>
             <tbody id="usersBody"></tbody>
           </table>
@@ -219,31 +222,41 @@
             }).join("");
 
         document.getElementById("cfgBonus").value = d.budget.trialBonusCny;
+        document.getElementById("cfgDays").value = d.budget.trialDurationDays ?? 30;
+        document.getElementById("cfgAsrMin").value = d.budget.trialAsrMinutes ?? 300;
+        document.getElementById("cfgLlmCnt").value = d.budget.trialLlmQuotaCount ?? 1500;
         document.getElementById("cfgDaily").value = d.budget.dailyBudgetCny;
         document.getElementById("cfgTotal").value = d.budget.totalBudgetCny;
         document.getElementById("cfgTrial").checked = d.budget.trialSignupEnabled;
         document.getElementById("cfgRelay").checked = d.budget.relayEnabled;
 
-        document.getElementById("usersBody").innerHTML = d.users.map((u) => `
+        document.getElementById("usersBody").innerHTML = d.users.map((u) => {
+          const t = u.trial || {};
+          const daysStr = t.daysRemaining != null ? `剩 ${t.daysRemaining} 天` : "无期限";
+          const pctStr = t.remainingPercent != null ? `${t.remainingPercent}%` : "-";
+          const stLabel = u.isBanned ? "已封禁" : (t.status === "expired" ? "已到期" : t.status === "exhausted" ? "已用完" : t.status === "low" ? "余量低" : t.status === "not_granted" ? "未发放" : "正常");
+          const stClass = (u.isBanned || t.status === "expired" || t.status === "exhausted" || t.status === "low") ? "warn" : "ok";
+          return `
           <tr>
-            <td class="mono">${u.email}</td>
-            <td>${u.platform || "-"}</td>
-            <td class="mono"><strong>¥${u.balanceCny.toFixed(3)}</strong></td>
-            <td class="mono">¥${u.totalUsedCny.toFixed(4)}</td>
-            <td class="mono">${u.asrSecondsUsed}s</td>
-            <td class="mono">${u.llmRequestsUsed}</td>
-            <td><span class="pill ${u.isBanned ? "warn" : "ok"}">${u.isBanned ? "已封禁" : "正常"}</span></td>
+            <td class="mono">${escapeHtml(u.email)}</td>
+            <td>${escapeHtml(u.platform || "-")}</td>
+            <td class="mono"><strong>${pctStr}</strong> · ${daysStr}</td>
+            <td class="mono">${(t.asrUsedMinutes ?? 0).toFixed(1)} / ${t.asrQuotaMinutes ?? 300}</td>
+            <td class="mono">${t.llmUsedCount ?? u.llmRequestsUsed} / ${t.llmQuotaCount ?? 1500}</td>
+            <td class="mono"><strong>¥${u.balanceCny.toFixed(2)}</strong> / ¥${u.totalUsedCny.toFixed(3)}</td>
+            <td><span class="pill ${stClass}">${stLabel}</span></td>
             <td class="row">
-              <button class="sec" onclick="grant('${u.id}', 1)">+¥1</button>
+              <button class="sec" onclick="grant('${u.id}', 3)">+1个月(¥3)</button>
               <button class="${u.isBanned ? "sec" : "red"}" onclick="toggleBan('${u.id}', ${!u.isBanned})">${u.isBanned ? "解封" : "封禁"}</button>
             </td>
           </tr>
-        `).join("");
+        `;
+        }).join("");
 
         document.getElementById("logsBody").innerHTML = d.recentLogs.map((l) => `
           <tr>
             <td class="mono">${l.created_at.slice(5, 19).replace("T", " ")}</td>
-            <td class="mono">${l.email}</td>
+            <td class="mono">${escapeHtml(l.email)}</td>
             <td>${l.service.toUpperCase()}</td>
             <td class="mono">${l.model}</td>
             <td class="mono">${l.service === "asr" || l.service === "asr_voucher" ? l.units + "s" : l.units + " tok"}</td>
@@ -261,13 +274,16 @@
           method: "POST",
           body: JSON.stringify({
             trialBonusCny: Number(document.getElementById("cfgBonus").value),
+            trialDurationDays: Number(document.getElementById("cfgDays").value),
+            trialAsrMinutes: Number(document.getElementById("cfgAsrMin").value),
+            trialLlmCount: Number(document.getElementById("cfgLlmCnt").value),
             dailyBudgetCny: Number(document.getElementById("cfgDaily").value),
             totalBudgetCny: Number(document.getElementById("cfgTotal").value),
             trialSignupEnabled: document.getElementById("cfgTrial").checked,
             relayEnabled: document.getElementById("cfgRelay").checked,
           }),
         });
-        alert("熔断配置已保存并立即生效");
+        alert("配额与熔断配置已保存并立即生效");
         loadOverview();
       } catch (e) {
         alert(e.message);
