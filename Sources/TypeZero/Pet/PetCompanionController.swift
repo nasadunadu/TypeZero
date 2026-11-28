@@ -528,7 +528,13 @@ public final class PetCompanionController: ObservableObject {
 
     public func triggerFishPuffDemo() {
         if !isEnabled { setEnabled(true) }
-        physics?.fishSwim.triggerPuffUp(duration: 2.2)
+        physics?.fishSwim.triggerPuffUp(duration: 2.6, fromFrenzy: false)
+        wakeToActive(immediateRedraw: true)
+    }
+
+    public func triggerFishSwimShowcaseDemo() {
+        if !isEnabled { setEnabled(true) }
+        physics?.fishSwim.triggerIdleShowcaseNow(direction: nil, forced: true)
         wakeToActive(immediateRedraw: true)
     }
 
@@ -1602,7 +1608,11 @@ public final class PetCompanionController: ObservableObject {
         let hasActiveSparkles = physics.sparkles.contains { !$0.isSleepZ }
         let clackActive = visualStyle == .clackOriginal && (physics.clackSim.pose.active || !physics.clackSim.pose.bubbles.isEmpty)
         let fishActiveMotion = activePetSpecies == "fish" && (
-            physics.fishSwim.puff.value > 0.02
+            physics.fishSwim.isShowcaseActive
+            || physics.fishSwim.sideBlend.value > 0.01
+            || physics.fishSwim.puff.value > 0.02
+            || physics.fishSwim.typingFrenzy.value > 0.04
+            || physics.fishSwim.tailTapRippleTimer > 0.01
             || !physics.fishSwim.droplets.isEmpty
             || physics.fishSwim.recentKeyTimer > 0.01
         )
