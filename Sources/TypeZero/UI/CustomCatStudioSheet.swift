@@ -2,15 +2,15 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
-// MARK: - Live Studio Preview Stage (Renders Unsaved Draft `SkinSpec` + Floating Name Bubble at 30fps!)
+// MARK: - Live Studio Preview Stage (30fps Animated Cat + Head-Top Name Bubble)
 
 private final class StudioCatPreviewNSView: NSView {
     let physics = CatPhysics()
     var previewStyle: PetVisualStyle = .kuroSticker
     var draftSkin: SkinSpec? = nil
-    var catName: String = "年糕"
+    var catName: String = "小咪"
     var showNameBubble: Bool = true
-    var onDropPhoto: ((URL) -> Void)?
+    var onDropPhotos: (([URL]) -> Void)?
 
     private var animTimer: Timer?
     private var lastTick: CFTimeInterval = CACurrentMediaTime()
@@ -95,8 +95,9 @@ private final class StudioCatPreviewNSView: NSView {
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         let urls = (sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
-        guard let first = urls.first(where: { Self.photoExts.contains($0.pathExtension.lowercased()) }) else { return false }
-        DispatchQueue.main.async { [weak self] in self?.onDropPhoto?(first) }
+        let photos = urls.filter { Self.photoExts.contains($0.pathExtension.lowercased()) }
+        guard !photos.isEmpty else { return false }
+        DispatchQueue.main.async { [weak self] in self?.onDropPhotos?(photos) }
         return true
     }
 
@@ -194,11 +195,11 @@ private struct StudioCatPreviewStage: NSViewRepresentable {
     let revision: Int
     let catName: String
     let showNameBubble: Bool
-    let onDropPhoto: (URL) -> Void
+    let onDropPhotos: ([URL]) -> Void
 
     func makeNSView(context: Context) -> StudioCatPreviewNSView {
         let v = StudioCatPreviewNSView()
-        v.onDropPhoto = onDropPhoto
+        v.onDropPhotos = onDropPhotos
         return v
     }
 
@@ -208,12 +209,22 @@ private struct StudioCatPreviewStage: NSViewRepresentable {
         nsView.draftSkin = draftSkin
         nsView.catName = catName
         nsView.showNameBubble = showNameBubble
-        nsView.onDropPhoto = onDropPhoto
+        nsView.onDropPhotos = onDropPhotos
         nsView.needsDisplay = true
     }
 }
 
-// MARK: - Custom Cat Photo Studio Modal Sheet
+// MARK: - Simplified Consumer Custom Cat Studio Sheet (Multi-Photo + Name + Light Tweaks)
+
+private struct UploadedCatPhotoSlot: Identifiable, Equatable {
+    let id = UUID()
+    let cgImage: CGImage
+    let thumbnail: NSImage
+
+    static func == (lhs: UploadedCatPhotoSlot, rhs: UploadedCatPhotoSlot) -> Bool {
+        lhs.id == rhs.id
+    }
+}
 
 struct CustomCatStudioSheet: View {
     @ObservedObject var appState: AppState
@@ -222,40 +233,52 @@ struct CustomCatStudioSheet: View {
     @Environment(\.colorScheme) private var scheme
 
     @State private var dna: CatPhotoDNA = CatPhotoDNA()
+    @State private var photoSlots: [UploadedCatPhotoSlot] = []
     @State private var previewPNGData: Data? = nil
-    @State private var uploadedPhotoImage: NSImage? = nil
     @State private var draftSkin: SkinSpec? = nil
     @State private var draftRevision: Int = 0
     @State private var previewStyle: PetVisualStyle = .kuroSticker
     @State private var enableHeadNameBubble: Bool = true
     @State private var isAnalyzingPhoto: Bool = false
-    @State private var analysisBanner: String = "上传一张自家猫咪的照片，自动还原毛色、开脸、异瞳与白手套，完美保留全部动画与顶额头换班！"
     @State private var errorMessage: String = ""
     @State private var didBootstrap: Bool = false
 
-    private let suggestedNames = ["年糕", "煤球", "咪咪", "布丁", "大橘", "警长", "糯米"]
+    private let furSwatches: [(label: String, primary: String, stripe: String?)] = [
+        ("纯黑", "#19191E", nil),
+        ("黑狸", "#3A322B", "#141314"),
+        ("棕狸", "#7D6752", "#2D2520"),
+        ("橘猫", "#DF8B3E", "#AE5721"),
+        ("蓝灰", "#737E8E", "#464E59"),
+        ("三花", "#F6F2E9", "#232227"),
+        ("纯白", "#F6F4EE", nil)
+    ]
+
+    private let eyeSwatches: [(label: String, left: String, right: String, hetero: Bool)] = [
+        ("翠绿", "#5A9456", "#5A9456", false),
+        ("琥珀", "#DE9A38", "#DE9A38", false),
+        ("金黄", "#D8E550", "#D8E550", false),
+        ("冰蓝", "#64C1F8", "#64C1F8", false),
+        ("异瞳", "#64C1F8", "#E3AC38", true)
+    ]
 
     var body: some View {
         VStack(spacing: 0) {
-            studioHeader
+            headerBar
             Divider().overlay(TZTheme.cardBorder)
 
-            HStack(alignment: .top, spacing: 20) {
-                leftPreviewColumn
-                    .frame(width: 286)
+            HStack(alignment: .top, spacing: 18) {
+                leftPreviewCard
+                    .frame(width: 248)
 
-                ScrollView(.vertical, showsIndicators: false) {
-                    rightControlsColumn
-                        .padding(.vertical, 2)
-                }
-                .frame(maxWidth: .infinity)
+                rightSimpleColumn
+                    .frame(maxWidth: .infinity)
             }
-            .padding(20)
+            .padding(18)
 
             Divider().overlay(TZTheme.cardBorder)
-            studioFooter
+            footerBar
         }
-        .frame(width: 810, height: 600)
+        .frame(width: 676, height: 452)
         .background(TZTheme.canvasBg)
         .onAppear {
             bootstrapInitialStateIfNeeded()
@@ -265,67 +288,50 @@ struct CustomCatStudioSheet: View {
         }
     }
 
-    // MARK: - Header
+    // MARK: - Clean Header
 
-    private var studioHeader: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(TZTheme.accentSoft)
-                    .frame(width: 34, height: 34)
-                Image(systemName: "cat.fill")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(TZTheme.accent)
-            }
+    private var headerBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "cat.fill")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(TZTheme.accent)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(pet.editingStudioSkinID == nil ? "上传照片 · 定制我家猫咪" : "微调我家猫咪花色与名字")
-                    .font(.system(size: 16.5, weight: .bold))
-                    .foregroundStyle(TZTheme.inkPrimary)
-                Text(analysisBanner)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(isAnalyzingPhoto ? TZTheme.accent : TZTheme.inkSecondary)
-                    .lineLimit(1)
-            }
+            Text("定制我家猫咪")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(TZTheme.inkPrimary)
+
             Spacer()
 
-            Button {
-                choosePhotoViaOpenPanel()
-            } label: {
-                HStack(spacing: 5) {
-                    if isAnalyzingPhoto {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "photo.badge.plus")
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-                    Text(uploadedPhotoImage == nil ? "选择猫咪照片…" : "重新选一张照片…")
+            if isAnalyzingPhoto {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("正在生成…")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(TZTheme.accent)
                 }
             }
-            .buttonStyle(TZAccentButtonStyle(compact: true, capsule: true))
-            .disabled(isAnalyzingPhoto)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
     }
 
-    // MARK: - Left Column: Live 60fps Animated Cat + Uploaded Photo Card
+    // MARK: - Left Column: Live Cat Preview + Style Switch
 
-    private var leftPreviewColumn: some View {
-        VStack(spacing: 12) {
+    private var leftPreviewCard: some View {
+        VStack(spacing: 10) {
             ZStack(alignment: .bottom) {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: scheme == .dark
                                 ? [Color(red: 0.11, green: 0.12, blue: 0.19), Color(red: 0.07, green: 0.08, blue: 0.13)]
-                                : [Color(red: 0.94, green: 0.95, blue: 0.99), Color(red: 0.88, green: 0.90, blue: 0.97)],
+                                : [Color(red: 0.94, green: 0.95, blue: 0.99), Color(red: 0.89, green: 0.91, blue: 0.97)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .strokeBorder(TZTheme.cardBorder, lineWidth: 1)
                     )
 
@@ -335,379 +341,356 @@ struct CustomCatStudioSheet: View {
                     revision: draftRevision,
                     catName: dna.name,
                     showNameBubble: enableHeadNameBubble,
-                    onDropPhoto: { url in
-                        runPhotoAnalysis(from: url)
+                    onDropPhotos: { urls in
+                        appendPhotosAndAnalyze(urls: urls)
                     }
                 )
-                .padding(8)
+                .padding(6)
 
                 HStack(spacing: 6) {
                     Text(dna.breedBadge)
                         .font(.system(size: 10.5, weight: .semibold))
                         .foregroundStyle(TZTheme.accent)
                         .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
+                        .padding(.vertical, 2.5)
                         .background(TZTheme.accentSoft)
                         .clipShape(Capsule())
 
-                    Text("点击小猫试敲键盘")
+                    Text("点小猫试敲")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(TZTheme.inkMuted)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2.5)
                         .background(.ultraThinMaterial)
                         .clipShape(Capsule())
                 }
-                .padding(.bottom, 9)
+                .padding(.bottom, 8)
             }
-            .frame(height: 248)
+            .frame(maxHeight: .infinity)
 
-            // Style Switcher inside Live Preview
             TZSegmentedBar(
-                items: PetVisualStyle.allCases.map { st in
+                items: [
                     TZSegmentedBar.Item(
-                        title: st.title,
-                        isSelected: previewStyle == st,
-                        action: { previewStyle = st }
+                        title: "贴纸风",
+                        isSelected: previewStyle == .kuroSticker,
+                        action: { previewStyle = .kuroSticker }
+                    ),
+                    TZSegmentedBar.Item(
+                        title: "立体风",
+                        isSelected: previewStyle == .clackOriginal,
+                        action: { previewStyle = .clackOriginal }
                     )
-                },
+                ],
                 compact: true
             )
-
-            // Photo Upload / Drop Card
-            Button {
-                choosePhotoViaOpenPanel()
-            } label: {
-                HStack(spacing: 12) {
-                    ZStack {
-                        if let img = uploadedPhotoImage {
-                            Image(nsImage: img)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 58, height: 58)
-                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .strokeBorder(Color.white.opacity(0.65), lineWidth: 1.2)
-                                )
-                        } else {
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(TZTheme.accentSoft.opacity(0.75))
-                                .frame(width: 58, height: 58)
-                                .overlay(
-                                    Image(systemName: "photo.on.rectangle.angled")
-                                        .font(.system(size: 21, weight: .semibold))
-                                        .foregroundStyle(TZTheme.accent)
-                                )
-                        }
-                        if isAnalyzingPhoto {
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(Color.black.opacity(0.45))
-                                .frame(width: 58, height: 58)
-                            ProgressView().controlSize(.small)
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(uploadedPhotoImage == nil ? "点击上传或拖入猫咪照片" : "已加载自家猫咪参考照")
-                            .font(.system(size: 12.5, weight: .semibold))
-                            .foregroundStyle(TZTheme.inkPrimary)
-                        Text("支持 JPG / PNG / HEIC / WebP\n自动剥离背景与黄光色偏，生成动态骨骼")
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(TZTheme.inkSecondary)
-                            .multilineTextAlignment(.leading)
-                            .lineSpacing(1.5)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .padding(11)
-                .background(TZTheme.recessedWell.opacity(0.78))
-                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .strokeBorder(TZTheme.accent.opacity(uploadedPhotoImage == nil ? 0.45 : 0.22), style: StrokeStyle(lineWidth: 1, dash: uploadedPhotoImage == nil ? [5, 3] : []))
-                )
-            }
-            .buttonStyle(.plain)
-            .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-                handleDroppedProviders(providers)
-            }
         }
     }
 
-    // MARK: - Right Column: Naming + Fine-Tune Studio
+    // MARK: - Right Column: 1) Photos (1–4)  2) Name  3) Simple Tweaks
 
-    private var rightControlsColumn: some View {
-        VStack(alignment: .leading, spacing: 13) {
-            HStack(spacing: 7) {
-                Image(systemName: "wand.and.stars")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(TZTheme.accent)
-                Text("以下参数由 AI 从照片自动提取生成 — 修改任意色块或开关，左侧猫咪 0 延迟实时同步")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(TZTheme.inkSecondary)
-            }
-            .padding(.horizontal, 11)
-            .padding(.vertical, 7)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(TZTheme.accentSoft.opacity(0.42))
-            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+    private var rightSimpleColumn: some View {
+        VStack(spacing: 11) {
+            photoStripCard
+            nameCard
+            lightTweaksCard
+            Spacer(minLength: 0)
+        }
+    }
 
-            // 1. Cat Naming & Head Bubble Section
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Label("给猫咪起个名字", systemImage: "tag.fill")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(TZTheme.inkPrimary)
-                    Spacer()
-                    Toggle(isOn: $enableHeadNameBubble) {
-                        Text("偶尔出现在脑袋上")
-                            .font(.system(size: 11.5, weight: .medium))
-                            .foregroundStyle(TZTheme.inkSecondary)
-                    }
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    .tint(TZTheme.accent)
-                }
-
-                TextField("输入自家猫咪名字（如：年糕、煤球、咪咪）", text: $dna.name)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 13, weight: .medium))
-
-                HStack(spacing: 6) {
-                    Text("灵感昵称：")
-                        .font(.system(size: 11))
-                        .foregroundStyle(TZTheme.inkMuted)
-                    ForEach(suggestedNames, id: \.self) { sample in
-                        Button(sample) {
-                            dna.name = sample
-                        }
-                        .font(.system(size: 11, weight: dna.name == sample ? .semibold : .regular))
-                        .foregroundStyle(dna.name == sample ? TZTheme.accent : TZTheme.inkSecondary)
-                        .padding(.horizontal, 7.5)
-                        .padding(.vertical, 2.5)
-                        .background(dna.name == sample ? TZTheme.accentSoft : TZTheme.recessedWell)
-                        .clipShape(Capsule())
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-            .padding(13)
-            .tzElevatedCard()
-
-            // 2. Coat Family & Face Blaze
-            VStack(alignment: .leading, spacing: 11) {
-                HStack {
-                    Label("花色底板与开脸样式（实时同步左侧动画）", systemImage: "paintbrush.pointed.fill")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(TZTheme.inkPrimary)
-                    Spacer()
-                    if dna.patternFamily == .calico || dna.patternFamily == .tuxedoBicolor || dna.patternFamily == .tortoiseshell {
-                        Button {
-                            dna.patchSeed = (dna.patchSeed + 13) % 997
-                        } label: {
-                            HStack(spacing: 3.5) {
-                                Image(systemName: "dice.fill")
-                                    .font(.system(size: 10.5))
-                                Text("微调斑块位置")
-                                    .font(.system(size: 11, weight: .medium))
-                            }
-                            .foregroundStyle(TZTheme.accent)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("整体花色底板")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(TZTheme.inkSecondary)
-                        Picker("", selection: $dna.patternFamily) {
-                            ForEach(CatPatternFamily.allCases) { fam in
-                                Text(fam.title).tag(fam)
-                            }
-                        }
-                        .labelsHidden()
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("面部开脸 / 刘海")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(TZTheme.inkSecondary)
-                        Picker("", selection: $dna.faceBlaze) {
-                            ForEach(CatFaceBlaze.allCases) { bz in
-                                Text(bz.title).tag(bz)
-                            }
-                        }
-                        .labelsHidden()
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                if dna.faceBlaze == .invertedV || dna.patternFamily == .calico || dna.patternFamily == .ragdollBicolor {
-                    HStack(spacing: 10) {
-                        Text("八字开脸宽度")
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(TZTheme.inkSecondary)
-                        Slider(value: $dna.blazeWidth, in: 0.28...0.86)
-                            .tint(TZTheme.accent)
-                    }
-                }
-            }
-            .padding(13)
-            .tzElevatedCard()
-
-            // 3. Palette Swatches (Fur + Heterochromia Eyes + Nose)
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Label("毛色、鼻头与瞳色（支持鸳鸯异瞳）", systemImage: "eyedropper.halffull")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(TZTheme.inkPrimary)
-                    Spacer()
-                    Toggle(isOn: $dna.heterochromia) {
-                        Text("鸳鸯异瞳")
-                            .font(.system(size: 11.5, weight: .medium))
-                            .foregroundStyle(TZTheme.inkSecondary)
-                    }
-                    .toggleStyle(.checkbox)
-                    .controlSize(.small)
-                }
-
-                HStack(spacing: 12) {
-                    hexColorControl(title: primaryColorLabel, hex: $dna.primaryFurHex)
-                    hexColorControl(title: secondaryColorLabel, hex: $dna.secondaryFurHex)
-                    if usesTertiaryColor {
-                        hexColorControl(title: tertiaryColorLabel, hex: $dna.tertiaryFurHex)
-                    }
-                    hexColorControl(title: "鼻头色", hex: $dna.noseHex)
-                }
-
-                // Quick 1-click Fur Tone Presets so dark/black/brown/silver/ginger cats snap to exact richness immediately!
-                HStack(spacing: 6) {
-                    Text("主毛色快选：")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(TZTheme.inkMuted)
-                    ForEach([
-                        ("绒黑", "#19191E"),
-                        ("黑狸深炭", "#3A322B"),
-                        ("深巧褐", "#4A3528"),
-                        ("暖灰褐", "#685C50"),
-                        ("英短蓝", "#6E7887"),
-                        ("美短银", "#B8BDBC"),
-                        ("大橘金", "#DC954B"),
-                        ("纯奶白", "#F6F2EA")
-                    ], id: \.0) { label, presetHex in
-                        Button {
-                            dna.primaryFurHex = presetHex
-                        } label: {
-                            HStack(spacing: 3.5) {
-                                Circle()
-                                    .fill(Color(nsColor: CatCoatCompiler.swiftUIColor(presetHex)))
-                                    .frame(width: 9, height: 9)
-                                    .overlay(Circle().strokeBorder(Color.black.opacity(0.22), lineWidth: 0.6))
-                                Text(label)
-                                    .font(.system(size: 10.5))
-                            }
-                            .foregroundStyle(dna.primaryFurHex == presetHex ? TZTheme.accent : TZTheme.inkSecondary)
-                            .padding(.horizontal, 6.5)
-                            .padding(.vertical, 2.5)
-                            .background(dna.primaryFurHex == presetHex ? TZTheme.accentSoft : TZTheme.recessedWell)
-                            .clipShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-
-                HStack(spacing: 14) {
-                    hexColorControl(title: dna.heterochromia ? "左眼瞳色" : "双眼瞳色", hex: Binding(
-                        get: { dna.irisLeftHex },
-                        set: { newVal in
-                            dna.irisLeftHex = newVal
-                            if !dna.heterochromia {
-                                dna.irisRightHex = newVal
-                            }
-                        }
-                    ))
-                    if dna.heterochromia {
-                        hexColorControl(title: "右眼瞳色", hex: $dna.irisRightHex)
-                    }
-                    Spacer()
-                    HStack(spacing: 8) {
-                        Text("发腮圆脸")
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(TZTheme.inkSecondary)
-                        Slider(value: $dna.cheekFullness, in: 0.88...1.22)
-                            .tint(TZTheme.accent)
-                            .frame(width: 105)
-                    }
-                }
-            }
-            .padding(13)
-            .tzElevatedCard()
-
-            // 4. Anatomical Details (Chest Bib, Socks, Stripes, Build)
-            VStack(alignment: .leading, spacing: 10) {
-                Label("胸围脖、白手套踏雪与条纹细节", systemImage: "pawprint.fill")
-                    .font(.system(size: 13, weight: .semibold))
+    // 1. Multi-Photo Upload & Supplement Card (`1–4` photos)
+    private var photoStripCard: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                Text("猫咪照片")
+                    .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(TZTheme.inkPrimary)
 
-                HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("胸口白毛")
-                            .font(.system(size: 11))
-                            .foregroundStyle(TZTheme.inkSecondary)
-                        Picker("", selection: $dna.chestBib) {
-                            ForEach(CatChestBibStyle.allCases) { b in
-                                Text(b.title).tag(b)
-                            }
-                        }
-                        .labelsHidden()
-                    }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("左前爪")
-                            .font(.system(size: 11))
-                            .foregroundStyle(TZTheme.inkSecondary)
-                        Picker("", selection: $dna.frontLeftSock) {
-                            ForEach(CatSockStyle.allCases) { s in
-                                Text(s.title).tag(s)
-                            }
-                        }
-                        .labelsHidden()
-                    }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("右前爪")
-                            .font(.system(size: 11))
-                            .foregroundStyle(TZTheme.inkSecondary)
-                        Picker("", selection: $dna.frontRightSock) {
-                            ForEach(CatSockStyle.allCases) { s in
-                                Text(s.title).tag(s)
-                            }
-                        }
-                        .labelsHidden()
-                    }
+                if !photoSlots.isEmpty {
+                    Text("\(photoSlots.count)/\(PhotoCatAnalyzer.maxPhotoCount)")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(TZTheme.inkMuted)
                 }
 
-                FlowTraitChips(dna: $dna)
+                Spacer()
+
+                if !photoSlots.isEmpty {
+                    Button {
+                        rerunMultiPhotoAnalysis()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 10.5, weight: .semibold))
+                            Text("重新制作")
+                                .font(.system(size: 11.5, weight: .semibold))
+                        }
+                        .foregroundStyle(TZTheme.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isAnalyzingPhoto)
+                }
             }
-            .padding(13)
-            .tzElevatedCard()
+
+            if photoSlots.isEmpty {
+                Button {
+                    pickPhotosViaOpenPanel()
+                } label: {
+                    HStack(spacing: 12) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(TZTheme.accentSoft)
+                                .frame(width: 44, height: 44)
+                            Image(systemName: "photo.on.rectangle.angled")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(TZTheme.accent)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("上传猫咪照片")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(TZTheme.inkPrimary)
+                            Text("可传 1–4 张不同角度，细节更准")
+                                .font(.system(size: 11))
+                                .foregroundStyle(TZTheme.inkSecondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(8)
+                    .background(TZTheme.recessedWell.opacity(0.6))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(isAnalyzingPhoto)
+            } else {
+                HStack(spacing: 9) {
+                    ForEach(photoSlots) { slot in
+                        ZStack(alignment: .topTrailing) {
+                            Image(nsImage: slot.thumbnail)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 54, height: 54)
+                                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                        .strokeBorder(TZTheme.cardBorder, lineWidth: 1)
+                                )
+
+                            Button {
+                                removePhotoSlot(slot.id)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 14))
+                                    .symbolRenderingMode(.palette)
+                                    .foregroundStyle(.white, Color.black.opacity(0.65))
+                            }
+                            .buttonStyle(.plain)
+                            .offset(x: 4, y: -4)
+                            .disabled(isAnalyzingPhoto)
+                        }
+                    }
+
+                    if photoSlots.count < PhotoCatAnalyzer.maxPhotoCount {
+                        Button {
+                            pickPhotosViaOpenPanel()
+                        } label: {
+                            VStack(spacing: 3) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 14, weight: .semibold))
+                                Text("补充照片")
+                                    .font(.system(size: 10, weight: .medium))
+                            }
+                            .foregroundStyle(TZTheme.accent)
+                            .frame(width: 54, height: 54)
+                            .background(TZTheme.accentSoft.opacity(0.45))
+                            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    .strokeBorder(TZTheme.accent.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isAnalyzingPhoto)
+                    }
+
+                    Spacer()
+                }
+            }
+        }
+        .padding(12)
+        .background(TZTheme.cardBg)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(TZTheme.cardBorder, lineWidth: 1)
+        )
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            handleDroppedProviders(providers)
         }
     }
 
-    // MARK: - Footer
+    // 2. Clean Name Card
+    private var nameCard: some View {
+        HStack(spacing: 10) {
+            Text("名字")
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(TZTheme.inkPrimary)
 
-    private var studioFooter: some View {
-        HStack(spacing: 12) {
+            TextField("给猫咪起个名字", text: $dna.name)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 13, weight: .medium))
+
+            Spacer(minLength: 4)
+
+            Text("偶尔冒出")
+                .font(.system(size: 11.5))
+                .foregroundStyle(TZTheme.inkSecondary)
+
+            Toggle("", isOn: $enableHeadNameBubble)
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .tint(TZTheme.accent)
+                .labelsHidden()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(TZTheme.cardBg)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(TZTheme.cardBorder, lineWidth: 1)
+        )
+    }
+
+    // 3. Minimal 3-Row Appearance Adjustment Card (Fur Dots + Eye Dots + 4 Plain-Language Feature Pills)
+    private var lightTweaksCard: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            Text("微调外观")
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(TZTheme.inkPrimary)
+
+            // Row A: Coat color swatches
+            HStack(spacing: 8) {
+                Text("毛色")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(TZTheme.inkSecondary)
+                    .frame(width: 30, alignment: .leading)
+
+                ForEach(furSwatches, id: \.label) { item in
+                    let isSelected = dna.primaryFurHex.caseInsensitiveCompare(item.primary) == .orderedSame
+                    Button {
+                        applyFurPreset(item)
+                    } label: {
+                        VStack(spacing: 3) {
+                            Circle()
+                                .fill(Color(nsColor: CatCoatCompiler.swiftUIColor(item.primary)))
+                                .frame(width: 22, height: 22)
+                                .overlay(
+                                    Circle()
+                                        .strokeBorder(isSelected ? TZTheme.accent : Color.primary.opacity(0.18), lineWidth: isSelected ? 2.2 : 1)
+                                )
+                            Text(item.label)
+                                .font(.system(size: 9.5, weight: isSelected ? .semibold : .regular))
+                                .foregroundStyle(isSelected ? TZTheme.accent : TZTheme.inkSecondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Spacer(minLength: 2)
+
+                ColorPicker("", selection: Binding(
+                    get: { Color(nsColor: CatCoatCompiler.swiftUIColor(dna.primaryFurHex)) },
+                    set: { newCol in
+                        dna.primaryFurHex = CatCoatCompiler.hexString(from: NSColor(newCol))
+                    }
+                ), supportsOpacity: false)
+                .labelsHidden()
+                .frame(width: 22, height: 22)
+            }
+
+            // Row B: Eye color swatches
+            HStack(spacing: 10) {
+                Text("眼睛")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(TZTheme.inkSecondary)
+                    .frame(width: 30, alignment: .leading)
+
+                ForEach(eyeSwatches, id: \.label) { eye in
+                    let isSelected = (dna.heterochromia == eye.hetero) && (dna.irisLeftHex.caseInsensitiveCompare(eye.left) == .orderedSame)
+                    Button {
+                        dna.heterochromia = eye.hetero
+                        dna.irisLeftHex = eye.left
+                        dna.irisRightHex = eye.right
+                    } label: {
+                        HStack(spacing: 4) {
+                            if eye.hetero {
+                                HStack(spacing: 0) {
+                                    Color(nsColor: CatCoatCompiler.swiftUIColor(eye.left))
+                                    Color(nsColor: CatCoatCompiler.swiftUIColor(eye.right))
+                                }
+                                .frame(width: 16, height: 16)
+                                .clipShape(Circle())
+                            } else {
+                                Circle()
+                                    .fill(Color(nsColor: CatCoatCompiler.swiftUIColor(eye.left)))
+                                    .frame(width: 16, height: 16)
+                            }
+                            Text(eye.label)
+                                .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                                .foregroundStyle(isSelected ? TZTheme.accent : TZTheme.inkPrimary)
+                        }
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
+                        .background(isSelected ? TZTheme.accentSoft : TZTheme.recessedWell)
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer(minLength: 0)
+            }
+
+            // Row C: 4 Plain-Language Feature Toggles
+            HStack(spacing: 7) {
+                Text("细节")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(TZTheme.inkSecondary)
+                    .frame(width: 30, alignment: .leading)
+
+                simplePill(title: "虎斑纹", isOn: hasTabbyStripes) {
+                    toggleTabbyStripes()
+                }
+                simplePill(title: "白嘴套", isOn: dna.faceBlaze != .none && dna.faceBlaze != .sealMask) {
+                    dna.faceBlaze = (dna.faceBlaze == .none || dna.faceBlaze == .sealMask) ? .noseBridgeBlaze : .none
+                }
+                simplePill(title: "白领巾", isOn: dna.chestBib != .none) {
+                    dna.chestBib = (dna.chestBib == .none) ? .triangleCollar : .none
+                }
+                simplePill(title: "白手套", isOn: dna.frontLeftSock != .none || dna.frontRightSock != .none) {
+                    let next: CatSockStyle = (dna.frontLeftSock == .none && dna.frontRightSock == .none) ? .mitten : .none
+                    dna.frontLeftSock = next
+                    dna.frontRightSock = next
+                    dna.hindSocks = (next != .none)
+                }
+
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(12)
+        .background(TZTheme.cardBg)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(TZTheme.cardBorder, lineWidth: 1)
+        )
+    }
+
+    // MARK: - Clean Footer
+
+    private var footerBar: some View {
+        HStack(spacing: 10) {
             if !errorMessage.isEmpty {
                 Text(errorMessage)
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(.red)
-            } else {
-                Text("💡 领养后完整继承 60fps 敲键、摸头呼噜、揪后颈、打盹及 10.58 秒原版「顶额头吵架换班」！")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(TZTheme.inkSecondary)
+                    .lineLimit(1)
             }
             Spacer()
 
@@ -719,75 +702,85 @@ struct CustomCatStudioSheet: View {
             Button {
                 adoptAndActivateCat()
             } label: {
-                HStack(spacing: 5.5) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 12, weight: .semibold))
-                    let displayName = dna.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "小咪" : dna.name.trimmingCharacters(in: .whitespacesAndNewlines)
-                    Text(pet.editingStudioSkinID == nil ? "领养「\(displayName)」并上岗换班！" : "保存「\(displayName)」的修改")
-                }
+                Text(pet.editingStudioSkinID == nil ? "放到桌面" : "保存")
+                    .padding(.horizontal, 6)
             }
             .buttonStyle(TZAccentButtonStyle(compact: true, capsule: true))
             .disabled(isAnalyzingPhoto)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 13)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
     }
 
-    // MARK: - Helpers & Actions
+    // MARK: - Simple Preset & Feature Helpers
 
-    private var usesTertiaryColor: Bool {
-        switch dna.patternFamily {
-        case .calico, .tortoiseshell, .tabby, .tabbyBicolor, .shaded:
-            return true
-        default:
-            return false
+    private var hasTabbyStripes: Bool {
+        dna.patternFamily == .tabby || dna.patternFamily == .tabbyBicolor
+    }
+
+    private func applyFurPreset(_ item: (label: String, primary: String, stripe: String?)) {
+        dna.primaryFurHex = item.primary
+        if item.label == "三花" {
+            dna.patternFamily = .calico
+            dna.secondaryFurHex = "#DC8E43"
+            dna.tertiaryFurHex = "#232227"
+            dna.faceBlaze = .invertedV
+            dna.chestBib = .fullBib
+            dna.breedBadge = "三花小猫"
+        } else if let st = item.stripe {
+            dna.tertiaryFurHex = st
+            dna.patternFamily = (dna.chestBib != .none || dna.faceBlaze != .none) ? .tabbyBicolor : .tabby
+            dna.foreheadM = true
+            dna.cheekStripes = true
+            dna.tailRings = true
+            dna.tailTipDip = false
+            dna.breedBadge = item.label + "小猫"
+        } else {
+            dna.patternFamily = (dna.chestBib != .none || dna.faceBlaze != .none) ? .tuxedoBicolor : .solid
+            dna.foreheadM = false
+            dna.cheekStripes = false
+            dna.tailRings = false
+            dna.breedBadge = item.label + "小猫"
         }
     }
 
-    private var primaryColorLabel: String {
-        switch dna.patternFamily {
-        case .calico: return "底毛白"
-        case .ragdollBicolor: return "耳背重点色"
-        case .colorpoint: return "身体浅底色"
-        case .shaded: return "背顶渐层色"
-        default: return "主毛色"
+    private func toggleTabbyStripes() {
+        if hasTabbyStripes {
+            dna.patternFamily = (dna.chestBib != .none || dna.faceBlaze != .none) ? .tuxedoBicolor : .solid
+            dna.foreheadM = false
+            dna.cheekStripes = false
+            dna.tailRings = false
+        } else {
+            dna.patternFamily = (dna.chestBib != .none || dna.faceBlaze != .none) ? .tabbyBicolor : .tabby
+            dna.foreheadM = true
+            dna.cheekStripes = true
+            dna.tailRings = true
+            dna.tailTipDip = false
+            if CatCoatCompiler.luminance(of: dna.primaryFurHex) < 0.14 {
+                dna.primaryFurHex = "#3A322B"
+            }
+            dna.tertiaryFurHex = "#141314"
         }
     }
 
-    private var secondaryColorLabel: String {
-        switch dna.patternFamily {
-        case .calico: return "橘斑色"
-        case .tortoiseshell: return "琥珀金斑"
-        case .colorpoint: return "挖煤重点色"
-        default: return "白毛 / 副色"
+    private func simplePill(title: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 3.5) {
+                Image(systemName: isOn ? "checkmark" : "plus")
+                    .font(.system(size: 9.5, weight: .bold))
+                Text(title)
+                    .font(.system(size: 11, weight: isOn ? .semibold : .medium))
+            }
+            .foregroundStyle(isOn ? TZTheme.accent : TZTheme.inkSecondary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4.5)
+            .background(isOn ? TZTheme.accentSoft : TZTheme.recessedWell)
+            .clipShape(Capsule())
         }
+        .buttonStyle(.plain)
     }
 
-    private var tertiaryColorLabel: String {
-        switch dna.patternFamily {
-        case .calico: return "墨黑斑色"
-        case .tortoiseshell: return "浅奶油斑"
-        case .shaded: return "尾尖细纹色"
-        default: return "虎斑条纹色"
-        }
-    }
-
-    private func hexColorControl(title: String, hex: Binding<String>) -> some View {
-        HStack(spacing: 6) {
-            ColorPicker("", selection: Binding(
-                get: { Color(nsColor: CatCoatCompiler.swiftUIColor(hex.wrappedValue)) },
-                set: { newColor in
-                    hex.wrappedValue = CatCoatCompiler.hexString(from: NSColor(newColor))
-                }
-            ), supportsOpacity: false)
-            .labelsHidden()
-            .frame(width: 24, height: 24)
-
-            Text(title)
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(TZTheme.inkPrimary)
-        }
-    }
+    // MARK: - Multi-Photo Lifecycle & Actions
 
     private func bootstrapInitialStateIfNeeded() {
         guard !didBootstrap else { return }
@@ -803,20 +796,22 @@ struct CustomCatStudioSheet: View {
                 dna.name = existing.name
                 dna.primaryFurHex = CatCoatCompiler.hexString(from: existing.palette.body.srgbNS)
             }
-            if let prev = existing.preview, let nsImg = NSImage(data: prev) {
+            if let prev = existing.preview,
+               let nsImg = NSImage(data: prev),
+               let cg = nsImg.cgImage(forProposedRect: nil, context: nil, hints: nil) {
                 previewPNGData = prev
-                uploadedPhotoImage = nsImg
+                photoSlots = [UploadedCatPhotoSlot(cgImage: cg, thumbnail: nsImg)]
             }
-            analysisBanner = "正在编辑「\(existing.name)」的花色参数与专属名字"
             recompileDraftSkin()
             return
         }
 
         recompileDraftSkin()
 
-        if let initialURL = pet.pendingStudioPhotoURL {
-            pet.pendingStudioPhotoURL = nil
-            runPhotoAnalysis(from: initialURL)
+        if !pet.pendingStudioPhotoURLs.isEmpty {
+            let initial = pet.pendingStudioPhotoURLs
+            pet.pendingStudioPhotoURLs = []
+            appendPhotosAndAnalyze(urls: initial)
         }
     }
 
@@ -827,74 +822,101 @@ struct CustomCatStudioSheet: View {
         }
     }
 
-    private func choosePhotoViaOpenPanel() {
+    private func pickPhotosViaOpenPanel() {
         let panel = NSOpenPanel()
-        panel.title = "选择一张自家猫咪的照片"
+        panel.title = "选择猫咪照片（可多选 1–4 张）"
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
         panel.allowedContentTypes = [.image, .jpeg, .png, .heic, .webP]
-        if panel.runModal() == .OK, let url = panel.url {
-            runPhotoAnalysis(from: url)
+        if panel.runModal() == .OK, !panel.urls.isEmpty {
+            appendPhotosAndAnalyze(urls: panel.urls)
         }
     }
 
     private func handleDroppedProviders(_ providers: [NSItemProvider]) -> Bool {
-        guard let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }) else {
-            return false
+        let matching = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
+        guard !matching.isEmpty else { return false }
+        let group = DispatchGroup()
+        let lock = NSLock()
+        var urls: [URL] = []
+        for prov in matching.prefix(PhotoCatAnalyzer.maxPhotoCount) {
+            group.enter()
+            prov.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                defer { group.leave() }
+                let resolved: URL? = {
+                    if let d = item as? Data { return URL(dataRepresentation: d, relativeTo: nil) }
+                    return item as? URL
+                }()
+                if let u = resolved {
+                    lock.lock()
+                    urls.append(u)
+                    lock.unlock()
+                }
+            }
         }
-        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-            let resolvedURL: URL? = {
-                if let data = item as? Data {
-                    return URL(dataRepresentation: data, relativeTo: nil)
-                }
-                return item as? URL
-            }()
-            if let url = resolvedURL {
-                Task { @MainActor in
-                    runPhotoAnalysis(from: url)
-                }
+        group.notify(queue: .main) {
+            if !urls.isEmpty {
+                appendPhotosAndAnalyze(urls: urls)
             }
         }
         return true
     }
 
-    private func runPhotoAnalysis(from url: URL) {
+    private func appendPhotosAndAnalyze(urls: [URL]) {
+        let remaining = max(0, PhotoCatAnalyzer.maxPhotoCount - photoSlots.count)
+        let targetURLs = remaining > 0 ? Array(urls.prefix(remaining)) : Array(urls.prefix(PhotoCatAnalyzer.maxPhotoCount))
+        var addedAny = false
+        if remaining == 0 {
+            photoSlots.removeAll()
+        }
+        for url in targetURLs {
+            if let cg = PhotoCatAnalyzer.loadOrientedCGImage(from: url, maxPixelSize: 1024) {
+                let thumbData = PhotoCatAnalyzer.renderSquarePreviewPNG(from: cg, size: 140)
+                let thumb = NSImage(data: thumbData) ?? NSImage(cgImage: cg, size: NSSize(width: 70, height: 70))
+                photoSlots.append(UploadedCatPhotoSlot(cgImage: cg, thumbnail: thumb))
+                addedAny = true
+            }
+        }
+        if addedAny {
+            rerunMultiPhotoAnalysis()
+        } else {
+            errorMessage = "无法读取该图片，请换一张照片试试"
+        }
+    }
+
+    private func removePhotoSlot(_ id: UUID) {
+        photoSlots.removeAll { $0.id == id }
+        if !photoSlots.isEmpty {
+            rerunMultiPhotoAnalysis()
+        }
+    }
+
+    private func rerunMultiPhotoAnalysis() {
+        let cgImages = photoSlots.map(\.cgImage)
+        guard !cgImages.isEmpty else { return }
         errorMessage = ""
         isAnalyzingPhoto = true
-        analysisBanner = "🔍 正在识别猫咪前景轮廓、剥离光线色偏并还原花纹骨骼…"
-        if let img = NSImage(contentsOf: url) {
-            uploadedPhotoImage = img
-        }
-        let existingCustomName = (dna.name != "年糕" && !dna.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) ? dna.name : ""
+
+        let trimmedCurrent = dna.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let keepCustomName = (trimmedCurrent != "年糕" && trimmedCurrent != "小咪" && !trimmedCurrent.isEmpty) ? trimmedCurrent : ""
         let cfg = appState.llmConfig
         let byokKey = appState.apiKeyInput
         let jwt = KeychainHelper.loadCloudJWT()
 
         Task {
-            do {
-                let res = try await PhotoCatAnalyzer.analyzeImage(
-                    at: url,
-                    preferredName: existingCustomName,
-                    llmConfig: cfg,
-                    byokAPIKey: byokKey,
-                    cloudJWT: jwt
-                )
-                await MainActor.run {
-                    self.previewPNGData = res.previewPNG
-                    if let croppedNS = NSImage(data: res.previewPNG) {
-                        self.uploadedPhotoImage = croppedNS
-                    }
-                    self.dna = res.dna
-                    self.analysisBanner = res.sourceSummary
-                    self.isAnalyzingPhoto = false
-                    self.recompileDraftSkin()
-                }
-            } catch {
-                await MainActor.run {
-                    self.isAnalyzingPhoto = false
-                    self.errorMessage = error.localizedDescription
-                }
+            let res = await PhotoCatAnalyzer.analyzeCGImages(
+                cgImages,
+                preferredName: keepCustomName,
+                llmConfig: cfg,
+                byokAPIKey: byokKey,
+                cloudJWT: jwt
+            )
+            await MainActor.run {
+                self.previewPNGData = res.previewPNG
+                self.dna = res.dna
+                self.isAnalyzingPhoto = false
+                self.recompileDraftSkin()
             }
         }
     }
@@ -916,44 +938,5 @@ struct CustomCatStudioSheet: View {
         } catch {
             errorMessage = error.localizedDescription
         }
-    }
-}
-
-private struct FlowTraitChips: View {
-    @Binding var dna: CatPhotoDNA
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 7) {
-                chip(title: "额头 M 纹", isOn: $dna.foreheadM)
-                chip(title: "脸颊眼线纹", isOn: $dna.cheekStripes)
-                chip(title: "虎斑尾环", isOn: $dna.tailRings)
-                chip(title: "异色尾尖", isOn: $dna.tailTipDip)
-            }
-            HStack(spacing: 7) {
-                chip(title: "后爪白袜", isOn: $dna.hindSocks)
-                chip(title: "俏皮下巴豆", isOn: $dna.chinSpot)
-                chip(title: "修长流线体型", isOn: $dna.isSleekBuild)
-            }
-        }
-    }
-
-    private func chip(title: String, isOn: Binding<Bool>) -> some View {
-        Button {
-            isOn.wrappedValue.toggle()
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: isOn.wrappedValue ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 10.5, weight: .semibold))
-                Text(title)
-                    .font(.system(size: 11, weight: .medium))
-            }
-            .foregroundStyle(isOn.wrappedValue ? TZTheme.accent : TZTheme.inkSecondary)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4.5)
-            .background(isOn.wrappedValue ? TZTheme.accentSoft : TZTheme.recessedWell)
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
     }
 }

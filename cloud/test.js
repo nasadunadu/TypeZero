@@ -319,6 +319,16 @@ async function run() {
     });
     assert.equal(badImgRes.status, 400);
 
+    const badMultiImgRes = await fetch(`${base}/api/pet/analyze-photo`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${v1.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ imageDataUrls: ["invalid-1", "invalid-2"] }),
+    });
+    assert.equal(badMultiImgRes.status, 400);
+
     console.log("✅ All 13 TypeZero Cloud backend test suites passed!");
   } finally {
     server.close();

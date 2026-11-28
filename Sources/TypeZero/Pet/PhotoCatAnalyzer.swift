@@ -272,6 +272,8 @@ public enum PhotoCatAnalyzer {
     6. 耳内与鼻头与瞳色：狸花猫耳内是棕灰耳毛（earInnerHex 填 #76604E，勿填假粉红）；粉鼻头填柔和樱花粉 #F0A6AE，砖红鼻填 #B86B5E；绿瞳填通透翡翠绿 #589154。
     """
 
+    public static let maxPhotoCount = 4
+
     public static func analyzeImage(
         at url: URL,
         preferredName: String = "",
@@ -279,11 +281,28 @@ public enum PhotoCatAnalyzer {
         byokAPIKey: String,
         cloudJWT: String
     ) async throws -> CatPhotoAnalysisResult {
-        guard let cgImage = loadOrientedCGImage(from: url, maxPixelSize: 1024) else {
-            throw NSError(domain: "PhotoCatAnalyzer", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法读取该图片，请选择 JPG / PNG / HEIC / WebP 格式的猫咪照片"])
+        try await analyzeImages(
+            at: [url],
+            preferredName: preferredName,
+            llmConfig: llmConfig,
+            byokAPIKey: byokAPIKey,
+            cloudJWT: cloudJWT
+        )
+    }
+
+    public static func analyzeImages(
+        at urls: [URL],
+        preferredName: String = "",
+        llmConfig: LLMConfig,
+        byokAPIKey: String,
+        cloudJWT: String
+    ) async throws -> CatPhotoAnalysisResult {
+        let images = urls.prefix(maxPhotoCount).compactMap { loadOrientedCGImage(from: $0, maxPixelSize: 1024) }
+        guard !images.isEmpty else {
+            throw NSError(domain: "PhotoCatAnalyzer", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法读取所选照片，请换一张清晰的猫咪照片"])
         }
-        return await analyzeCGImage(
-            cgImage,
+        return await analyzeCGImages(
+            images,
             preferredName: preferredName,
             llmConfig: llmConfig,
             byokAPIKey: byokAPIKey,
@@ -298,79 +317,79 @@ public enum PhotoCatAnalyzer {
         byokAPIKey: String,
         cloudJWT: String
     ) async -> CatPhotoAnalysisResult {
-        // Stage 0: Fast on-device Apple Vision cat detection + foreground mask + avatar crop + local baseline DNA
-        let localPrep = prepareLocalVisionFeatures(from: cgImage, preferredName: preferredName)
+        await analyzeCGImages(
+            [cgImage],
+            preferredName: preferredName,
+            llmConfig: llmConfig,
+            byokAPIKey: byokAPIKey,
+            cloudJWT: cloudJWT
+        )
+    }
 
-        // Stage 1: Try Multimodal Vision LLM (Personal BYOK -> Official TypeZero Cloud) for semantic & blaze precision
-        if let jpegData = encodeJPEG(localPrep.croppedCatImage, maxDimension: 640, compression: 0.78) {
-            let dataURL = "data:image/jpeg;base64," + jpegData.base64EncodedString()
+    public static func analyzeCGImages(
+        _ cgImages: [CGImage],
+        preferredName: String = "",
+        llmConfig: LLMConfig,
+        byokAPIKey: String,
+        cloudJWT: String
+    ) async -> CatPhotoAnalysisResult {
+        let bounded = Array(cgImages.prefix(maxPhotoCount))
+        guard let first = bounded.first else {
+            return CatPhotoAnalysisResult(dna: CatPhotoDNA(), previewPNG: Data(), usedVisionModel: false, sourceSummary: "")
+        }
 
-            // Path A: User's personal BYOK key if configured
+        // Stage 0: On-device Apple Vision cat crop + foreground photometry across ALL uploaded angles (1..4 photos)
+        let preps = bounded.map { prepareLocalVisionFeatures(from: $0, preferredName: preferredName) }
+        let primaryPrep = preps.first ?? prepareLocalVisionFeatures(from: first, preferredName: preferredName)
+        let mergedPrep = mergePhotometryPreps(preps, fallback: primaryPrep)
+
+        let maxDim = bounded.count > 1 ? 560 : 640
+        let dataURLs: [String] = preps.compactMap { p in
+            guard let jpegData = encodeJPEG(p.croppedCatImage, maxDimension: maxDim, compression: 0.76) else { return nil }
+            return "data:image/jpeg;base64," + jpegData.base64EncodedString()
+        }
+
+        // Stage 1: Joint Multimodal Vision LLM (fuses face, body, tail & paws across all uploaded photos!)
+        if !dataURLs.isEmpty {
             let trimmedBYOK = byokAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !llmConfig.useOfficialCloudTrial && !trimmedBYOK.isEmpty {
-                if var remoteDNA = await requestBYOKVisionDNA(dataURL: dataURL, config: llmConfig, apiKey: trimmedBYOK) {
-                    remoteDNA = calibrateWithPhotometry(remoteDNA, prep: localPrep)
-                    if !preferredName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        remoteDNA.name = preferredName.trimmingCharacters(in: .whitespacesAndNewlines)
-                    } else {
-                        remoteDNA.name = localPrep.dna.name
-                    }
-                    remoteDNA.sanitize()
-                    return CatPhotoAnalysisResult(
-                        dna: remoteDNA,
-                        previewPNG: localPrep.previewPNG,
-                        usedVisionModel: true,
-                        sourceSummary: "✨ 多模态视觉 + 像素测光精修 · \(remoteDNA.breedBadge)"
-                    )
-                }
-            }
-
-            // Path B: Official TypeZero Cloud `/api/pet/analyze-photo`
             let trimmedJWT = cloudJWT.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedJWT.isEmpty {
-                if var cloudDNA = await requestOfficialCloudVisionDNA(dataURL: dataURL, jwt: trimmedJWT) {
-                    cloudDNA = calibrateWithPhotometry(cloudDNA, prep: localPrep)
-                    if !preferredName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        cloudDNA.name = preferredName.trimmingCharacters(in: .whitespacesAndNewlines)
-                    } else {
-                        cloudDNA.name = localPrep.dna.name
-                    }
-                    cloudDNA.sanitize()
-                    return CatPhotoAnalysisResult(
-                        dna: cloudDNA,
-                        previewPNG: localPrep.previewPNG,
-                        usedVisionModel: true,
-                        sourceSummary: "✨ 云端视觉 + 像素测光精修 · \(cloudDNA.breedBadge)"
-                    )
-                }
+
+            func finalize(_ raw: CatPhotoDNA) -> CatPhotoAnalysisResult {
+                var calibrated = calibrateWithPhotometry(raw, prep: mergedPrep)
+                let cleanName = preferredName.trimmingCharacters(in: .whitespacesAndNewlines)
+                calibrated.name = cleanName.isEmpty ? mergedPrep.dna.name : cleanName
+                calibrated.sanitize()
+                return CatPhotoAnalysisResult(
+                    dna: calibrated,
+                    previewPNG: mergedPrep.previewPNG,
+                    usedVisionModel: true,
+                    sourceSummary: "✨ 多模态视觉 + 像素测光精修 · \(calibrated.breedBadge)"
+                )
             }
 
-            // Path C: Fallback to BYOK even if `useOfficialCloudTrial` was on but cloud wasn't reachable
+            if !llmConfig.useOfficialCloudTrial && !trimmedBYOK.isEmpty {
+                if let remoteDNA = await requestBYOKVisionDNA(dataURLs: dataURLs, config: llmConfig, apiKey: trimmedBYOK) {
+                    return finalize(remoteDNA)
+                }
+            }
+            if !trimmedJWT.isEmpty {
+                if let cloudDNA = await requestOfficialCloudVisionDNA(dataURLs: dataURLs, jwt: trimmedJWT) {
+                    return finalize(cloudDNA)
+                }
+            }
             if !trimmedBYOK.isEmpty {
-                if var remoteDNA = await requestBYOKVisionDNA(dataURL: dataURL, config: llmConfig, apiKey: trimmedBYOK) {
-                    remoteDNA = calibrateWithPhotometry(remoteDNA, prep: localPrep)
-                    if !preferredName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        remoteDNA.name = preferredName.trimmingCharacters(in: .whitespacesAndNewlines)
-                    } else {
-                        remoteDNA.name = localPrep.dna.name
-                    }
-                    remoteDNA.sanitize()
-                    return CatPhotoAnalysisResult(
-                        dna: remoteDNA,
-                        previewPNG: localPrep.previewPNG,
-                        usedVisionModel: true,
-                        sourceSummary: "✨ 视觉模型 + 像素测光精修 · \(remoteDNA.breedBadge)"
-                    )
+                if let remoteDNA = await requestBYOKVisionDNA(dataURLs: dataURLs, config: llmConfig, apiKey: trimmedBYOK) {
+                    return finalize(remoteDNA)
                 }
             }
         }
 
-        // Stage 2: Instant zero-dependency On-Device Apple Vision result (100% offline capable!)
+        // Stage 2: Instant zero-dependency On-Device Apple Vision result
         return CatPhotoAnalysisResult(
-            dna: localPrep.dna,
-            previewPNG: localPrep.previewPNG,
+            dna: mergedPrep.dna,
+            previewPNG: mergedPrep.previewPNG,
             usedVisionModel: false,
-            sourceSummary: "⚡️ 本机 Vision 前景提取 · \(localPrep.dna.breedBadge)（可在右侧自由微调细节）"
+            sourceSummary: mergedPrep.dna.breedBadge
         )
     }
 
@@ -434,14 +453,18 @@ public enum PhotoCatAnalyzer {
 
     // MARK: - Multimodal Vision Network Clients (Cloud & BYOK)
 
-    private static func requestOfficialCloudVisionDNA(dataURL: String, jwt: String) async -> CatPhotoDNA? {
-        guard let url = URL(string: "\(CloudAuthClient.baseURL)/api/pet/analyze-photo") else { return nil }
+    private static func requestOfficialCloudVisionDNA(dataURLs: [String], jwt: String) async -> CatPhotoDNA? {
+        guard let first = dataURLs.first,
+              let url = URL(string: "\(CloudAuthClient.baseURL)/api/pet/analyze-photo") else { return nil }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        req.timeoutInterval = 14.0
+        req.timeoutInterval = 18.0
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
-        let body: [String: Any] = ["imageDataUrl": dataURL]
+        let body: [String: Any] = [
+            "imageDataUrl": first,
+            "imageDataUrls": dataURLs
+        ]
         guard let payload = try? JSONSerialization.data(withJSONObject: body) else { return nil }
         req.httpBody = payload
 
@@ -462,30 +485,32 @@ public enum PhotoCatAnalyzer {
         return nil
     }
 
-    private static func requestBYOKVisionDNA(dataURL: String, config: LLMConfig, apiKey: String) async -> CatPhotoDNA? {
+    private static func requestBYOKVisionDNA(dataURLs: [String], config: LLMConfig, apiKey: String) async -> CatPhotoDNA? {
+        guard !dataURLs.isEmpty else { return nil }
         let base = config.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard !base.isEmpty else { return nil }
+        let userInstruction = dataURLs.count > 1
+            ? "以上 \(dataURLs.count) 张照片是同一只猫咪的不同角度（如正脸、全身、侧身、尾巴或爪子）。请综合所有照片互补观察，输出最完整准确的唯一 JSON。"
+            : "请提取这只猫咪的花色、开脸、五官与毛色 JSON。"
 
         // Anthropic Messages native vision format
         if PolishEngine.isAnthropicEndpoint(base) {
             let endpoint = PolishEngine.normalizeAnthropicMessagesEndpoint(base)
             guard let url = URL(string: endpoint) else { return nil }
-            let rawB64 = dataURL.replacingOccurrences(of: "data:image/jpeg;base64,", with: "")
+            var blocks: [[String: Any]] = dataURLs.map { du in
+                let rawB64 = du.replacingOccurrences(of: "data:image/jpeg;base64,", with: "")
+                return ["type": "image", "source": ["type": "base64", "media_type": "image/jpeg", "data": rawB64]]
+            }
+            blocks.append(["type": "text", "text": userInstruction])
             let payload: [String: Any] = [
                 "model": config.modelName.isEmpty ? "claude-haiku-5-5" : config.modelName,
                 "max_tokens": 520,
                 "system": visionSystemPrompt,
-                "messages": [[
-                    "role": "user",
-                    "content": [
-                        ["type": "image", "source": ["type": "base64", "media_type": "image/jpeg", "data": rawB64]],
-                        ["type": "text", "text": "请提取这只猫咪的花色、开脸、五官与毛色 JSON。"]
-                    ]
-                ]]
+                "messages": [["role": "user", "content": blocks]]
             ]
             var req = URLRequest(url: url)
             req.httpMethod = "POST"
-            req.timeoutInterval = 15.0
+            req.timeoutInterval = 18.0
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
             req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
@@ -507,19 +532,17 @@ public enum PhotoCatAnalyzer {
         if config.selectedProvider == .dashscope && model == "qwen-flash" {
             model = "qwen-vl-max"
         }
+        var userBlocks: [[String: Any]] = [["type": "text", "text": userInstruction]]
+        for du in dataURLs {
+            userBlocks.append(["type": "image_url", "image_url": ["url": du]])
+        }
         var payload: [String: Any] = [
             "model": model.isEmpty ? "deepseek-flash" : model,
             "stream": false,
             "max_tokens": 520,
             "messages": [
                 ["role": "system", "content": visionSystemPrompt],
-                [
-                    "role": "user",
-                    "content": [
-                        ["type": "text", "text": "请提取这只猫咪的花色、开脸、五官与毛色 JSON。"],
-                        ["type": "image_url", "image_url": ["url": dataURL]]
-                    ]
-                ]
+                ["role": "user", "content": userBlocks]
             ]
         ]
         if base.contains("deepseek.com") {
@@ -620,6 +643,31 @@ public enum PhotoCatAnalyzer {
         let nonWhiteDarkHex: String
         let lowerWhiteRatio: Double
         let bottomPawsDarkRatio: Double
+    }
+
+    private static func mergePhotometryPreps(_ preps: [LocalPrepOutput], fallback: LocalPrepOutput) -> LocalPrepOutput {
+        guard preps.count > 1 else { return fallback }
+        let n = Double(preps.count)
+        let avgLum = preps.reduce(0.0) { $0 + $1.nonWhiteMedianLum } / n
+        let avgLowerWhite = preps.reduce(0.0) { $0 + $1.lowerWhiteRatio } / n
+        let avgPawDark = preps.reduce(0.0) { $0 + $1.bottomPawsDarkRatio } / n
+        let darkest = preps.min(by: { $0.nonWhiteMedianLum < $1.nonWhiteMedianLum }) ?? fallback
+        var fusedDNA = fallback.dna
+        // If a secondary photo clearly captured tabby stripes while primary was a close-up, promote tabby!
+        if fusedDNA.patternFamily != .tabby && fusedDNA.patternFamily != .tabbyBicolor,
+           let tabbyPrep = preps.first(where: { $0.dna.patternFamily == .tabby || $0.dna.patternFamily == .tabbyBicolor }) {
+            fusedDNA = tabbyPrep.dna
+            fusedDNA.name = fallback.dna.name
+        }
+        return LocalPrepOutput(
+            croppedCatImage: fallback.croppedCatImage,
+            previewPNG: fallback.previewPNG,
+            dna: fusedDNA,
+            nonWhiteMedianLum: avgLum,
+            nonWhiteDarkHex: darkest.nonWhiteDarkHex,
+            lowerWhiteRatio: avgLowerWhite,
+            bottomPawsDarkRatio: avgPawDark
+        )
     }
 
     /// Anchors VLM-guessed hex colors against the real foreground-masked cat pixel photometry so dark/black cats
