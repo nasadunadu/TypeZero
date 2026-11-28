@@ -109,7 +109,7 @@ public final class PetCompanionController: ObservableObject {
     @Published public private(set) var inputNeedsPermission: Bool = InputEngine.shared.status.needsAttention
     @Published public var statusNotice: String = ""
     @Published public var showCustomCatStudio: Bool = false
-    @Published public var pendingStudioPhotoURL: URL? = nil
+    @Published public var pendingStudioPhotoURLs: [URL] = []
     @Published public var editingStudioSkinID: String? = nil
 
     public var onOpenPetSettingsTab: (() -> Void)?
@@ -379,9 +379,9 @@ public final class PetCompanionController: ObservableObject {
                 self?.importDroppedFile(url)
             }
         }
-        catView.onDropPhotoURL = { [weak self] photoURL in
+        catView.onDropPhotoURLs = { [weak self] photoURLs in
             guard let self else { return }
-            self.openCustomCatStudio(initialPhotoURL: photoURL, editingSkinID: nil)
+            self.openCustomCatStudio(initialPhotoURLs: photoURLs, editingSkinID: nil)
             self.onOpenPetSettingsTab?()
         }
         catView.onHeadPetMilestone = { [weak self] in
@@ -796,7 +796,11 @@ public final class PetCompanionController: ObservableObject {
     }
 
     public func openCustomCatStudio(initialPhotoURL: URL? = nil, editingSkinID: String? = nil) {
-        pendingStudioPhotoURL = initialPhotoURL
+        openCustomCatStudio(initialPhotoURLs: initialPhotoURL.map { [$0] } ?? [], editingSkinID: editingSkinID)
+    }
+
+    public func openCustomCatStudio(initialPhotoURLs: [URL], editingSkinID: String? = nil) {
+        pendingStudioPhotoURLs = Array(initialPhotoURLs.prefix(PhotoCatAnalyzer.maxPhotoCount))
         editingStudioSkinID = editingSkinID
         showCustomCatStudio = true
     }

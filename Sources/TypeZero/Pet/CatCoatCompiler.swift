@@ -709,7 +709,7 @@ public enum CatCoatCompiler {
         return NSColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: 1.0)
     }
 
-    private static func luminance(of hex: String) -> Double {
+    static func luminance(of hex: String) -> Double {
         let c = rgbComponents(hex)
         return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
     }

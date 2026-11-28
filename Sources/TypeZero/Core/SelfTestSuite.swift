@@ -963,8 +963,9 @@ public enum SelfTestSuite {
                 && parsedSample?.faceBlaze == .invertedV
                 && parsedSample?.heterochromia == true
                 && heterochromiaPal != nil
-                && heterochromiaPal!.iris != heterochromiaPal!.effectiveIrisRight,
-            "All 10 CatPatternFamily Procedural Rigs compile losslessly to .kurocat v2, dual-render (KuroSticker + ClackOriginal + Head-Top Name Bubble) cleanly, and preserve heterochromia eyes"
+                && heterochromiaPal!.iris != heterochromiaPal!.effectiveIrisRight
+                && PhotoCatAnalyzer.maxPhotoCount == 4,
+            "All 10 CatPatternFamily Procedural Rigs compile losslessly to .kurocat v2, dual-render (KuroSticker + ClackOriginal + Head-Top Name Bubble) cleanly, support 1-4 multi-photo fusion, and preserve heterochromia eyes"
         )
 
         print("==> Summary: \(passed) passed, \(failed) failed.")

@@ -274,7 +274,7 @@ final class CatCanvasView: NSView {
     var onUserInteraction: (() -> Void)?
     var onScaleChanged: ((CGFloat) -> Void)?
     var onDropSkinFiles: (([URL]) -> Void)?
-    var onDropPhotoURL: ((URL) -> Void)?
+    var onDropPhotoURLs: (([URL]) -> Void)?
     var onHeadPetMilestone: (() -> Void)?
 
     /// Transparent horizontal stage runway (`102pt` on each side -> `564pt` total width) so Clack-Clack's
@@ -955,8 +955,9 @@ final class CatCanvasView: NSView {
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         let urls = Self.droppedSkinURLs(from: sender)
         guard !urls.isEmpty else { return false }
-        if let firstPhoto = urls.first(where: { Self.photoExtensions.contains($0.pathExtension.lowercased()) }) {
-            DispatchQueue.main.async { [weak self] in self?.onDropPhotoURL?(firstPhoto) }
+        let photoURLs = urls.filter { Self.photoExtensions.contains($0.pathExtension.lowercased()) }
+        if !photoURLs.isEmpty {
+            DispatchQueue.main.async { [weak self] in self?.onDropPhotoURLs?(Array(photoURLs.prefix(PhotoCatAnalyzer.maxPhotoCount))) }
             return true
         }
         DispatchQueue.main.async { [weak self] in self?.onDropSkinFiles?(urls) }

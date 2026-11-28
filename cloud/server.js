@@ -1301,32 +1301,42 @@ async function createApp(customDbPath, options = {}) {
       return res.status(429).json({ error: { code: "RATE_LIMITED", message: "猫咪照片分析过于频繁，请稍候再试" } });
     }
 
-    const imageDataUrl = String(req.body?.imageDataUrl || "").trim();
-    if (
-      !imageDataUrl.startsWith("data:image/") ||
-      !imageDataUrl.includes(";base64,") ||
-      imageDataUrl.length < 64 ||
-      imageDataUrl.length > 1_400_000
-    ) {
+    const rawList = Array.isArray(req.body?.imageDataUrls) && req.body.imageDataUrls.length > 0
+      ? req.body.imageDataUrls.slice(0, 4)
+      : [req.body?.imageDataUrl];
+    const imageDataUrls = rawList
+      .map((item) => String(item || "").trim())
+      .filter((u) => u.startsWith("data:image/") && u.includes(";base64,") && u.length >= 64 && u.length <= 1_400_000);
+    if (imageDataUrls.length === 0) {
       return res.status(400).json({ error: { code: "INVALID_IMAGE", message: "请上传有效的 base64 压缩猫咪图片" } });
     }
 
     if (typeof options.mockPetVisionHandler === "function") {
-      const mockDna = await options.mockPetVisionHandler(imageDataUrl, req.user);
+      const mockDna = await options.mockPetVisionHandler(imageDataUrls[0], req.user, imageDataUrls);
       db.deductUsage({
         userId: req.user.id,
         email: req.user.email,
         service: "llm",
         model: "deepseek-flash",
-        units: 650,
+        units: 550 + imageDataUrls.length * 150,
         costMicroCny: 60,
       });
-      return res.json({ ok: true, dna: mockDna });
+      return res.json({ ok: true, dna: mockDna, photoCount: imageDataUrls.length });
     }
 
     if (!DEEPSEEK_API_KEY) {
       return res.status(503).json({ error: { code: "ENGINE_UNAVAILABLE", message: "云端视觉模型未就绪" } });
     }
+
+    const userBlocks = [
+      {
+        type: "text",
+        text: imageDataUrls.length > 1
+          ? `以上 ${imageDataUrls.length} 张照片是同一只猫咪的不同角度，请综合所有照片互补观察，输出最完整准确的唯一 JSON。`
+          : "请分析这张猫咪照片的花色、开脸、五官与毛色 JSON。",
+      },
+      ...imageDataUrls.map((url) => ({ type: "image_url", image_url: { url } })),
+    ];
 
     try {
       const upstreamResp = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
@@ -1342,13 +1352,7 @@ async function createApp(customDbPath, options = {}) {
           thinking: { type: "disabled" },
           messages: [
             { role: "system", content: PET_PHOTO_SYSTEM_PROMPT },
-            {
-              role: "user",
-              content: [
-                { type: "text", text: "请分析这张猫咪照片的花色、开脸、五官与毛色 JSON。" },
-                { type: "image_url", image_url: { url: imageDataUrl } },
-              ],
-            },
+            { role: "user", content: userBlocks },
           ],
         }),
       });

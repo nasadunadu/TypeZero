@@ -198,7 +198,7 @@ struct PetCompanionView: View {
                 Text("桌面搭子")
                     .font(TZFont.title(24))
                     .foregroundStyle(TZTheme.inkPrimary)
-                Text("与语音胶囊完全独立共存：完整继承 KuroCat 与 Clack-Clack 全部开关、原版顶额头换班、青轴/段落轴打字音效及云端语音代敲")
+                Text("陪你打字与办公的桌面小猫")
                     .font(.system(size: 12.5))
                     .foregroundStyle(TZTheme.inkSecondary)
             }
@@ -430,14 +430,14 @@ struct PetCompanionView: View {
                 .padding(16)
             }
 
-            TZGroupedSection(title: "专属猫咪定制与名字气泡（上传照片一键还原画风与动画）") {
+            TZGroupedSection(title: "我家猫咪") {
                 Button {
                     pet.triggerCatNameBubbleNow(mood: "🐾")
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "bubble.middle.bottom.fill")
                             .font(.system(size: 10.5, weight: .semibold))
-                        Text("立即冒一下名字")
+                        Text("试冒一下名字")
                     }
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(TZTheme.accent)
@@ -450,20 +450,19 @@ struct PetCompanionView: View {
                         ZStack {
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
                                 .fill(TZTheme.accentSoft)
-                                .frame(width: 46, height: 46)
+                                .frame(width: 44, height: 44)
                             Image(systemName: "camera.viewfinder")
-                                .font(.system(size: 21, weight: .semibold))
+                                .font(.system(size: 20, weight: .semibold))
                                 .foregroundStyle(TZTheme.accent)
                         }
 
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("上传自家猫咪照片 · 生成专属动态桌宠")
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("上传照片，定制自家猫咪")
                                 .font(.system(size: 13.5, weight: .semibold))
                                 .foregroundStyle(TZTheme.inkPrimary)
-                            Text("自动提取毛色、正八字/偏分开脸、三花/玳瑁/布偶/虎斑、白手套与鸳鸯异瞳，100% 保留敲键与顶额头换班动画（也可直接把照片拖到桌面小猫身上）")
+                            Text("支持上传多张照片还原花色细节，也可直接把照片拖到桌面小猫身上")
                                 .font(.system(size: 11.5))
                                 .foregroundStyle(TZTheme.inkSecondary)
-                                .fixedSize(horizontal: false, vertical: true)
                         }
                         Spacer(minLength: 8)
 
@@ -471,9 +470,9 @@ struct PetCompanionView: View {
                             pet.openCustomCatStudio()
                         } label: {
                             HStack(spacing: 5) {
-                                Image(systemName: "plus.viewfinder")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("上传照片定制…")
+                                Image(systemName: "plus")
+                                    .font(.system(size: 11.5, weight: .bold))
+                                Text("上传照片")
                             }
                         }
                         .buttonStyle(TZAccentButtonStyle(compact: true, capsule: true))
@@ -486,18 +485,29 @@ struct PetCompanionView: View {
                             .strokeBorder(TZTheme.accent.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [5, 3]))
                     )
                     .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-                        guard let prov = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }) else {
-                            return false
-                        }
-                        prov.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-                            let url: URL? = {
-                                if let d = item as? Data { return URL(dataRepresentation: d, relativeTo: nil) }
-                                return item as? URL
-                            }()
-                            if let url {
-                                Task { @MainActor in
-                                    pet.openCustomCatStudio(initialPhotoURL: url)
+                        let matching = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
+                        guard !matching.isEmpty else { return false }
+                        let group = DispatchGroup()
+                        let lock = NSLock()
+                        var urls: [URL] = []
+                        for prov in matching.prefix(PhotoCatAnalyzer.maxPhotoCount) {
+                            group.enter()
+                            prov.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                                defer { group.leave() }
+                                let url: URL? = {
+                                    if let d = item as? Data { return URL(dataRepresentation: d, relativeTo: nil) }
+                                    return item as? URL
+                                }()
+                                if let url {
+                                    lock.lock()
+                                    urls.append(url)
+                                    lock.unlock()
                                 }
+                            }
+                        }
+                        group.notify(queue: .main) {
+                            if !urls.isEmpty {
+                                pet.openCustomCatStudio(initialPhotoURLs: urls)
                             }
                         }
                         return true
@@ -509,17 +519,17 @@ struct PetCompanionView: View {
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 2.5) {
                             HStack(spacing: 7) {
-                                Text("当前猫咪名字：「\(pet.activeCatDisplayName)」")
+                                Text("猫咪名字：\(pet.activeCatDisplayName)")
                                     .font(.system(size: 13, weight: .semibold))
                                     .foregroundStyle(TZTheme.inkPrimary)
-                                Button("修改名字…") {
+                                Button("改名") {
                                     pet.promptRenameActiveCat()
                                 }
                                 .font(.system(size: 11.5, weight: .medium))
                                 .foregroundStyle(TZTheme.accent)
                                 .buttonStyle(.plain)
                             }
-                            Text("开启后，猫咪的名字会偶尔轻盈浮现在脑袋上方（摸头呼噜、换班落座、打盹时还会带专属小表情）")
+                            Text("开启后名字偶尔浮现在脑袋上")
                                 .font(.system(size: 11.5))
                                 .foregroundStyle(TZTheme.inkSecondary)
                         }
