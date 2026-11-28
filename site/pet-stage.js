@@ -2,10 +2,10 @@
   "use strict";
 
   const STAGE = {
-    width: 540,
-    height: 396,
-    anchorX: 256,
-    anchorY: 368
+    width: 560,
+    height: 390,
+    anchorX: 266,
+    anchorY: 374
   };
 
   const KB = { x: 118, y: 331, width: 276, height: 72 };
@@ -16,7 +16,7 @@
   const PERSP_DIST = 520;
   const PERSP_TILT = 0.68;
   const PERSP_ORIGIN_Y = 340;
-  const BASE_SCALE = 0.82;
+  const BASE_SCALE = 0.88;
 
   function projectDeck(x, y, z = 0) {
     const s = PERSP_DIST / (PERSP_DIST + KB_BOTTOM_Y - y);
@@ -2503,7 +2503,7 @@
     {
       id: "act1",
       durationMs: 6000,
-      appBadge: "💬 飞书 / 微信 · 极速回消息",
+      appBadge: "即时沟通 · 飞书 / 微信",
       latencyText: "118 ms",
       segments: [
         { text: "呃那个", bug: true },
@@ -2511,7 +2511,7 @@
         { text: "周三不对", bug: true },
         { text: "改成周四下午三点我们过一下上线细节哈", bug: false }
       ],
-      badges: ["✂️ 自动滤除口癖", "🎯 语义纠偏：周三→周四", "⚡ 118ms 光标直出"],
+      badges: ["滤除口癖", "改口纠偏", "118ms 直出"],
       polished: "林哥，新版安装包我已经上传好了，周四下午三点我们一起核对一下上线细节。",
       keys: [
         "KeyL", "KeyI", "KeyN", "Space", "KeyA", "KeyN", "KeyZ", "KeyH", "KeyU", "KeyA", "KeyN", "KeyG",
@@ -2522,17 +2522,17 @@
     {
       id: "act2",
       durationMs: 6200,
-      appBadge: "📝 Notion / 备忘录 · 结构化列点",
+      appBadge: "文档创作 · Notion / 备忘录",
       latencyText: "129 ms",
       segments: [
         { text: "记一下本周推进重点", bug: false },
         { text: "呃怎么说呢", bug: true },
         { text: "三件事，第一上线桌面小黑猫搭子，第二优化弱网离线无缝切换，第三", bug: false },
         { text: "那个啥", bug: true },
-        { text: "更新多语言官网页面", bug: false }
+        { text: "完成官网动态演示升级", bug: false }
       ],
-      badges: ["✂️ 剔除冗余停顿词", "📑 智能识别 1·2·3 分段", "✨ 零多余符号污染"],
-      polished: "本周推进重点：\n1. 上线桌面小黑猫陪打搭子与双猫换班动画；\n2. 优化弱网与断网场景下的本机离线无缝切换；\n3. 完成多语言官网动态演示升级。",
+      badges: ["剔除停顿词", "智能分点", "纯文本上屏"],
+      polished: "本周推进重点：\n1. 上线桌面小黑猫陪打搭子与双猫换班动画；\n2. 优化弱网与断网场景下的本机离线无缝切换；\n3. 完成官网实时动态演示升级。",
       keys: [
         "Digit1", "KeyZ", "KeyH", "KeyU", "KeyO", "KeyC", "KeyH", "KeyO", "KeyN", "KeyG", "Enter",
         "Digit2", "KeyL", "KeyI", "KeyX", "KeyI", "KeyA", "KeyN", "Enter",
@@ -2543,8 +2543,8 @@
       id: "act3",
       durationMs: 10800,
       isDuelAct: true,
-      appBadge: "🐾 桌面搭子 · 换猫交接仪式",
-      latencyText: "10.5s 实况"
+      appBadge: "桌面搭子 · 交接班实况",
+      latencyText: "10.5s"
     }
   ];
 
@@ -2612,15 +2612,18 @@
       });
       if (soundBtn) {
         soundBtn.classList.toggle("is-on", audio.enabled);
-        soundBtn.textContent = audio.enabled ? "🔊 原声已开" : "🔈 开启原声";
+        const lbl = soundBtn.querySelector(".toggle-lbl");
+        if (lbl) lbl.textContent = audio.enabled ? "原声开" : "原声";
       }
       if (rgbBtn) {
         rgbBtn.classList.toggle("is-on", settings.rgbGlow);
-        rgbBtn.textContent = settings.rgbGlow ? "✨ 键盘闪光：开" : "🌙 键盘闪光：关";
+        const lbl = rgbBtn.querySelector(".toggle-lbl");
+        if (lbl) lbl.textContent = settings.rgbGlow ? "灯效开" : "灯效关";
       }
       if (musicBtn) {
         musicBtn.classList.toggle("is-on", settings.musicMode);
-        musicBtn.textContent = settings.musicMode ? "🎧 听歌耳机：开" : "🎧 戴上耳机";
+        const lbl = musicBtn.querySelector(".toggle-lbl");
+        if (lbl) lbl.textContent = settings.musicMode ? "听歌中" : "耳机";
       }
     }
 
@@ -2744,8 +2747,8 @@
 
       if (act.isDuelAct) {
         if (capsulePillEl) capsulePillEl.classList.remove("is-speaking");
-        if (capsuleStatusEl) capsuleStatusEl.textContent = "桌面搭子 · 交接班小剧场";
-        if (capsuleLatencyEl) capsuleLatencyEl.textContent = "10.5s 实况";
+        if (capsuleStatusEl) capsuleStatusEl.textContent = "桌面搭子换班中";
+        if (capsuleLatencyEl) capsuleLatencyEl.textContent = "10.5s";
         waveBars.forEach((bar) => {
           bar.setAttribute("y", "11");
           bar.setAttribute("height", "4");
@@ -2754,11 +2757,6 @@
         return;
       }
 
-      // Voice + Bug-Catching + Cat Clacking Act Timeline (0 ~ 6000ms)
-      // 0 ~ 2100ms: User speaking into mic (waveform bouncing + raw segments appear)
-      // 1750 ~ 2500ms: Red SVG pen strikes out filler/self-correction bugs + badges light up!
-      // 1950 ~ 4350ms: Cat furiously clacks keys + polished text streams into app cursor!
-      // 4350 ~ 6000ms: Clean finished output held clearly for reading before next act!
       const isSpeaking = elapsed < 2250;
       const isStriking = elapsed >= 1700;
       const isStreaming = elapsed >= 1900 && elapsed < 4400;
@@ -2767,10 +2765,10 @@
       if (capsulePillEl) capsulePillEl.classList.toggle("is-speaking", isSpeaking);
       if (capsuleStatusEl) {
         capsuleStatusEl.textContent = isSpeaking
-          ? "🎙️ 正在按住说话…"
+          ? "正在聆听口述"
           : isStreaming
-            ? "⚡ 极速捉错直出中"
-            : "✅ 已直出漂亮终稿";
+            ? "AI 净化直出"
+            : "已完成上屏";
       }
 
       // Animate 14 SVG waveform bars smoothly
