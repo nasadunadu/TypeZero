@@ -460,6 +460,8 @@ struct TZPrimaryButtonStyle: ButtonStyle {
         let radius: CGFloat = capsule ? 999 : (compact ? 9 : 11)
 
         configuration.label
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             .font(.system(size: compact ? 12 : 12.5, weight: .semibold))
             .foregroundStyle(fgColor.opacity(isEnabled ? 1.0 : 0.45))
             .padding(.horizontal, compact ? 14 : 18)
@@ -554,6 +556,8 @@ struct TZAccentButtonStyle: ButtonStyle {
         let bottom = tint?.opacity(0.84) ?? Color(red: 0.285, green: 0.215, blue: 0.865)
 
         configuration.label
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             .font(.system(size: compact ? 12 : 12.5, weight: .semibold))
             .foregroundStyle(.white.opacity(isEnabled ? 1.0 : 0.6))
             .padding(.horizontal, compact ? 13 : 16)
@@ -598,6 +602,8 @@ struct TZSecondaryButtonStyle: ButtonStyle {
         let isDark = (scheme == .dark)
 
         configuration.label
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             .font(.system(size: compact ? 11.5 : 12.5, weight: .medium))
             .foregroundStyle(destructive ? TZTheme.crimson : TZTheme.inkPrimary.opacity(isEnabled ? 0.92 : 0.42))
             .padding(.horizontal, compact ? 12 : 14)
