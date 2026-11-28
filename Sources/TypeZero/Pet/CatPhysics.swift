@@ -1784,7 +1784,7 @@ final class CatPhysics {
                 kbImpactTilt.velocity += (tapPt.x < 195 ? -0.35 : 0.35)
                 if s.showKeyBadges && !s.isEffectivePrivacyActive {
                     // Offset floating keycap badge cleanly away from the tail peduncle so it never stamps across the tail!
-                    let badgeDir: CGFloat = fishSwim.turnCos.value >= 0 ? -1.0 : 1.0
+                    let badgeDir: CGFloat = fishSwim.facingSign >= 0 ? -1.0 : 1.0
                     spawnFloatingKeycap(label: vk.badgeLabel, near: CGPoint(x: tapPt.x + badgeDir * 28.0, y: tapPt.y + 8.0), now: now)
                 }
             }
