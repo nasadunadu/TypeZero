@@ -1198,33 +1198,57 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
 }
 
 /* =========================================================================
-   6. Asymmetric 35% / 65% Video Section (NetEase Flagship Layout)
+   6. Full-Widescreen Cinema Film Showcase (1320px Immersive Theater)
    ========================================================================= */
-.video-split {
-  display: grid;
-  grid-template-columns: 0.52fr 1fr;
-  gap: 44px;
-  align-items: center;
+.cinema-film-band {
+  padding: 92px 0 96px;
+  background: #0D0F14;
+  color: #FFFFFF;
 }
 
-.video-copy h2 {
-  margin: 0 0 14px;
-  font-size: clamp(30px, 3.5vw, 42px);
-  font-weight: 700;
-  line-height: 1.22;
+.cinema-film-wrap {
+  width: min(1320px, calc(100% - 40px));
+  margin-inline: auto;
 }
-.video-copy p {
-  margin: 0 0 24px;
-  font-size: 16.5px;
-  color: var(--ink-2);
+
+.cinema-film-head {
+  max-width: 760px;
+  margin: 0 auto 40px;
+  text-align: center;
+}
+.cinema-film-kicker {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.2em;
+  color: #94B4FF;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+.cinema-film-head h2 {
+  margin: 0 0 12px;
+  font-size: clamp(30px, 3.8vw, 46px);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: #FFFFFF;
+}
+.cinema-film-head p {
+  margin: 0;
+  font-size: 17px;
+  color: #9CA0AB;
 }
 
 .film-frame {
   position: relative;
-  border-radius: 24px;
+  width: 100%;
+  border-radius: 26px;
   overflow: hidden;
-  background: var(--obsidian);
+  background: #05070D;
   aspect-ratio: 16 / 9;
+  box-shadow:
+    0 36px 96px rgba(0, 0, 0, 0.65),
+    0 0 0 1px rgba(255, 255, 255, 0.1);
 }
 .film-frame video {
   width: 100%;
@@ -1240,31 +1264,46 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  background: rgba(15, 17, 22, 0.28);
+  gap: 16px;
+  background: radial-gradient(circle at 50% 48%, rgba(5, 7, 13, 0.08), rgba(5, 7, 13, 0.36) 85%);
   color: #FFFFFF;
-  transition: opacity 0.22s ease;
+  transition: opacity 0.26s ease, background 0.25s ease;
+}
+.film-overlay:hover {
+  background: radial-gradient(circle at 50% 48%, rgba(5, 7, 13, 0.02), rgba(5, 7, 13, 0.28) 85%);
 }
 .film-overlay.is-hidden {
   opacity: 0;
   pointer-events: none;
 }
 .film-play-circle {
-  width: 68px;
-  height: 68px;
+  width: 88px;
+  height: 88px;
   border-radius: 50%;
-  background: #FFFFFF;
-  color: var(--obsidian);
+  background: rgba(255, 255, 255, 0.94);
+  color: #0D0F14;
   display: grid;
   place-items: center;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.film-overlay:hover .film-play-circle {
+  transform: scale(1.07);
+}
+.film-play-circle svg {
+  margin-left: 3px;
 }
 .film-caption-pill {
-  padding: 5px 14px;
+  font-family: var(--mono);
+  padding: 7px 18px;
   border-radius: 999px;
-  background: rgba(23, 24, 26, 0.72);
-  backdrop-filter: blur(8px);
+  background: rgba(13, 15, 20, 0.76);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   font-size: 13px;
+  letter-spacing: 0.04em;
+  color: #F5F7FA;
 }
 
 /* =========================================================================
@@ -1437,6 +1476,17 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
 .compare-sublinks a:hover { color: var(--accent); text-decoration: underline; }
 
 /* Privacy Split Band ("你的声音，唯你掌控") */
+.privacy-copy h2 {
+  margin: 0 0 14px;
+  font-size: clamp(30px, 3.5vw, 42px);
+  font-weight: 700;
+  line-height: 1.22;
+}
+.privacy-copy p {
+  margin: 0;
+  font-size: 16.5px;
+  color: var(--ink-2);
+}
 .privacy-split {
   display: grid;
   grid-template-columns: 0.65fr 1fr;
@@ -1596,28 +1646,127 @@ button { font: inherit; cursor: pointer; border: 0; background: none; }
   text-underline-offset: 3px;
 }
 
-.site-footer {
-  padding: 40px 0 52px;
-  font-size: 13.5px;
-  color: var(--ink-muted);
+/* ---------- Original Epic Knight Gradient Footer (Restored Intact) ---------- */
+footer.knight-footer {
+  position: relative;
+  z-index: 1;
+  margin-top: 24px;
+  padding: 0;
+  border-top: 0;
+  background-color: #F5E4D7;
+  overflow: hidden;
 }
-.footer-bar {
+
+.knight-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 760px;
+  min-height: 360px;
+  overflow: hidden;
+  background-color: #E8EEF5;
+}
+
+.knight-stage img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 78%;
+}
+
+/* Smooth top feathering from clean #FFFFFF page into bright desert sky */
+.knight-stage::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 28%;
+  pointer-events: none;
+  z-index: 1;
+  background: linear-gradient(180deg,
+    #FFFFFF 0%,
+    rgba(255, 255, 255, 0.78) 28%,
+    rgba(244, 247, 251, 0.34) 64%,
+    rgba(232, 238, 245, 0) 100%
+  );
+}
+
+/* Seamless warm-sand feathering at bottom edge matching sampled #F5E4D7 sand tone */
+.knight-stage::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 22%;
+  pointer-events: none;
+  z-index: 1;
+  background: linear-gradient(180deg,
+    rgba(245, 228, 215, 0) 0%,
+    rgba(245, 228, 215, 0.22) 38%,
+    rgba(245, 228, 215, 0.68) 74%,
+    #F5E4D7 100%
+  );
+}
+
+footer.knight-footer .foot-content {
+  position: relative;
+  z-index: 2;
+  background: linear-gradient(180deg, #F5E4D7 0%, #EFE0D1 100%);
+  padding: 20px 0 44px;
+}
+
+footer.knight-footer .foot-slogan-wrap {
+  text-align: center;
+  padding: 12px 0 36px;
+}
+
+footer.knight-footer .foot-slogan-kicker {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  color: #9E2A2B;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+  opacity: 0.85;
+}
+
+footer.knight-footer .foot-motto {
+  font-family: "Songti SC", "STSong", "Noto Serif SC", Georgia, serif;
+  font-size: clamp(26px, 3.6vw, 44px);
+  letter-spacing: 0.14em;
+  line-height: 1.3;
+  color: #2C2017;
+  margin: 0;
+  font-weight: 700;
+}
+
+footer.knight-footer .foot-bar {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 16px;
-  padding-top: 24px;
-  border-top: 1px solid var(--line);
-}
-.footer-links {
-  display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 20px;
-  color: var(--ink-2);
+  gap: 14px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(74, 56, 43, 0.16);
+  font-size: 13px;
+  color: #6B5647;
 }
-.footer-links a:hover { color: var(--ink); }
+
+footer.knight-footer .foot-links {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+footer.knight-footer .foot-links a {
+  color: #4A382B;
+  font-weight: 500;
+  transition: color 0.18s ease;
+}
+
+footer.knight-footer .foot-links a:hover {
+  color: #9E2A2B;
+}
 
 .brew-inline {
   margin-top: 18px;
@@ -1662,7 +1811,6 @@ body.motion-paused *::after {
   .speed-vs-grid,
   .bento-row-a,
   .bento-row-b,
-  .video-split,
   .privacy-split {
     grid-template-columns: 1fr;
   }
@@ -1674,13 +1822,15 @@ body.motion-paused *::after {
 }
 
 @media (max-width: 680px) {
-  .container { width: calc(100% - 28px); }
+  .container, .cinema-film-wrap { width: calc(100% - 28px); }
   .hero { padding-top: 38px; }
   .studio-showcase { padding: 16px; border-radius: 22px; }
   .bento-tile, .vs-card { padding: 24px; }
   .bento-diagram-purify { grid-template-columns: 1fr; }
   .switch-preview-grid { grid-template-columns: 1fr; }
   .scenario-panel-inner { grid-template-columns: 1fr; }
+  .film-frame { border-radius: 16px; }
+  .film-play-circle { width: 66px; height: 66px; }
   .header-actions { gap: 10px; }
   .hide-sm { display: none; }
 }
@@ -2239,27 +2389,27 @@ body.motion-paused *::after {
     </div>
   </section>
 
-  <!-- 7. Asymmetric 35% / 65% Official Launch Video -->
-  <section id="film" class="section-band">
-    <div class="container video-split">
-      <div class="video-copy">
-        <h2>60 秒，<br>了解真实输入体验</h2>
-        <p>无需切换窗口，在任意软件光标处按住快捷键开口，松手即完成语音识别、去口癖与自动排版。</p>
-        <a class="btn-nav-dark" style="height:46px;padding:0 24px;border-radius:11px;" href="https://github.com/nasadunadu/TypeZero/releases/download/v0.6.6/TypeZero-v0.6.6-macOS-arm64.dmg" data-umami-event="download-dmg" data-umami-event-source="home-video">立即免费体验</a>
+  <!-- 7. Full-Widescreen Official Launch Film (1320px Immersive Cinema) -->
+  <section id="film" class="cinema-film-band" aria-labelledby="film-h">
+    <div class="cinema-film-wrap">
+      <div class="cinema-film-head">
+        <div class="cinema-film-kicker">OFFICIAL LAUNCH FILM · 26s · 1080P</div>
+        <h2 id="film-h">26 秒大片，听见开口即终稿的爽感</h2>
+        <p>建议开启声音观看：0ms 热麦秒开、自动静音外放、口误折叠一步成稿，直奔终点</p>
       </div>
 
       <div class="film-frame">
-        <video id="launchFilm" controls preload="metadata" playsinline poster="./media/typezero-launch-zh-poster.jpg">
+        <video id="launchFilm" preload="metadata" playsinline poster="./media/typezero-launch-zh-poster.jpg">
           <source src="./media/typezero-launch-zh.mp4" type="video/mp4">
-          您的浏览器暂不支持 HTML5 视频播放。
+          您的浏览器暂不支持 HTML5 视频播放，请直接下载观看。
         </video>
-        <button type="button" id="launchFilmOverlay" class="film-overlay" aria-label="播放 TypeZero 实机演示短片">
+        <button type="button" id="launchFilmOverlay" class="film-overlay" aria-label="播放 TypeZero 官方宣传片">
           <span class="film-play-circle" aria-hidden="true">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M8 5.2v13.6L19 12 8 5.2z"/>
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M8 5.14v14l11-7-11-7z"/>
             </svg>
           </span>
-          <span class="film-caption-pill">播放 60 秒实机短片</span>
+          <span class="film-caption-pill">▶ 播放官方大横屏宣传片 · 00:26（带原声配乐）</span>
         </button>
       </div>
     </div>
@@ -2335,9 +2485,9 @@ body.motion-paused *::after {
   <!-- 9. Privacy & Security ("你的声音，唯你掌控") -->
   <section id="privacy" class="section-band">
     <div class="container privacy-split">
-      <div class="video-copy" style="margin:0;">
+      <div class="privacy-copy">
         <h2>你的声音，<br>唯你掌控</h2>
-        <p style="margin-bottom:0;">从云端流式销毁到本机离线推理，每一层架构都为守护你的输入隐私而设计。</p>
+        <p>从云端流式销毁到本机离线推理，每一层架构都为守护你的输入隐私而设计。</p>
       </div>
 
       <div class="privacy-pillars">
@@ -2440,20 +2590,31 @@ body.motion-paused *::after {
   </section>
 </main>
 
-<footer class="site-footer">
-  <div class="container footer-bar">
-    <div>
-      <strong style="color:var(--ink);">TypeZero</strong> · MIT 开源免费的桌宠 AI 语音输入法
+<footer class="knight-footer">
+  <div class="knight-stage">
+    <picture><source srcset="./footer-knight.webp" type="image/webp"><img src="./footer-knight.jpg" alt="风沙中的白马骑士" loading="lazy" decoding="async"></picture>
+  </div>
+  <div class="foot-content">
+    <div class="container">
+      <div class="foot-slogan-wrap">
+        <div class="foot-slogan-kicker">TYPEZERO · VOICE AT FULL GALLOP</div>
+        <div class="foot-motto">驭风而行，开口即终稿。</div>
+      </div>
+      <div class="foot-bar">
+        <div>TypeZero v0.6.6 · Pure Native macOS AI Voice Dictation · MIT License</div>
+        <div class="foot-links">
+          <a href="./index.html" hreflang="zh-Hans">中文</a>
+          <a href="/guide/">API 开通教程</a>
+          <a href="/vs-typeless/">对比 Typeless</a>
+          <a href="/vs-shandianshuo/">对比闪电说</a>
+          <a href="./en/index.html" hreflang="en">English</a>
+          <a href="./ja/index.html" hreflang="ja">日本語</a>
+          <a href="https://github.com/nasadunadu/TypeZero" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://github.com/nasadunadu/TypeZero/releases/tag/v0.6.6" target="_blank" rel="noopener">v0.6.6 Release</a>
+          <a href="https://github.com/nasadunadu/TypeZero/issues" target="_blank" rel="noopener">Issues</a>
+        </div>
+      </div>
     </div>
-    <nav class="footer-links" aria-label="页脚导航">
-      <a href="/guide/">API 教程</a>
-      <a href="/vs-typeless/">对比 Typeless</a>
-      <a href="/vs-shandianshuo/">对比闪电说</a>
-      <a href="./en/index.html">English</a>
-      <a href="./ja/index.html">日本語</a>
-      <a href="https://github.com/nasadunadu/TypeZero" target="_blank" rel="noopener">GitHub</a>
-      <a href="https://github.com/nasadunadu/TypeZero/releases" target="_blank" rel="noopener">版本记录</a>
-    </nav>
   </div>
 </footer>
 
@@ -2549,16 +2710,23 @@ body.motion-paused *::after {
     });
   }
 
-  // 4. Launch Film Custom Play Overlay
+  // 4. Launch Film Custom Play Overlay (Clean Poster Until Play Clicked!)
   const launchFilm = document.getElementById("launchFilm");
   const launchFilmOverlay = document.getElementById("launchFilmOverlay");
   if (launchFilm && launchFilmOverlay) {
     launchFilmOverlay.addEventListener("click", () => {
       launchFilmOverlay.classList.add("is-hidden");
+      launchFilm.controls = true;
       launchFilm.play().catch(() => {});
     });
-    launchFilm.addEventListener("play", () => launchFilmOverlay.classList.add("is-hidden"));
-    launchFilm.addEventListener("ended", () => launchFilmOverlay.classList.remove("is-hidden"));
+    launchFilm.addEventListener("play", () => {
+      launchFilm.controls = true;
+      launchFilmOverlay.classList.add("is-hidden");
+    });
+    launchFilm.addEventListener("ended", () => {
+      launchFilm.controls = false;
+      launchFilmOverlay.classList.remove("is-hidden");
+    });
   }
 })();
 </script>
