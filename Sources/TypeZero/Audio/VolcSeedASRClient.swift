@@ -110,7 +110,7 @@ public final class VolcSeedASRClient: @unchecked Sendable {
             ? customEndpointURL!.trimmingCharacters(in: .whitespacesAndNewlines)
             : Self.endpointURLString
         guard !cleanKey.isEmpty, let wsURL = URL(string: targetURLString) else {
-            onConnectionFallbackNeeded?(useBearerAuth ? "请先登录 TypeZero 云端体验账号" : "未配置豆包语音 API Key")
+            onConnectionFallbackNeeded?(useBearerAuth ? "请先登录激活 TypeZero 自研云端引擎" : "未配置豆包语音 API Key")
             return
         }
 

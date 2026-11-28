@@ -13,6 +13,9 @@ enum TypeZeroMain {
         if let idx = CommandLine.arguments.firstIndex(of: "--ab-verify"), idx + 1 < CommandLine.arguments.count {
             exit(SelfTestSuite.runEmpiricalABVerification(wavPath: CommandLine.arguments[idx + 1]))
         }
+        if let idx = CommandLine.arguments.firstIndex(of: "--dump-onboarding-qa"), idx + 1 < CommandLine.arguments.count {
+            exit(SelfTestSuite.dumpOnboardingQASnapshots(outDir: CommandLine.arguments[idx + 1]))
+        }
         AppLaunchGuard.enforceSingleInstanceBeforeAppLaunch()
         TypeZeroApp.main()
     }
@@ -467,7 +470,7 @@ private struct TypeZeroMenuBarPopover: View {
     }
 
     private var activeEngineShortText: String {
-        if appState.isOfficialCloudTrialActive { return "官方体验" }
+        if appState.isOfficialCloudTrialActive { return "自研云端引擎" }
         switch appState.llmConfig.asrProvider {
         case .volcSeedASR: return "豆包 2.0"
         case .openAIWhisper: return appState.isGroqASRSelected ? "Groq" : "OpenAI"

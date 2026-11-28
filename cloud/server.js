@@ -42,29 +42,55 @@ const FEISHU_WEBHOOK_URL = (process.env.FEISHU_WEBHOOK_URL || "").trim();
 const FEISHU_WEBHOOK_SECRET = (process.env.FEISHU_WEBHOOK_SECRET || "").trim();
 
 // Pricing constants (micro-CNY; 100,000 = ¥1.00)
-// Seed-ASR 2.0: ~¥0.008/min = 800 micro-CNY/min ≈ 13.4 micro-CNY/sec -> bill 16 micro-CNY/sec (~¥0.0096/min, 60 min ≈ ¥0.58)
-const ASR_MICRO_CNY_PER_SEC = 16;
-// DeepSeek 4 Flash: ~¥0.0004/req average with KV cache -> bill by tokens (min 35 micro-CNY = ¥0.00035/req)
-const LLM_MIN_MICRO_CNY_PER_REQ = 35;
+// Seed-ASR 2.0: ~¥0.008/min -> bill 14 micro-CNY/sec (~¥0.0084/min, 300 min ≈ ¥2.52)
+const ASR_MICRO_CNY_PER_SEC = 14;
+// DeepSeek 4 Flash: ~¥0.0003/req with KV cache -> bill by tokens (min 30 micro-CNY = ¥0.00030/req, 1500 req ≈ ¥0.45)
+const LLM_MIN_MICRO_CNY_PER_REQ = 30;
 
 // Known disposable temp-mail domains blocked from free trial abuse
 const DISPOSABLE_DOMAINS = new Set([
   "tempmail.com",
   "temp-mail.org",
+  "temp-mail.io",
   "guerrillamail.com",
+  "guerrillamail.org",
+  "guerrillamail.net",
   "10minutemail.com",
+  "10minutemail.net",
   "mailinator.com",
   "yopmail.com",
+  "yopmail.fr",
+  "yopmail.net",
   "trashmail.com",
+  "trashmail.me",
   "sharklasers.com",
   "dispostable.com",
   "maildrop.cc",
   "mohmal.com",
   "getnada.com",
+  "nada.email",
   "linshi-email.com",
   "bccto.me",
   "chacuo.net",
   "027168.com",
+  "mail.tm",
+  "mail.gw",
+  "emailondeck.com",
+  "fakeinbox.com",
+  "throwawaymail.com",
+  "mintemail.com",
+  "spamgourmet.com",
+  "burnermail.io",
+  "moakt.com",
+  "moakt.ws",
+  "tmailor.com",
+  "tempr.email",
+  "dropmail.me",
+  "harakirimail.com",
+  "mailnesia.com",
+  "mytemp.email",
+  "snapmail.cc",
+  "mvrht.net",
 ]);
 
 // ---------- Helpers ----------
@@ -499,8 +525,85 @@ async function postFeishuCard({ webhookUrl, secret = "", title, template = "oran
   return { sent: true };
 }
 
+function evaluateUserTrial(row, nowMs = Date.now()) {
+  const balanceMicro = Math.max(0, Number(row.balance_micro_cny || 0));
+  const usedMicro = Math.max(0, Number(row.total_used_micro_cny || 0));
+  const initialMicro = Math.max(
+    Number(row.trial_initial_micro_cny || 0),
+    balanceMicro + usedMicro,
+    0,
+  );
+  const asrUsedSec = Math.max(0, Number(row.asr_seconds_used || 0));
+  const llmUsedCount = Math.max(0, Number(row.llm_requests_used || 0));
+  const asrQuotaSec = Math.max(0, Number(row.trial_asr_quota_sec ?? 18_000));
+  const llmQuotaCount = Math.max(0, Number(row.trial_llm_quota_count ?? 1500));
+  const expiresAt = row.trial_expires_at ? String(row.trial_expires_at) : null;
+  const expiresMs = expiresAt ? Date.parse(expiresAt) : NaN;
+  const hasExpiry = Number.isFinite(expiresMs) && expiresMs > 0;
+  const isExpired = hasExpiry && nowMs >= expiresMs;
+  const daysRemaining = hasExpiry ? Math.max(0, Math.ceil((expiresMs - nowMs) / 86400_000)) : null;
+
+  const asrRemainingSec = Math.max(0, asrQuotaSec - asrUsedSec);
+  const llmRemainingCount = Math.max(0, llmQuotaCount - llmUsedCount);
+
+  if (!row.trial_granted && balanceMicro <= 0) {
+    return {
+      status: "not_granted",
+      canUseAsr: false,
+      canUseLlm: false,
+      remainingPercent: 0,
+      daysRemaining: 0,
+      expiresAt,
+      asrUsedMinutes: Number((asrUsedSec / 60).toFixed(1)),
+      asrQuotaMinutes: Math.round(asrQuotaSec / 60),
+      asrRemainingMinutes: 0,
+      llmUsedCount,
+      llmQuotaCount,
+      llmRemainingCount: 0,
+    };
+  }
+
+  const budgetExhausted = balanceMicro <= 0;
+  const asrExhausted = budgetExhausted || (asrQuotaSec > 0 && asrRemainingSec <= 0);
+  const llmExhausted = budgetExhausted || (llmQuotaCount > 0 && llmRemainingCount <= 0);
+  const fullyExhausted = budgetExhausted || (asrExhausted && llmExhausted);
+
+  const asrPct = asrQuotaSec > 0 ? Math.max(0, Math.min(1, asrRemainingSec / asrQuotaSec)) : 1;
+  const llmPct = llmQuotaCount > 0 ? Math.max(0, Math.min(1, llmRemainingCount / llmQuotaCount)) : 1;
+  const budgetPct = initialMicro > 0 ? Math.max(0, Math.min(1, balanceMicro / initialMicro)) : 0;
+
+  let status = "active";
+  let remainingPercent = Math.max(1, Math.round(Math.min(asrPct, llmPct, budgetPct) * 100));
+
+  if (isExpired) {
+    status = "expired";
+    remainingPercent = 0;
+  } else if (fullyExhausted || asrExhausted) {
+    status = "exhausted";
+    remainingPercent = 0;
+  } else if (remainingPercent <= 20 || (daysRemaining !== null && daysRemaining <= 5)) {
+    status = "low";
+  }
+
+  return {
+    status,
+    canUseAsr: !isExpired && !asrExhausted && !row.is_banned,
+    canUseLlm: !isExpired && !llmExhausted && !row.is_banned,
+    remainingPercent,
+    daysRemaining,
+    expiresAt,
+    asrUsedMinutes: Number((asrUsedSec / 60).toFixed(1)),
+    asrQuotaMinutes: Math.round(asrQuotaSec / 60),
+    asrRemainingMinutes: Number((asrRemainingSec / 60).toFixed(1)),
+    llmUsedCount,
+    llmQuotaCount,
+    llmRemainingCount,
+  };
+}
+
 function formatUserPublic(row) {
   if (!row) return null;
+  const trial = evaluateUserTrial(row);
   return {
     id: row.id,
     email: row.email,
@@ -512,6 +615,7 @@ function formatUserPublic(row) {
     trialGranted: Boolean(row.trial_granted),
     isBanned: Boolean(row.is_banned),
     createdAt: row.created_at,
+    trial,
   };
 }
 
@@ -554,12 +658,16 @@ function checkRateLimit(key, maxCount, windowMs) {
 
 const activeLlmConcurrency = new Map();
 const activeAsrConcurrency = new Map();
+const recentAsrFinishGrace = new Map(); // userId -> expiresAtMs (allows final sentence LLM polish right after ASR exhausts quota)
 const googleSessions = new Map(); // sessionId -> { status, deviceId, platform, token, user, expiresAt }
 
 setInterval(() => {
   const now = Date.now();
   for (const [k, s] of googleSessions.entries()) {
     if (s.expiresAt < now) googleSessions.delete(k);
+  }
+  for (const [k, exp] of recentAsrFinishGrace.entries()) {
+    if (exp < now) recentAsrFinishGrace.delete(k);
   }
 }, 60_000).unref();
 
@@ -649,6 +757,40 @@ async function createApp(customDbPath, options = {}) {
     }
   }
 
+  async function notifyFeishuBudgetAlert(alert) {
+    const cfg = resolveFeishuConfig();
+    const b = alert.snapshot;
+    const isTotal = alert.kind.startsWith("total_");
+    const is100 = alert.kind.endsWith("_100");
+    const title = is100
+      ? `🚨 TypeZero ${isTotal ? "总预算" : "今日预算"}已触达 100% 熔断`
+      : `⚠️ TypeZero ${isTotal ? "总预算" : "今日预算"}已消耗达 80%`;
+    const markdown = [
+      `**今日消耗**：¥${(b.todaySpentMicroCny / MICRO_PER_CNY).toFixed(3)} / ¥${(b.dailyBudgetMicroCny / MICRO_PER_CNY).toFixed(2)}`,
+      `**累计总消耗**：¥${(b.totalSpentMicroCny / MICRO_PER_CNY).toFixed(3)} / ¥${(b.totalBudgetMicroCny / MICRO_PER_CNY).toFixed(2)}`,
+      `**当前状态**：${is100 ? "已自动触发熔断保护，避免超支" : "仍在正常运行，请提前留意水位"}`,
+      `[打开 TypeZero 管理后台调整预算](${PUBLIC_BASE_URL}/admin)`,
+    ].join("\n");
+
+    if (typeof options.onFeishuNotify === "function") {
+      await options.onFeishuNotify({ webhookUrl: cfg.webhookUrl, title, markdown, alertKind: alert.kind });
+      return;
+    }
+    if (!cfg.anyReady) return;
+    try {
+      await sendFeishuNotification({ title, template: is100 ? "red" : "orange", markdown });
+    } catch (err) {
+      console.error("[TypeZero Cloud] Feishu budget alert failed:", err.message);
+    }
+  }
+
+  function checkAndDispatchBudgetAlerts() {
+    const alerts = db.consumePendingBudgetAlerts();
+    for (const a of alerts) {
+      void notifyFeishuBudgetAlert(a);
+    }
+  }
+
   // Serve Admin Console static page
   app.use("/admin", express.static(path.join(__dirname, "public")));
   app.get("/admin", (_req, res) => {
@@ -661,13 +803,17 @@ async function createApp(customDbPath, options = {}) {
     res.json({
       ok: true,
       service: "typezero-cloud",
-      version: "1.0.0",
+      version: "1.1.0",
       googleOAuthEnabled: Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET),
       smtpEnabled: Boolean(mailer),
       volcAsrReady: Boolean(VOLC_SPEECH_API_KEY),
       deepseekReady: Boolean(DEEPSEEK_API_KEY),
+      cloudEngineReady: Boolean(VOLC_SPEECH_API_KEY) && Boolean(DEEPSEEK_API_KEY),
       trialSignupEnabled: budget.trialSignupEnabled && budget.withinBudget,
       trialBonusCny: Number((budget.trialBonusMicroCny / MICRO_PER_CNY).toFixed(2)),
+      trialDurationDays: budget.trialDurationDays,
+      trialAsrMinutes: Math.round(budget.trialAsrQuotaSec / 60),
+      trialLlmCount: budget.trialLlmQuotaCount,
     });
   });
 
@@ -726,7 +872,7 @@ async function createApp(customDbPath, options = {}) {
         html: `
           <div style="font-family: -apple-system, 'Segoe UI', sans-serif; max-width: 460px; margin: 0 auto; padding: 28px; background: #F6F5F0; border-radius: 14px; color: #17161B;">
             <h2 style="margin: 0 0 8px; font-size: 20px;">TypeZero 登录验证码</h2>
-            <p style="margin: 0 0 18px; color: #66646D; font-size: 14px;">欢迎使用 TypeZero！新用户首次登录即可领取免费语音 + 排版体验额度。</p>
+            <p style="margin: 0 0 18px; color: #66646D; font-size: 14px;">欢迎使用 TypeZero！新用户首次登录即可免费领取 1 个月 TypeZero 自研云端引擎体验（30 天 · 300 分钟语音 + 1,500 次智能成文）。</p>
             <div style="background: #FDFCF9; border: 1px solid rgba(23,22,27,0.1); border-radius: 10px; padding: 18px; text-align: center; font-size: 32px; font-weight: 700; letter-spacing: 8px; color: #5A46E8; font-family: monospace;">
               ${code}
             </div>
@@ -769,6 +915,7 @@ async function createApp(customDbPath, options = {}) {
       email,
       deviceId,
       platform,
+      ip,
     });
     if (user.is_banned) {
       return res.status(403).json({ error: "该账号已被暂停使用" });
@@ -972,30 +1119,50 @@ async function createApp(customDbPath, options = {}) {
     });
   });
 
-  // ---------- 5. LLM Polishing SSE Relay (Purpose-Locked to DeepSeek 4 Flash) ----------
+  // ---------- 5. LLM Polishing SSE Relay (TypeZero Cloud Engine — Desensitized) ----------
   app.get("/api/llm/v1/models", requireUser, (_req, res) => {
-    res.json({ object: "list", data: [{ id: "deepseek-flash", object: "model" }] });
+    res.json({ object: "list", data: [{ id: "typezero-engine", object: "model" }] });
   });
 
   app.post("/api/llm/v1/chat/completions", requireUser, async (req, res) => {
     const budget = db.getBudgetSnapshot();
     if (!budget.withinBudget) {
       return res.status(503).json({
-        error: { message: "今日官方免费体验预算已达上限，请配置您自己的 API Key 继续免费无限使用" },
+        error: {
+          code: "GLOBAL_BUDGET_CAP",
+          message: "TypeZero 云端引擎今日配额已达上限，请在「设置 → 语音与引擎」切换为自定义引擎继续无限使用",
+        },
       });
     }
-    if (Number(req.user.balance_micro_cny) <= 0) {
+
+    const trial = evaluateUserTrial(req.user);
+    const graceExp = recentAsrFinishGrace.get(req.user.id) || 0;
+    const hasGracePass = graceExp > Date.now() && !req.user.is_banned;
+
+    if (!trial.canUseLlm && !hasGracePass) {
+      const isExpired = trial.status === "expired";
       return res.status(402).json({
-        error: { message: "免费体验额度已用完，请在「引擎与快捷键」填入您自己的 API Key 继续无限使用" },
+        error: {
+          code: isExpired ? "TRIAL_EXPIRED" : "TRIAL_EXHAUSTED",
+          message: isExpired
+            ? "你的 1 个月 TypeZero 自研云端引擎体验已到期，绑定个人 API Key 即可继续无限使用"
+            : "你的 TypeZero 自研云端引擎体验额度已用完，绑定个人 API Key 即可继续无限使用",
+        },
       });
     }
+    if (!trial.canUseLlm && hasGracePass) {
+      // Consume one-shot grace finish so final sentence completes cleanly without abrupt 402
+      recentAsrFinishGrace.delete(req.user.id);
+      res.setHeader("X-TypeZero-Trial-Status", trial.status);
+    }
+
     if (!checkRateLimit(`llm_u:${req.user.id}`, 18, 60_000)) {
-      return res.status(429).json({ error: { message: "请求过于频繁，请稍候再试" } });
+      return res.status(429).json({ error: { code: "RATE_LIMITED", message: "请求过于频繁，请稍候再试" } });
     }
 
     const curConc = activeLlmConcurrency.get(req.user.id) || 0;
     if (curConc >= 2) {
-      return res.status(429).json({ error: { message: "并发请求过多" } });
+      return res.status(429).json({ error: { code: "CONCURRENCY_LIMIT", message: "并发请求过多，请稍候再试" } });
     }
     activeLlmConcurrency.set(req.user.id, curConc + 1);
 
@@ -1003,7 +1170,7 @@ async function createApp(customDbPath, options = {}) {
       const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
       const totalChars = messages.reduce((acc, m) => acc + String(m?.content || "").length, 0);
       if (messages.length === 0 || messages.length > 4 || totalChars > 14_000) {
-        return res.status(400).json({ error: { message: "仅限 TypeZero 语音排版场景使用" } });
+        return res.status(400).json({ error: { code: "INVALID_SCOPE", message: "仅限 TypeZero 语音成文场景使用" } });
       }
       // Purpose lock: ensure user message contains TypeZero speech/rewrite tags
       const userText = messages.map((m) => String(m?.content || "")).join("\n");
@@ -1013,11 +1180,11 @@ async function createApp(customDbPath, options = {}) {
         userText.includes("个人词库");
       if (!isTypeZeroPrompt) {
         return res.status(403).json({
-          error: { message: "官方体验通道仅限 TypeZero 语音排版调用，不支持通用对话" },
+          error: { code: "PURPOSE_LOCKED", message: "TypeZero 云端引擎仅限语音成文调用，不支持通用对话" },
         });
       }
       if (!DEEPSEEK_API_KEY) {
-        return res.status(503).json({ error: { message: "服务端 DeepSeek Key 未配置" } });
+        return res.status(503).json({ error: { code: "ENGINE_UNAVAILABLE", message: "TypeZero 云端成文引擎暂不可用，请稍后重试或切换自定义引擎" } });
       }
 
       const wantStream = req.body?.stream !== false;
@@ -1043,8 +1210,9 @@ async function createApp(customDbPath, options = {}) {
       });
 
       if (!upstreamResp.ok) {
-        const errText = await upstreamResp.text();
-        return res.status(upstreamResp.status).send(errText);
+        return res.status(502).json({
+          error: { code: "UPSTREAM_ERROR", message: "TypeZero 云端成文引擎响应异常，请稍候重试" },
+        });
       }
 
       if (!wantStream) {
@@ -1053,7 +1221,7 @@ async function createApp(customDbPath, options = {}) {
         const compToks = Number(json?.usage?.completion_tokens || 120);
         const costMicro = Math.max(
           LLM_MIN_MICRO_CNY_PER_REQ,
-          Math.round((promptToks * 0.03 + compToks * 0.3)),
+          Math.round((promptToks * 0.025 + compToks * 0.25)),
         );
         db.deductUsage({
           userId: req.user.id,
@@ -1063,6 +1231,8 @@ async function createApp(customDbPath, options = {}) {
           units: promptToks + compToks,
           costMicroCny: costMicro,
         });
+        checkAndDispatchBudgetAlerts();
+        if (json && typeof json === "object") json.model = "typezero-engine";
         return res.json(json);
       }
 
@@ -1087,7 +1257,7 @@ async function createApp(customDbPath, options = {}) {
       res.end();
 
       const estTokens = usageTokens || Math.ceil((totalChars + outputChars * 0.25) * 0.7);
-      const costMicro = Math.max(LLM_MIN_MICRO_CNY_PER_REQ, Math.round(estTokens * 0.06));
+      const costMicro = Math.max(LLM_MIN_MICRO_CNY_PER_REQ, Math.round(estTokens * 0.05));
       db.deductUsage({
         userId: req.user.id,
         email: req.user.email,
@@ -1096,9 +1266,10 @@ async function createApp(customDbPath, options = {}) {
         units: estTokens,
         costMicroCny: costMicro,
       });
+      checkAndDispatchBudgetAlerts();
     } catch (err) {
       if (!res.headersSent) {
-        res.status(502).json({ error: { message: `中转上游异常：${err.message}` } });
+        res.status(502).json({ error: { code: "RELAY_ERROR", message: "TypeZero 云端连接异常，请稍候重试" } });
       } else {
         res.end();
       }
@@ -1136,6 +1307,7 @@ async function createApp(customDbPath, options = {}) {
       budget: {
         ...budget,
         trialBonusCny: Number((budget.trialBonusMicroCny / MICRO_PER_CNY).toFixed(2)),
+        trialAsrMinutes: Math.round(budget.trialAsrQuotaSec / 60),
         dailyBudgetCny: Number((budget.dailyBudgetMicroCny / MICRO_PER_CNY).toFixed(2)),
         totalBudgetCny: Number((budget.totalBudgetMicroCny / MICRO_PER_CNY).toFixed(2)),
         todaySpentCny: Number((budget.todaySpentMicroCny / MICRO_PER_CNY).toFixed(4)),
@@ -1179,8 +1351,8 @@ async function createApp(customDbPath, options = {}) {
         title: "✅ TypeZero 飞书提醒通道已连通",
         template: "green",
         markdown: [
-          "TypeZero 豆包语音兑换码到期提醒已成功接入飞书！",
-          "当朋友的兑换码时长归零时，系统会自动推送卡片通知到此账号。",
+          "TypeZero 预算水位与兑换码到期提醒已成功接入飞书！",
+          "当日预算/总预算达到 80%/100% 或兑换码用完时，系统会自动推送卡片通知。",
           `[打开 TypeZero 管理后台](${PUBLIC_BASE_URL}/admin)`,
         ].join("\n"),
       });
@@ -1217,6 +1389,15 @@ async function createApp(customDbPath, options = {}) {
     if (req.body?.trialBonusCny !== undefined) {
       patch.trialBonusMicroCny = Math.max(0, Math.round(Number(req.body.trialBonusCny) * MICRO_PER_CNY));
     }
+    if (req.body?.trialDurationDays !== undefined) {
+      patch.trialDurationDays = Math.max(1, Math.round(Number(req.body.trialDurationDays)));
+    }
+    if (req.body?.trialAsrMinutes !== undefined) {
+      patch.trialAsrQuotaSec = Math.max(60, Math.round(Number(req.body.trialAsrMinutes) * 60));
+    }
+    if (req.body?.trialLlmCount !== undefined) {
+      patch.trialLlmQuotaCount = Math.max(10, Math.round(Number(req.body.trialLlmCount)));
+    }
     if (req.body?.dailyBudgetCny !== undefined) {
       patch.dailyBudgetMicroCny = Math.max(0, Math.round(Number(req.body.dailyBudgetCny) * MICRO_PER_CNY));
     }
@@ -1237,16 +1418,20 @@ async function createApp(customDbPath, options = {}) {
     const user = db.findUserById(req.params.id);
     if (!user) return res.status(404).json({ error: "用户不存在" });
     const addCny = Number(req.body?.amountCny || 0);
-    const addMicro = Math.round(addCny * MICRO_PER_CNY);
-    if (!Number.isFinite(addMicro) || addMicro === 0) {
-      return res.status(400).json({ error: "请输入有效的增减金额" });
+    const addDays = Number(req.body?.addDays || 0);
+    const addAsrMinutes = Number(req.body?.addAsrMinutes || 0);
+    const addLlmCount = Number(req.body?.addLlmCount || 0);
+    if (!Number.isFinite(addCny) || (addCny === 0 && addDays === 0 && addAsrMinutes === 0 && addLlmCount === 0)) {
+      return res.status(400).json({ error: "请输入有效的增减额度" });
     }
-    db.exec(
-      "UPDATE users SET balance_micro_cny = MAX(0, balance_micro_cny + ?) WHERE id = ?",
-      [addMicro, user.id],
-    );
-    db.flushSync();
-    res.json({ ok: true, user: formatUserPublic(db.findUserById(user.id)) });
+    const updated = db.grantUserExtra({
+      userId: user.id,
+      amountCny: addCny,
+      addDays,
+      addAsrMinutes,
+      addLlmCount,
+    });
+    res.json({ ok: true, user: formatUserPublic(updated) });
   });
 
   app.post("/api/admin/users/:id/ban", requireAdmin, (req, res) => {
@@ -1319,7 +1504,8 @@ async function createApp(customDbPath, options = {}) {
       }
       const user = db.findUserById(claims.uid);
       const budget = db.getBudgetSnapshot();
-      if (!user || user.is_banned || Number(user.balance_micro_cny) <= 0 || !budget.withinBudget || !VOLC_SPEECH_API_KEY) {
+      const trial = user ? evaluateUserTrial(user) : null;
+      if (!user || user.is_banned || !trial?.canUseAsr || !budget.withinBudget || !VOLC_SPEECH_API_KEY) {
         socket.write("HTTP/1.1 402 Payment Required\r\n\r\n");
         socket.destroy();
         return;
@@ -1384,6 +1570,7 @@ async function createApp(customDbPath, options = {}) {
           if (justExhausted && updatedVoucher) {
             void notifyFeishuVoucherExhausted(updatedVoucher);
           }
+          checkAndDispatchBudgetAlerts();
         } else {
           const user = sessionPrincipal.user;
           const durSec = Math.max(0.5, rawDurSec);
@@ -1396,6 +1583,9 @@ async function createApp(customDbPath, options = {}) {
             units: Number(durSec.toFixed(2)),
             costMicroCny: costMicro,
           });
+          // Grant a 20s one-shot grace window so the trailing LLM polish for this final sentence never fails mid-flight
+          recentAsrFinishGrace.set(user.id, Date.now() + 20_000);
+          checkAndDispatchBudgetAlerts();
         }
       };
 
@@ -1445,7 +1635,7 @@ async function createApp(customDbPath, options = {}) {
     });
   });
 
-  return { app, server, db, signJwt, hashOtp, notifyFeishuVoucherExhausted };
+  return { app, server, db, signJwt, hashOtp, notifyFeishuVoucherExhausted, evaluateUserTrial, checkAndDispatchBudgetAlerts };
 }
 
 if (require.main === module) {

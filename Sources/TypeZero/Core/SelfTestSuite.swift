@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import SwiftUI
 import AVFoundation
 import CoreAudio
 import Carbon.HIToolbox
@@ -421,6 +422,20 @@ public enum SelfTestSuite {
                 && !CloudAuthClient.isVoucherCode("volc-raw-api-key-12345")
                 && !CloudAuthClient.isVoucherCode("TZ-123"),
             "Detects and normalizes Doubao ASR voucher codes (TZ-XXXX-XXXX) without matching standard API keys"
+        )
+        let sampleCloudUserJSON = """
+        {"id":"u1","email":"tester@gmail.com","balanceCny":3.0,"totalUsedCny":0.0,"asrSecondsUsed":0,"llmRequestsUsed":0,"trialGranted":true,"isBanned":false,"createdAt":"2026-11-28T02:00:00.000Z","trial":{"status":"active","canUseAsr":true,"canUseLlm":true,"remainingPercent":100,"daysRemaining":30,"expiresAt":"2026-12-28T02:00:00.000Z","asrUsedMinutes":0.0,"asrQuotaMinutes":300,"asrRemainingMinutes":300.0,"llmUsedCount":0,"llmQuotaCount":1500,"llmRemainingCount":1500}}
+        """.data(using: .utf8)!
+        let decodedCloudUser = try? JSONDecoder().decode(CloudUserProfile.self, from: sampleCloudUserJSON)
+        expect(
+            decodedCloudUser?.effectiveTrial.isUsable == true
+                && decodedCloudUser?.effectiveTrial.remainingPercent == 100
+                && decodedCloudUser?.effectiveTrial.asrQuotaMinutes == 300
+                && decodedCloudUser?.effectiveTrial.llmQuotaCount == 1500
+                && CloudAuthClient.doubaoGuideURL.absoluteString == "https://typezero.mykkai.com/guide/#doubao"
+                && CloudAuthClient.deepseekGuideURL.absoluteString == "https://typezero.mykkai.com/guide/#deepseek"
+                && CloudAuthClient.persistentDeviceId.hasPrefix("mac-"),
+            "Decodes 30-day semantic CloudUserProfile trial payload (ISO createdAt), hardware device fingerprint, and BYOK guide URLs"
         )
         expect(
             AppUpdater.isNewerVersion("0.5.6", than: "0.5.5")
@@ -1044,6 +1059,54 @@ public enum SelfTestSuite {
         while !done {
             RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.015))
         }
+        return 0
+    }
+
+    @MainActor
+    public static func dumpOnboardingQASnapshots(outDir: String) -> Int32 {
+        _ = NSApplication.shared
+        let dirURL = URL(fileURLWithPath: outDir, isDirectory: true)
+        try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
+
+        let state = AppState()
+        state.cloudUser = nil
+        state.cloudEmailInput = ""
+        state.cloudCodeSent = false
+
+        func renderSheet(_ view: some View, name: String) {
+            let root = view
+                .frame(width: 520, height: 520)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .environment(\.colorScheme, .light)
+            let hosting = NSHostingView(rootView: root)
+            hosting.frame = NSRect(x: 0, y: 0, width: 520, height: 520)
+            let win = NSWindow(
+                contentRect: NSRect(x: -4000, y: -4000, width: 520, height: 520),
+                styleMask: [.borderless],
+                backing: .buffered,
+                defer: false
+            )
+            win.appearance = NSAppearance(named: .aqua)
+            win.contentView = hosting
+            win.displayIfNeeded()
+            hosting.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return }
+            hosting.cacheDisplay(in: hosting.bounds, to: rep)
+            if let png = rep.representation(using: .png, properties: [:]) {
+                try? png.write(to: dirURL.appendingPathComponent("\(name).png"))
+            }
+            win.orderOut(nil)
+        }
+
+        renderSheet(OnboardingSheetView(appState: state, initialStep: 1), name: "step1_welcome")
+        renderSheet(OnboardingSheetView(appState: state, initialStep: 2), name: "step2a_email")
+        state.cloudEmailInput = "demo@qq.com"
+        state.cloudCodeSent = true
+        renderSheet(OnboardingSheetView(appState: state, initialStep: 2), name: "step2b_otp")
+        renderSheet(OnboardingSheetView(appState: state, initialStep: 3), name: "step3_reward")
+        renderSheet(OnboardingSheetView(appState: state, initialStep: 4), name: "step4_ready")
+        print("Dumped 5 onboarding QA PNGs to \(outDir)")
         return 0
     }
 }

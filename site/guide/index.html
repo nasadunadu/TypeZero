@@ -1,0 +1,1245 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>小白 2 分钟图文通关教程（豆包语音 &amp; DeepSeek）— TypeZero 官方指南</title>
+<meta name="description" content="零基础小白也能一看就懂！8 张高清红框实景图手把手教你 2 分钟开通豆包语音 2.0 与 DeepSeek 官方 API Key，每天仅约 5 分钱，永久零订阅费。">
+<link rel="canonical" href="https://typezero.mykkai.com/guide/">
+<style>
+:root {
+  --bg: #05070D;
+  --bg-elev: #0B101C;
+  --surface: rgba(15, 22, 38, 0.82);
+  --surface-strong: #101727;
+  --border: rgba(255, 255, 255, 0.09);
+  --border-hi: rgba(0, 229, 195, 0.38);
+  --text: #F4F7FB;
+  --text-dim: #9BA7BC;
+  --text-muted: #67748E;
+  --cyan: #00E5C3;
+  --blue: #3B82F6;
+  --indigo: #6366F1;
+  --emerald: #10B981;
+  --amber: #F59E0B;
+  --rose: #FF2D55;
+  --sans: "SF Pro Display", "PingFang SC", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 128px; -webkit-text-size-adjust: 100%; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.62;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, p, ul, ol, figure { margin: 0; }
+a { color: inherit; text-decoration: none; }
+button { font-family: inherit; }
+code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  padding: 2px 7px;
+  border-radius: 6px;
+  color: var(--cyan);
+}
+
+.wrap {
+  width: min(1140px, calc(100% - 36px));
+  margin-inline: auto;
+  position: relative;
+  z-index: 1;
+}
+
+.bg-aurora {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(58% 42% at 50% -6%, rgba(0, 229, 195, 0.13), transparent 70%),
+    radial-gradient(45% 40% at 88% 18%, rgba(99, 102, 241, 0.14), transparent 70%),
+    radial-gradient(36% 36% at 10% 42%, rgba(59, 130, 246, 0.10), transparent 70%);
+}
+
+/* ---------- Top Glass Nav ---------- */
+.nav-wrap {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  background: rgba(5, 7, 13, 0.84);
+  border-bottom: 1px solid var(--border);
+}
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 62px;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: -0.02em;
+}
+.brand-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(0, 229, 195, 0.2), rgba(99, 102, 241, 0.22));
+  border: 1px solid rgba(0, 229, 195, 0.32);
+  display: grid;
+  place-items: center;
+}
+.brand-pill {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 99px;
+  color: var(--cyan);
+  background: rgba(0, 229, 195, 0.12);
+  border: 1px solid rgba(0, 229, 195, 0.24);
+}
+.progress-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.progress-pill strong { color: var(--cyan); }
+
+/* Sub-nav Sticky Quick Jump Bar */
+.subnav-wrap {
+  position: sticky;
+  top: 62px;
+  z-index: 55;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  background: rgba(9, 13, 24, 0.86);
+  border-bottom: 1px solid var(--border);
+}
+.subnav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.subnav::-webkit-scrollbar { display: none; }
+.jump-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  transition: all 0.15s ease;
+}
+.jump-tab:hover {
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+.jump-tab.primary-doubao {
+  border-color: rgba(99, 102, 241, 0.42);
+  color: #C7D2FE;
+  background: rgba(99, 102, 241, 0.12);
+}
+.jump-tab.primary-ds {
+  border-color: rgba(0, 229, 195, 0.38);
+  color: #A7F3D0;
+  background: rgba(0, 229, 195, 0.10);
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 16px;
+  border-radius: 11px;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.btn:hover { transform: translateY(-1px); }
+.btn-pill { border-radius: 999px; }
+.btn-glow {
+  background: linear-gradient(135deg, #00E5C3, #3B82F6 60%, #6366F1);
+  color: #041016;
+  box-shadow: 0 8px 24px rgba(0, 229, 195, 0.24);
+}
+.btn-violet {
+  background: linear-gradient(135deg, #6366F1, #4F46E5);
+  color: #fff;
+  box-shadow: 0 8px 22px rgba(99, 102, 241, 0.30);
+}
+.btn-ghost {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--border);
+  color: var(--text);
+}
+.btn-ghost:hover { border-color: rgba(255, 255, 255, 0.25); }
+
+/* ---------- Hero Executive Overview ---------- */
+.hero {
+  padding: 44px 0 28px;
+  text-align: center;
+}
+.kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  color: var(--cyan);
+  background: rgba(0, 229, 195, 0.09);
+  border: 1px solid rgba(0, 229, 195, 0.25);
+  padding: 5px 14px;
+  border-radius: 999px;
+  margin-bottom: 16px;
+}
+.hero h1 {
+  font-size: clamp(28px, 4.6vw, 44px);
+  line-height: 1.18;
+  letter-spacing: -0.025em;
+  margin-bottom: 12px;
+}
+.grad-text {
+  background: linear-gradient(135deg, #FFFFFF 15%, #00E5C3 62%, #818CF8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.hero-sub {
+  max-width: 720px;
+  margin: 0 auto 24px;
+  color: var(--text-dim);
+  font-size: 16px;
+}
+
+/* Reassurance Strip */
+.reassure-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+  text-align: left;
+}
+.reassure-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  padding: 15px 17px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.reassure-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: rgba(0, 229, 195, 0.12);
+  color: var(--cyan);
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+  flex-shrink: 0;
+}
+.reassure-card h2 {
+  font-size: 14.5px;
+  margin-bottom: 3px;
+}
+.reassure-card p {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.48;
+}
+
+/* ---------- Provider Section Container ---------- */
+.section {
+  padding: 28px 0 36px;
+}
+.provider-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 22px 26px;
+  border-radius: 20px;
+  margin-bottom: 20px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.16), rgba(15, 22, 38, 0.90));
+  border: 1px solid rgba(99, 102, 241, 0.36);
+}
+.provider-banner.ds-theme {
+  background: linear-gradient(135deg, rgba(0, 229, 195, 0.13), rgba(15, 22, 38, 0.90));
+  border-color: rgba(0, 229, 195, 0.34);
+}
+.provider-head-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.provider-badge-lg {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+  background: linear-gradient(135deg, #6366F1, #3B82F6);
+  box-shadow: 0 8px 20px rgba(99, 102, 241, 0.35);
+  flex-shrink: 0;
+}
+.ds-theme .provider-badge-lg {
+  background: linear-gradient(135deg, #00C6A7, #2563EB);
+  box-shadow: 0 8px 20px rgba(0, 198, 167, 0.32);
+}
+.provider-banner h2 {
+  font-size: clamp(20px, 2.8vw, 26px);
+  letter-spacing: -0.02em;
+}
+.provider-banner p {
+  color: var(--text-dim);
+  font-size: 14px;
+  margin-top: 2px;
+}
+
+/* Pitfall Do / Don't 3-Column Strip */
+.pitfall-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.pitfall-box {
+  background: rgba(245, 158, 11, 0.07);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 13px;
+  padding: 12px 14px;
+  font-size: 13px;
+}
+.pitfall-box .do {
+  color: #6EE7B7;
+  font-weight: 700;
+  display: block;
+  margin-bottom: 3px;
+}
+.pitfall-box .dont {
+  color: #FCA5A5;
+  font-size: 12px;
+}
+
+/* ---------- Visual Step-by-Step Row (Left Copy + Right Annotated Screenshot) ---------- */
+.visual-steps {
+  display: grid;
+  gap: 20px;
+}
+.step-card {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 24px;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 22px;
+  transition: border-color 0.2s ease;
+}
+.step-card.done {
+  border-color: rgba(16, 185, 129, 0.45);
+  background: linear-gradient(145deg, rgba(16, 185, 129, 0.06), rgba(15, 22, 38, 0.84));
+}
+.step-info {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.step-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.step-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: #FDE047;
+  background: rgba(255, 45, 85, 0.16);
+  border: 1px solid rgba(255, 45, 85, 0.40);
+  padding: 3px 10px;
+  border-radius: 99px;
+}
+.check-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  transition: all 0.15s ease;
+}
+.check-btn:hover { color: var(--text); border-color: rgba(255,255,255,0.28); }
+.step-card.done .check-btn {
+  background: rgba(16, 185, 129, 0.18);
+  border-color: rgba(16, 185, 129, 0.5);
+  color: #6EE7B7;
+}
+
+.step-info h3 {
+  font-size: 19px;
+  line-height: 1.32;
+  letter-spacing: -0.01em;
+}
+.bullet-points {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 9px;
+  font-size: 14.5px;
+  color: var(--text-dim);
+}
+.bullet-points li {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 8px;
+  align-items: start;
+}
+.red-dot {
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  background: var(--rose);
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+  margin-top: 2px;
+}
+.bullet-points strong { color: var(--text); }
+
+.mini-tip {
+  font-size: 13px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border-left: 3px solid var(--cyan);
+  color: var(--text-dim);
+}
+.mini-tip.warn {
+  background: rgba(245, 158, 11, 0.09);
+  border-left-color: var(--amber);
+  color: #FDE68A;
+}
+
+/* Click-to-zoom Image Frame */
+.shot-trigger {
+  display: block;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  overflow: hidden;
+  cursor: zoom-in;
+  position: relative;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.42);
+  transition: transform 0.18s ease, border-color 0.18s ease;
+}
+.shot-trigger:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-hi);
+}
+.shot-trigger img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.zoom-badge {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  background: rgba(5, 7, 13, 0.82);
+  backdrop-filter: blur(8px);
+  color: #E2E8F0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  padding: 4px 10px;
+  border-radius: 99px;
+  font-size: 11.5px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+/* ---------- Lightbox Dialog (modern-web-guidance: light-dismiss-a-dialog) ---------- */
+dialog#lightboxDialog {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 18px;
+  background: #0B101C;
+  color: var(--text);
+  padding: 0;
+  max-width: min(1240px, 95vw);
+  max-height: 92vh;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.78);
+}
+dialog#lightboxDialog::backdrop {
+  background-color: rgba(3, 5, 10, 0.82);
+  backdrop-filter: blur(6px);
+}
+.lightbox-inner {
+  display: flex;
+  flex-direction: column;
+  max-height: 92vh;
+}
+.lightbox-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 600;
+}
+.lightbox-close {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 5px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.lightbox-body {
+  overflow: auto;
+  padding: 14px;
+}
+.lightbox-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 10px;
+}
+
+/* ---------- Responsive Cost Table (modern-web-guidance: responsive-table) ---------- */
+.table-wrapper {
+  overflow: auto;
+  max-inline-size: 100%;
+  container-type: inline-size;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+.table-wrapper:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+table.cost-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 14.5px;
+  --label-1: "组合方案";
+  --label-2: "适合人群";
+  --label-3: "真实花销";
+  --label-4: "体验与特点";
+}
+.cost-table caption {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.cost-table thead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+}
+.cost-table th,
+.cost-table td {
+  padding: 14px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.cost-table thead th {
+  background: #0D1424;
+  color: var(--text-dim);
+  font-weight: 600;
+  font-size: 13px;
+}
+.cost-table tbody th {
+  position: sticky;
+  inset-inline-start: 0;
+  background: #0D1424;
+  font-weight: 700;
+  color: var(--text);
+}
+.cost-table tbody tr:last-child th,
+.cost-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.badge-rec {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 99px;
+  background: rgba(0, 229, 195, 0.16);
+  color: var(--cyan);
+}
+@container (width < 620px) {
+  .cost-table, .cost-table thead, .cost-table tbody, .cost-table tr, .cost-table th, .cost-table td {
+    display: block;
+  }
+  .cost-table thead { display: none; }
+  .cost-table tr {
+    border-bottom: 1px solid var(--border);
+    padding: 10px 14px;
+  }
+  .cost-table tbody th {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 2;
+    background: #10192D;
+    border-radius: 8px;
+    margin-bottom: 6px;
+    border-bottom: none;
+  }
+  .cost-table td { padding: 6px 8px; border-bottom: none; }
+  .cost-table td:nth-child(2)::before { content: var(--label-2) "："; color: var(--text-muted); font-weight: 600; }
+  .cost-table td:nth-child(3)::before { content: var(--label-3) "："; color: var(--text-muted); font-weight: 600; }
+  .cost-table td:nth-child(4)::before { content: var(--label-4) "："; color: var(--text-muted); font-weight: 600; }
+}
+
+/* ---------- Troubleshooting Accordion (modern-web-guidance: accordion) ---------- */
+.accordion {
+  display: grid;
+  gap: 10px;
+}
+.accordion details {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.accordion details[open] {
+  border-color: rgba(0, 229, 195, 0.30);
+}
+.accordion summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 18px;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  user-select: none;
+}
+.accordion summary::-webkit-details-marker { display: none; }
+.accordion summary::before {
+  content: "";
+  inline-size: 10px;
+  block-size: 10px;
+  flex-shrink: 0;
+  border-right: 2px solid var(--cyan);
+  border-bottom: 2px solid var(--cyan);
+  transform: rotate(-45deg);
+  margin-right: 2px;
+}
+.accordion details[open] > summary::before {
+  transform: rotate(45deg);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .accordion summary::before { transition: transform 0.2s ease; }
+  .accordion details::details-content {
+    interpolate-size: allow-keywords;
+    overflow: clip;
+    contain: layout;
+    transition: block-size 0.26s ease, content-visibility 0.26s ease allow-discrete;
+  }
+  .accordion details:not([open])::details-content { block-size: 0; }
+}
+.faq-body {
+  padding: 0 18px 16px 38px;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+/* Bottom CTA & Footer */
+.bottom-cta {
+  margin: 24px 0 44px;
+  padding: 26px 28px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(0, 229, 195, 0.11), rgba(99, 102, 241, 0.14));
+  border: 1px solid rgba(0, 229, 195, 0.26);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+footer {
+  border-top: 1px solid var(--border);
+  padding: 24px 0 42px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.foot-row { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.foot-links { display: flex; gap: 18px; flex-wrap: wrap; }
+.foot-links a:hover { color: var(--text); }
+
+@media (max-width: 920px) {
+  .step-card { grid-template-columns: 1fr; }
+  .reassure-grid, .pitfall-strip { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="bg-aurora" aria-hidden="true"></div>
+
+<!-- Top Navigation -->
+<div class="nav-wrap">
+  <header class="wrap nav">
+    <a class="brand" href="/">
+      <span class="brand-icon" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 64 64" fill="none">
+          <path d="M12 32c0-9.5 8.5-15 17.5-7 9 8 15 14 22.5 7 4.2-4 4.2-10 0-14-7.5-7-13.5-1-22.5 7-9 8-17.5 2.5-17.5-7z" stroke="#00E5C3" stroke-width="5.5" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <span>TypeZero</span>
+      <span class="brand-pill">小白图文指南</span>
+    </a>
+
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span class="progress-pill" id="stepProgressBadge" title="点击每步右上角的完成按钮可记录你的进度">进度：<strong id="doneCount">0</strong> / 8 步</span>
+      <a class="btn btn-ghost btn-pill" href="/">返回官网</a>
+    </div>
+  </header>
+</div>
+
+<!-- Sticky Quick Anchor Bar -->
+<div class="subnav-wrap">
+  <nav class="wrap subnav" aria-label="步骤快速跳转">
+    <a class="jump-tab primary-doubao" href="#doubao">🎙️ 第一部分：开通豆包语音（第 1~4 步）</a>
+    <a class="jump-tab primary-ds" href="#deepseek">✨ 第二部分：开通 DeepSeek（第 5~8 步）</a>
+    <a class="jump-tab" href="#compare">💰 费用算账（每天 5 分钱）</a>
+    <a class="jump-tab" href="#faq">🛠️ 报错 10 秒急救箱</a>
+  </nav>
+</div>
+
+<main class="wrap">
+  <!-- Executive Summary for Complete Beginners -->
+  <section class="hero">
+    <div class="kicker">ZERO JARGON · FOLLOW THE RED BOXES</div>
+    <h1><span class="grad-text">不用懂任何技术，跟着红框点<br>2 分钟配好终身免月租语音输入</span></h1>
+    <p class="hero-sub">
+      新用户登录 TypeZero 已免费送你 <strong>1 个月自研云端引擎</strong>。免费期快结束时，只需照着下方 <strong>8 张红框实拍图</strong> 复制粘贴两串密码（API Key），以后每天只花约 <strong>5 分钱</strong>，软件永久不收一分钱会员费。
+    </p>
+
+    <div class="reassure-grid">
+      <div class="reassure-card">
+        <div class="reassure-icon">🎯</div>
+        <div>
+          <h2>不用自己找菜单、不用改参数</h2>
+          <p>每一步都配了<strong>「一键直达按钮」</strong>和红框序号 <code>① ② ③</code>，软件里的网址和模型名已全部自动填好。</p>
+        </div>
+      </div>
+      <div class="reassure-card">
+        <div class="reassure-icon">🪙</div>
+        <div>
+          <h2>绝无自动续费月租，充 ¥10 用大半年</h2>
+          <p>按实际说话秒数与字数扣官方底价（不说一分不花、余额永不过期），比每月 ¥70 会员费省 95%。</p>
+        </div>
+      </div>
+      <div class="reassure-card">
+        <div class="reassure-icon">🔄</div>
+        <div>
+          <h2>免费期没用完也能提前填好</h2>
+          <p>现在填好个人 Key 会静默待命，继续优先消耗你的 1 个月免费包，用完瞬间<strong>自动无感切换</strong>。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== PART 1: DOUBAO SPEECH 2.0 ==================== -->
+  <section class="section" id="doubao" aria-labelledby="doubao-heading">
+    <div class="provider-banner">
+      <div class="provider-head-left">
+        <div class="provider-badge-lg" aria-hidden="true">🎙️</div>
+        <div>
+          <h2 id="doubao-heading">第一部分：开通「豆包语音 2.0」密钥（共 4 步 · 约 90 秒）</h2>
+          <p>作用：把你说的中文、方言、中英混杂句子毫秒级转成文字。新用户自带免费试用时长包！</p>
+        </div>
+      </div>
+      <a class="btn btn-violet" href="https://console.volcengine.com/speech/new/setting/apikeys?projectName=default" target="_blank" rel="noopener">
+        一键打开豆包 API Key 页面 ↗
+      </a>
+    </div>
+
+    <!-- Beginner Pitfall Guardrails -->
+    <div class="pitfall-strip" aria-label="新手三大避坑提示">
+      <div class="pitfall-box">
+        <span class="do">✅ 实名选「个人认证」</span>
+        <span class="dont">❌ 千万别点企业认证（要营业执照）</span>
+      </div>
+      <div class="pitfall-box">
+        <span class="do">✅ 服务开「流式语音识别大模型 2.0」</span>
+        <span class="dont">❌ 别开错成“录音文件识别”或“1.0”</span>
+      </div>
+      <div class="pitfall-box">
+        <span class="do">✅ 只复制 1 串 API Key（点 👁 小眼睛）</span>
+        <span class="dont">❌ 完全不用找旧版的 AppID 和 Token</span>
+      </div>
+    </div>
+
+    <div class="visual-steps">
+      <!-- Step 1 -->
+      <article class="step-card" data-step="v1">
+        <div class="step-info">
+          <div class="step-meta-row">
+            <span class="step-kicker">第 1 / 8 步 · 注册登录</span>
+            <button type="button" class="check-btn" data-toggle-step="v1">○ 标记完成</button>
+          </div>
+          <h3>用手机号或豆包账号登录火山引擎</h3>
+          <a class="btn btn-violet" href="https://signin.volcengine.com/auth/login?redirectURI=https%3A%2F%2Fconsole.volcengine.com%2Fspeech%2Fnew%2Foverview" target="_blank" rel="noopener">
+            👉 点此打开火山引擎登录页 ↗
+          </a>
+          <ul class="bullet-points">
+            <li><span class="red-dot">1</span><span>点上方按钮打开网页，切换到 <strong>「手机号登录」</strong>（或点右上角的「豆包账号登录」）。</span></li>
+            <li><span class="red-dot">2</span><span>输入手机号收一条短信验证码，点蓝色按钮即可<strong>自动注册并登录</strong>。</span></li>
+          </ul>
+        </div>
+        <button type="button" class="shot-trigger" data-zoom-src="./images/volc-step1-login.webp" data-zoom-title="第 1 步：用手机号或豆包账号登录火山引擎">
+          <img src="./images/volc-step1-login.webp" width="880" height="560" alt="火山引擎登录页红框指引：1. 点击手机号登录，2. 输入手机号与短信验证码登录">
+          <span class="zoom-badge">🔍 点击放大看清细节</span>
+        </button>
+      </article>
+
+      <!-- Step 2 -->
+      <article class="step-card" data-step="v2">
+        <div class="step-info">
+          <div class="step-meta-row">
+            <span class="step-kicker">第 2 / 8 步 · 实名与开通 2.0</span>
+            <button type="button" class="check-btn" data-toggle-step="v2">○ 标记完成</button>
+          </div>
+          <h3>完成个人实名，并开通「流式语音识别 2.0」</h3>
+          <div style="display:grid;gap:8px;">
+            <a class="btn btn-ghost" href="https://console.volcengine.com/user/authentication" target="_blank" rel="noopener" style="justify-content:flex-start;">
+              ① 先点此直达：个人实名认证页（刷脸 30 秒）↗
+            </a>
+            <a class="btn btn-violet" href="https://console.volcengine.com/speech/new/overview" target="_blank" rel="noopener" style="justify-content:flex-start;">
+              ② 再点此直达：豆包语音控制台开通 2.0 ↗
+            </a>
+          </div>
+          <ul class="bullet-points">
+            <li><span class="red-dot">1</span><span>点第 ① 个按钮选 <strong>「开始个人认证」</strong>，支付宝/微信扫码刷脸秒过（已实名请跳过）。</span></li>
+            <li><span class="red-dot">2</span><span>点第 ② 个按钮进入豆包语音控制台，找到 <strong>「豆包流式语音识别大模型 2.0」</strong> 点 <strong>「立即开通」</strong>（自动送免费试用时长）。</span></li>
+          </ul>
+          <div class="mini-tip warn">
+            ⚠️ 这一步不能跳！如果不点开通 2.0，后面拿到 Key 也会报 403 没权限。
+          </div>
+        </div>
+        <button type="button" class="shot-trigger" data-zoom-src="./images/volc-step2-activate.webp" data-zoom-title="第 2 步：完成个人实名认证，并开通豆包流式语音识别大模型 2.0">
+          <img src="./images/volc-step2-activate.webp" width="960" height="540" loading="lazy" alt="个人实名认证与开通豆包流式语音识别大模型 2.0 红框对比指引">
+          <span class="zoom-badge">🔍 点击放大看清细节</span>
+        </button>
+      </article>
+
+      <!-- Step 3 -->
+      <article class="step-card" data-step="v3">
+        <div class="step-info">
+          <div class="step-meta-row">
+            <span class="step-kicker">第 3 / 8 步 · 创建并点小眼睛复制</span>
+            <button type="button" class="check-btn" data-toggle-step="v3">○ 标记完成</button>
+          </div>
+          <h3>创建 API Key，点「👁 小眼睛」复制明文</h3>
+          <a class="btn btn-violet" href="https://console.volcengine.com/speech/new/setting/apikeys?projectName=default" target="_blank" rel="noopener">
+            👉 点此直达：API Key 管理页 ↗
+          </a>
+          <ul class="bullet-points">
+            <li><span class="red-dot">1</span><span>点击上方按钮直接进入密钥页，点左上角紫蓝色 <strong>「+ 创建API Key」</strong>。</span></li>
+            <li><span class="red-dot">2</span><span>生成后默认是一排 <code>******</code> 星号，<strong>点一下星号右边的「👁 小眼睛」图标</strong>就会显示出真实字母数字，整串选中复制！</span></li>
+          </ul>
+          <div class="mini-tip">
+            💡 新客免费时长用完后，可随时点 <a href="https://console.volcengine.com/finance/fund/recharge" target="_blank" rel="noopener" style="color:var(--cyan);text-decoration:underline;">火山充值页 ↗</a> 充 ¥10（约 ¥0.48/小时，够说 20 多小时）。
+          </div>
+        </div>
+        <button type="button" class="shot-trigger" data-zoom-src="./images/volc-step3-apikey.webp" data-zoom-title="第 3 步：点击 + 创建API Key，再点星号旁的小眼睛图标显示明文并复制">
+          <img src="./images/volc-step3-apikey.webp" width="960" height="500" loading="lazy" alt="火山豆包语音 API Key 管理页真实截图：1. 点击创建API Key，2. 点击小眼睛图标显示明文密钥">
+          <span class="zoom-badge">🔍 点击放大看清细节</span>
+        </button>
+      </article>
+
+      <!-- Step 4 -->
+      <article class="step-card" data-step="v4">
+        <div class="step-info">
+          <div class="step-meta-row">
+            <span class="step-kicker">第 4 / 8 步 · 粘回软件测速</span>
+            <button type="button" class="check-btn" data-toggle-step="v4">○ 标记完成</button>
+          </div>
+          <h3>回到 TypeZero 粘贴豆包 Key，点「⚡ 测速」</h3>
+          <ul class="bullet-points">
+            <li><span class="red-dot">1</span><span>打开电脑上的 TypeZero → 左侧点 <strong>「设置」</strong> → 顶部点 <strong>「语音与引擎」</strong> → 选中右侧 <strong>「自定义引擎」</strong>。</span></li>
+            <li><span class="red-dot">2</span><span>确认选中「豆包 2.0」，把刚才复制的密钥粘贴进 <strong>API Key</strong> 输入框。</span></li>
+            <li><span class="red-dot">3</span><span>点击 <strong>「⚡ 测速」</strong>（和「校验并切换」），下方出现绿色 <strong>「实测通过」</strong> 就搞定一半啦！</span></li>
+          </ul>
+        </div>
+        <button type="button" class="shot-trigger" data-zoom-src="./images/volc-step4-typezero.webp" data-zoom-title="第 4 步：在 TypeZero 自定义引擎中粘贴豆包 Key 并点击测速">
+          <img src="./images/volc-step4-typezero.webp" width="960" height="500" loading="lazy" alt="TypeZero 设置界面红框指引：切换自定义引擎、粘贴豆包 API Key、点击测速通过">
+          <span class="zoom-badge">🔍 点击放大看清细节</span>
+        </button>
+      </article>
+    </div>
+  </section>
+
+  <!-- ==================== PART 2: DEEPSEEK POLISHING ==================== -->
+  <section class="section" id="deepseek" aria-labelledby="deepseek-heading">
+    <div class="provider-banner ds-theme">
+      <div class="provider-head-left">
+        <div class="provider-badge-lg" aria-hidden="true">✨</div>
+        <div>
+          <h2 id="deepseek-heading">第二部分：开通「DeepSeek」智能成文密钥（共 4 步 · 约 60 秒）</h2>
+          <p>作用：自动删掉“嗯、啊、那个”口头禅，自动加标点、分段、列要点。充 ¥10 能用 1~2 年！</p>
+        </div>
+      </div>
+      <a class="btn btn-glow btn-pill" href="https://platform.deepseek.com/top_up" target="_blank" rel="noopener">
+        一键打开 DeepSeek 开放平台 ↗
+      </a>
+    </div>
+
+    <div class="visual-steps">
+      <!-- Step 5 -->
+      <article class="step-card" data-step="d1">
+        <div class="step-info">
+          <div class="step-meta-row">
+            <span class="step-kicker">第 5 / 8 步 · 登录并充 ¥10</span>
+            <button type="button" class="check-btn" data-toggle-step="d1">○ 标记完成</button>
+          </div>
+          <h3>微信/手机号登录，先充最低档「¥10」激活</h3>
+          <a class="btn btn-glow" href="https://platform.deepseek.com/top_up" target="_blank" rel="noopener">
+            👉 点此直达：DeepSeek 充值页 ↗
+          </a>
+          <ul class="bullet-points">
+            <li><span class="red-dot">1</span><span>点上方按钮打开页面（支持微信扫码或手机号一键登录），自动进入左侧 <strong>「充值」</strong> 页。</span></li>
+            <li><span class="red-dot">2</span><span>金额直接选最低档 <strong>「¥10」</strong>（每次润色仅约 3 厘钱，10 块钱够用 1 年以上，余额永不过期）。</span></li>
+            <li><span class="red-dot">3</span><span>选支付宝或微信，点黑色 <strong>「去支付」</strong> 扫码付款即可。</span></li>
+          </ul>
+          <div class="mini-tip warn">
+            ⚠️ 新注册账号默认余额是 ¥0，如果不充 ¥10 直接拿 Key 会报错 402 用不了。
+          </div>
+        </div>
+        <button type="button" class="shot-trigger" data-zoom-src="./images/ds-step1-topup.webp" data-zoom-title="第 5 步：在 DeepSeek 充值页选择最低 ¥10 并扫码支付激活">
+          <img src="./images/ds-step1-topup.webp" width="960" height="560" loading="lazy" alt="DeepSeek 开放平台充值页真实截图：1. 左侧点击充值，2. 选择 ¥10，3. 选支付宝或微信点去支付">
+          <span class="zoom-badge">🔍 点击放大看清细节</span>
+        </button>
+      </article>
+
+      <!-- Step 6 -->
+      <article class="step-card" data-step="d2">
+        <div class="step-info">
+          <div class="step-meta-row">
+            <span class="step-kicker">第 6 / 8 步 · 打开密钥页</span>
+            <button type="button" class="check-btn" data-toggle-step="d2">○ 标记完成</button>
+          </div>
+          <h3>进入左侧「API keys」，点击创建按钮</h3>
+          <a class="btn btn-ghost" href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">
+            👉 点此直达：DeepSeek API keys 页 ↗
+          </a>
+          <ul class="bullet-points">
+            <li><span class="red-dot">1</span><span>充完 ¥10 后，点击页面左侧菜单的 <strong>「API keys」</strong>（或直接点上方直达按钮）。</span></li>
+            <li><span class="red-dot">2</span><span>点击页面右上角的黑色按钮 <strong>「创建 API key」</strong>。</span></li>
+          </ul>
+        </div>
+        <button type="button" class="shot-trigger" data-zoom-src="./images/ds-step2-apikeys.webp" data-zoom-title="第 6 步：点击左侧 API keys 菜单，再点右上角黑色的创建 API key 按钮">
+          <img src="./images/ds-step2-apikeys.webp" width="960" height="480" loading="lazy" alt="DeepSeek API keys 页面真实截图：1. 左侧点 API keys，2. 右上角点创建 API key">
+          <span class="zoom-badge">🔍 点击放大看清细节</span>
+        </button>
+      </article>
+
+      <!-- Step 7 -->
+      <article class="step-card" data-step="d3">
+        <div class="step-info">
+          <div class="step-meta-row">
+            <span class="step-kicker">第 7 / 8 步 · 立即复制 sk- 密钥</span>
+            <button type="button" class="check-btn" data-toggle-step="d3">○ 标记完成</button>
+          </div>
+          <h3>起名创建，并立刻点「复制 key」</h3>
+          <ul class="bullet-points">
+            <li><span class="red-dot">1</span><span>在弹出的小框里随便输入一个名字（比如填 <code>TypeZero</code>），点击右下角 <strong>「创建」</strong>。</span></li>
+            <li><span class="red-dot">2</span><span>接着会弹出一串 <code>sk-</code> 开头的长密码，点击右下角黑色的 <strong>「复制 key」</strong> 按钮！</span></li>
+          </ul>
+          <div class="mini-tip warn">
+            ⚠️ <strong>只显示这一次！</strong> 关掉弹窗就再也看不到了（如果手滑关掉了没关系，删掉重新建一个就行，不扣钱）。
+          </div>
+        </div>
+        <button type="button" class="shot-trigger" data-zoom-src="./images/ds-step3-copy.webp" data-zoom-title="第 7 步：输入名称点创建，并在弹出窗口立即点击「复制 key」">
+          <img src="./images/ds-step3-copy.webp" width="960" height="490" loading="lazy" alt="DeepSeek 创建弹窗与复制 sk- 密钥弹窗红框指引">
+          <span class="zoom-badge">🔍 点击放大看清细节</span>
+        </button>
+      </article>
+
+      <!-- Step 8 -->
+      <article class="step-card" data-step="d4">
+        <div class="step-info">
+          <div class="step-meta-row">
+            <span class="step-kicker">第 8 / 8 步 · 粘贴测速通关！</span>
+            <button type="button" class="check-btn" data-toggle-step="d4">○ 标记完成</button>
+          </div>
+          <h3>粘回 TypeZero 下方 DeepSeek 框，通关！</h3>
+          <ul class="bullet-points">
+            <li><span class="red-dot">1</span><span>回到 TypeZero「设置 → 语音与引擎」往下滑一点，在「AI 智能成文」里点选 <strong>「DeepSeek」</strong>。</span></li>
+            <li><span class="red-dot">2</span><span>把刚才复制的 <code>sk-...</code> 密钥粘贴进 <strong>API Key</strong> 框（旁边的模型名 <code>deepseek-flash</code> 已自动填好，千万别改）。</span></li>
+            <li><span class="red-dot">3</span><span>点击 <strong>「⚡ 测速」</strong>（和「保存」），看到绿色 <strong>「实测通过」</strong> —— 恭喜全部大功告成！🎉</span></li>
+          </ul>
+        </div>
+        <button type="button" class="shot-trigger" data-zoom-src="./images/ds-step4-typezero.webp" data-zoom-title="第 8 步：在 TypeZero 中选中 DeepSeek，粘贴 sk- 密钥并点击测速">
+          <img src="./images/ds-step4-typezero.webp" width="960" height="480" loading="lazy" alt="TypeZero DeepSeek 配置界面红框指引：1. 点选 DeepSeek，2. 粘贴 sk- 密钥，3. 点击测速通过">
+          <span class="zoom-badge">🔍 点击放大看清细节</span>
+        </button>
+      </article>
+    </div>
+  </section>
+
+  <!-- ==================== COST TABLE ==================== -->
+  <section class="section" id="compare" aria-labelledby="compare-heading">
+    <div style="margin-bottom:16px;">
+      <div style="font-family:var(--mono);font-size:11.5px;color:var(--cyan);letter-spacing:0.08em;margin-bottom:4px;">COST BREAKDOWN</div>
+      <h2 id="compare-heading" style="font-size:24px;">算笔明白账：3 种长期方案到底花多少钱？</h2>
+    </div>
+
+    <div tabindex="0" role="region" aria-labelledby="cost-table-caption" class="table-wrapper">
+      <table class="cost-table">
+        <caption id="cost-table-caption">TypeZero 长期使用方案与真实花销对比</caption>
+        <thead>
+          <tr>
+            <th>组合方案</th>
+            <th>适合人群</th>
+            <th>真实花销</th>
+            <th>体验与特点</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th>豆包语音 2.0 + DeepSeek <span class="badge-rec">95% 用户首选</span></th>
+            <td>日常办公、回消息、写文档、写代码</td>
+            <td><strong>每天约 5 分钱</strong>（两边各充 ¥10 可用大半年～1 年）</td>
+            <td>跟免费期体验一模一样：极速识别 + 自动去口癖分段</td>
+          </tr>
+          <tr>
+            <th>只配「豆包语音 2.0」</th>
+            <td>只想把声音原样打成字，不需要 AI 改写</td>
+            <td><strong>约 ¥0.48 / 小时</strong>（先白嫖火山新客免费额度）</td>
+            <td>只需做完前 4 步，把整理力度调为「原声直出」即可</td>
+          </tr>
+          <tr>
+            <th>100% 本机离线引擎</th>
+            <td>完全不想注册、不想花一分钱、或常断网</td>
+            <td><strong>永久 ¥0</strong>（不绑任何账号和银行卡）</td>
+            <td>在软件「自定义引擎 → 本地离线」一键下载 886MB 离线包即可</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ==================== FAQ ACCORDION ==================== -->
+  <section class="section" id="faq" aria-labelledby="faq-heading">
+    <div style="margin-bottom:16px;">
+      <div style="font-family:var(--mono);font-size:11.5px;color:var(--cyan);letter-spacing:0.08em;margin-bottom:4px;">TROUBLESHOOTING</div>
+      <h2 id="faq-heading" style="font-size:24px;">报错 10 秒急救箱（遇到红字看这里）</h2>
+    </div>
+
+    <div class="accordion">
+      <details open>
+        <summary>豆包点「⚡ 测速」报 403 / 401 / 权限不足怎么办？</summary>
+        <div class="faq-body">
+          几乎 100% 是漏掉了<strong>第 2 步开通服务</strong>：请点此打开 <a href="https://console.volcengine.com/speech/new/overview" target="_blank" rel="noopener" style="color:var(--cyan);text-decoration:underline;">豆包语音控制台 ↗</a>，确认已找到<strong>「豆包流式语音识别大模型 2.0」</strong>并点击了开通；另外确认已做完 <a href="https://console.volcengine.com/user/authentication" target="_blank" rel="noopener" style="color:var(--cyan);text-decoration:underline;">个人实名认证 ↗</a>。
+        </div>
+      </details>
+
+      <details>
+        <summary>豆包后台 API Key 那一栏全是 ******** 星号，找不到复制按钮？</summary>
+        <div class="faq-body">
+          看上面<strong>第 3 步大图里的红框 ②</strong>：紧挨着那一排星号右边有一个小小的 <strong>「👁 眼睛图标」</strong>，用鼠标点它一下，星号就会变成真实的字母和数字，双击或拖选整串复制即可。
+        </div>
+      </details>
+
+      <details>
+        <summary>DeepSeek 点「⚡ 测速」报 402 / Insufficient Balance 怎么办？</summary>
+        <div class="faq-body">
+          说明你的 DeepSeek 账号余额还是 ¥0。点此去 <a href="https://platform.deepseek.com/top_up" target="_blank" rel="noopener" style="color:var(--cyan);text-decoration:underline;">DeepSeek 充值页 ↗</a> 充最低档 ¥10，付完款等 5 秒钟回到 TypeZero 再点一次「⚡ 测速」立刻变绿。
+        </div>
+      </details>
+
+      <details>
+        <summary>DeepSeek 创建完弹窗关太快，忘了复制 sk- 密钥怎么办？</summary>
+        <div class="faq-body">
+          完全不用慌！在 <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener" style="color:var(--cyan);text-decoration:underline;">DeepSeek API keys 页面 ↗</a> 点那一行最右边的垃圾桶删掉旧的，再点一次「创建 API key」新建一个就行（创建和删除密钥完全免费）。
+        </div>
+      </details>
+
+      <details>
+        <summary>我的 1 个月免费体验还没到期，现在填进去会马上扣我自己的钱吗？</summary>
+        <div class="faq-body">
+          <strong>不会！</strong> 你在「自定义引擎」保存好自己的 Key 后，只要顶部切回「TypeZero 自研云端引擎」，软件就会继续优先用完官方送你的免费额度；等到期或用完的那一秒，自动无缝切到你填好的个人 Key，一秒都不耽误你打字。
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <!-- Bottom CTA -->
+  <section class="bottom-cta">
+    <div>
+      <h3 style="font-size:20px;margin-bottom:4px;">8 步都打上勾了？切回 TypeZero 按快捷键试试吧！</h3>
+      <p style="font-size:14px;color:var(--text-dim);">你的个人密钥只加密保存在你自己的 Mac 钥匙串（Keychain）里，不经过任何第三方中转。</p>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <a class="btn btn-glow btn-pill" href="/">返回 TypeZero 官网</a>
+      <a class="btn btn-ghost btn-pill" href="https://github.com/nasadunadu/TypeZero/issues" target="_blank" rel="noopener">还有卡壳？点此提问 ↗</a>
+    </div>
+  </section>
+</main>
+
+<!-- Native Modal Lightbox with Light-Dismiss (closedby="any" + Safari fallback) -->
+<dialog id="lightboxDialog" closedby="any" aria-labelledby="lightboxTitle">
+  <div class="lightbox-inner">
+    <div class="lightbox-bar">
+      <span id="lightboxTitle">步骤大图预览</span>
+      <form method="dialog">
+        <button type="submit" class="lightbox-close">关闭 (Esc)</button>
+      </form>
+    </div>
+    <div class="lightbox-body">
+      <img id="lightboxImg" src="" alt="">
+    </div>
+  </div>
+</dialog>
+
+<footer>
+  <div class="wrap foot-row">
+    <div>TypeZero · 开口，即终稿 · MIT 永久免费开源</div>
+    <div class="foot-links">
+      <a href="/">官网首页</a>
+      <a href="#doubao">豆包语音图文教程</a>
+      <a href="#deepseek">DeepSeek 图文教程</a>
+      <a href="https://github.com/nasadunadu/TypeZero" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+(() => {
+  // 1. Lightbox zoom with native <dialog closedby="any"> + mandatory Safari backdrop fallback
+  const dialog = document.getElementById("lightboxDialog");
+  const lbImg = document.getElementById("lightboxImg");
+  const lbTitle = document.getElementById("lightboxTitle");
+
+  document.querySelectorAll("[data-zoom-src]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const src = btn.getAttribute("data-zoom-src");
+      const title = btn.getAttribute("data-zoom-title") || "高清步骤指引";
+      lbImg.src = src;
+      lbImg.alt = title;
+      lbTitle.textContent = title;
+      dialog.showModal();
+    });
+  });
+
+  if (!("closedBy" in HTMLDialogElement.prototype)) {
+    dialog.addEventListener("click", (event) => {
+      if (event.target !== dialog) return;
+      const rect = dialog.getBoundingClientRect();
+      const isDialogContent = (
+        rect.top <= event.clientY &&
+        event.clientY <= rect.top + rect.height &&
+        rect.left <= event.clientX &&
+        event.clientX <= rect.left + rect.width
+      );
+      if (isDialogContent) return;
+      dialog.close();
+    });
+  }
+
+  // 2. Interactive beginner step completion checklist (persisted locally)
+  const STORAGE_KEY = "tz_guide_done_steps_v1";
+  let doneSet = new Set();
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    if (Array.isArray(saved)) doneSet = new Set(saved);
+  } catch {}
+
+  const doneCountEl = document.getElementById("doneCount");
+  function renderDoneState() {
+    document.querySelectorAll(".step-card[data-step]").forEach((card) => {
+      const id = card.getAttribute("data-step");
+      const isDone = doneSet.has(id);
+      card.classList.toggle("done", isDone);
+      const btn = card.querySelector("[data-toggle-step]");
+      if (btn) btn.textContent = isDone ? "✓ 已完成" : "○ 标记完成";
+    });
+    if (doneCountEl) doneCountEl.textContent = String(doneSet.size);
+  }
+
+  document.querySelectorAll("[data-toggle-step]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-toggle-step");
+      if (doneSet.has(id)) doneSet.delete(id);
+      else doneSet.add(id);
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify([...doneSet])); } catch {}
+      renderDoneState();
+    });
+  });
+
+  renderDoneState();
+})();
+</script>
+</body>
+</html>

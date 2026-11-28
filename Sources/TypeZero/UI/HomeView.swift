@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 // MARK: - Home View (Zero Truncation · Liquid-Silk Aurora Hero · Precision DIN KPIs)
 
@@ -18,6 +19,8 @@ struct HomeView: View {
             headerBar
 
             readinessAuroraCard
+
+            engineLifecycleBanner
 
             if showSandbox || isRecordingNow || !appState.sandboxText.isEmpty {
                 inlineSandboxCard
@@ -192,6 +195,110 @@ struct HomeView: View {
             x: 0,
             y: 7
         )
+    }
+
+    // MARK: Contextual Engine Lifecycle Banner (Zero-Noise Activation & Low-Quota Handover)
+
+    @ViewBuilder
+    private var engineLifecycleBanner: some View {
+        if !appState.hasAnyEngineReady && !appState.isCloudTrialEnded {
+            HStack(spacing: 12) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(TZTheme.accent)
+                    .frame(width: 30, height: 30)
+                    .background(TZTheme.accentSoft)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("注册免费领取 1 个月超级 VIP")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(TZTheme.inkPrimary)
+                    Text("解锁自研大模型 · 超快转换 · 智能整理 · 自动去语病")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(TZTheme.inkSecondary)
+                }
+
+                Spacer()
+
+                Button("免费领取超级 VIP") {
+                    appState.showOnboardingSheet = true
+                }
+                .buttonStyle(TZAccentButtonStyle(compact: true, capsule: true))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .background(TZTheme.cardElevated)
+            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(TZTheme.accent.opacity(0.28), lineWidth: 1))
+        } else if appState.isCloudTrialLow && !appState.hasPersonalBYOKASRReady && !appState.lowTrialBannerDismissed,
+                  let trial = appState.activeCloudTrial {
+            let daysPart = trial.daysRemaining.map { " · 剩 \($0) 天" } ?? ""
+            HStack(spacing: 10) {
+                Image(systemName: "clock.badge.exclamationmark.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(TZTheme.amber)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("1 个月免费体验剩余 \(trial.remainingPercent)%（约 \(Int(trial.asrRemainingMinutes.rounded())) 分钟\(daysPart)）")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(TZTheme.inkPrimary)
+                    Text("提前绑定个人 API Key（每天仅约 5 分钱），免费用完瞬间自动无感切换不断档")
+                        .font(.system(size: 11))
+                        .foregroundStyle(TZTheme.inkSecondary)
+                }
+                Spacer()
+                Button("开通教程 ↗") {
+                    NSWorkspace.shared.open(CloudAuthClient.byokGuideURL)
+                }
+                .buttonStyle(TZSecondaryButtonStyle(compact: true, capsule: true))
+                Button("去配置") {
+                    appState.openCustomEngineSetup()
+                }
+                .buttonStyle(TZAccentButtonStyle(compact: true, capsule: true))
+                Button {
+                    appState.lowTrialBannerDismissed = true
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9.5, weight: .bold))
+                        .foregroundStyle(TZTheme.inkMuted)
+                        .padding(4)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .background(TZTheme.amber.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(TZTheme.amber.opacity(0.30), lineWidth: 1))
+        } else if appState.isCloudTrialEnded && !appState.hasAnyEngineReady {
+            HStack(spacing: 10) {
+                Image(systemName: "key.fill")
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(TZTheme.amber)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("1 个月免费云端体验已完成")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(TZTheme.inkPrimary)
+                    Text("2 分钟绑定个人 API Key 继续无限用（每天约 5 分钱），或切本机离线永久 ¥0")
+                        .font(.system(size: 11))
+                        .foregroundStyle(TZTheme.inkSecondary)
+                }
+                Spacer()
+                Button("查看教程 ↗") {
+                    NSWorkspace.shared.open(CloudAuthClient.byokGuideURL)
+                }
+                .buttonStyle(TZSecondaryButtonStyle(compact: true, capsule: true))
+                Button("绑定个人 Key") {
+                    appState.openCustomEngineSetup()
+                }
+                .buttonStyle(TZAccentButtonStyle(compact: true, capsule: true))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .background(TZTheme.cardElevated)
+            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(TZTheme.amber.opacity(0.32), lineWidth: 1))
+        }
     }
 
     // MARK: Collapsible Lightweight Try-Out Sandbox
@@ -415,8 +522,8 @@ struct HomeView: View {
             quickJumpTile(
                 icon: "waveform",
                 tint: TZTheme.cyan,
-                title: "语音与模型",
-                subtitle: "引擎与外观设置"
+                title: "语音与引擎",
+                subtitle: appState.isOfficialCloudTrialActive ? "TypeZero 自研云端引擎" : "自定义引擎与额度"
             ) {
                 appState.selectedSettingsTab = .engines
                 withAnimation(.easeOut(duration: 0.14)) { appState.selectedTab = .settings }
@@ -479,8 +586,14 @@ struct HomeView: View {
     }
 
     private var activeEngineSummaryLine: String {
+        if appState.isOfficialCloudTrialActive {
+            let modeText = appState.llmConfig.formattingStyle == .verbatimLocal ? "原声直出" : "智能整理"
+            if appState.averagePolishLatencyMs > 0 {
+                return "超级 VIP · 自研大模型  ·  \(modeText)  ·  \(appState.averagePolishLatencyMs) ms"
+            }
+            return "超级 VIP · 自研大模型  ·  \(modeText)"
+        }
         let asr: String = {
-            if appState.isOfficialCloudTrialActive { return "官方体验 · 豆包 2.0" }
             switch appState.llmConfig.asrProvider {
             case .volcSeedASR: return "豆包 2.0"
             case .openAIWhisper: return appState.isGroqASRSelected ? "Groq Whisper" : "OpenAI ASR"
@@ -489,7 +602,6 @@ struct HomeView: View {
         }()
         let llm: String = {
             if appState.llmConfig.formattingStyle == .verbatimLocal { return "原声直出" }
-            if appState.isOfficialCloudTrialActive { return "DeepSeek Flash" }
             return appState.llmConfig.selectedProvider.shortName
         }()
         if appState.averagePolishLatencyMs > 0 {
