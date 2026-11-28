@@ -43,14 +43,13 @@ public enum CatCoatCompiler {
             case .tuxedoBicolor, .tabbyBicolor:
                 return dna.faceBlaze != .none
             case .tabby:
-                return dna.faceBlaze == .whiteMuzzle || dna.faceBlaze == .invertedV
+                return dna.faceBlaze == .whiteMuzzle || dna.faceBlaze == .noseBridgeBlaze || dna.faceBlaze == .invertedV
             case .solid:
                 return pLum > 0.55 || dna.faceBlaze != .none
             case .colorpoint, .tortoiseshell:
                 return false
             }
         }()
-        // Clear, readable `:3` kitty mouth & whiskers across both snow-white and deep-dark muzzles
         let paletteMouth: String = {
             if dna.patternFamily == .tortoiseshell || (pLum < 0.24 && !hasLightMuzzle) {
                 return "#DFCCBACC"
@@ -58,7 +57,10 @@ public enum CatCoatCompiler {
             return hasLightMuzzle ? "#7A685BC4" : "#6D5B4EB0"
         }()
         palette["mouth"] = paletteMouth
-        if pLum > 0.70 || hasLightMuzzle {
+        if pLum < 0.42 && (dna.patternFamily == .tabby || dna.patternFamily == .tabbyBicolor || dna.patternFamily == .tuxedoBicolor) {
+            // Crisp bright white whiskers standing out against dark tabby/tuxedo cheeks & background (like real 花椒!)
+            palette["whiskers"] = "#F6F3ECE2"
+        } else if pLum > 0.70 || hasLightMuzzle {
             palette["whiskers"] = "#857C70B8"
         }
 
@@ -120,85 +122,118 @@ public enum CatCoatCompiler {
 
         // Deterministic seeded jitter for organic spots
         let seedAngle = Double(dna.patchSeed % 97) * 0.6180339
-        let flipSpot: Double = (dna.patchSeed % 2 == 0) ? 1.0 : -1.0
         let shiftSpot = sin(seedAngle * 6.28) * 5.0
 
-        // Reusable anatomical artwork generators
-        func appendForeheadM(color: String, alpha: Double = 0.82) {
-            marks.append(strokeMark(space: "head", color: color, width: 2.8, alpha: alpha, points: [
-                (-12.5, -31.5), (-11.0, -24.0), (-8.2, -17.5)
+        // Reusable anatomical artwork generators (rich multi-stroke tiger / mackerel tabby geometry!)
+        func appendForeheadM(color: String, alpha: Double = 0.88) {
+            // Dark dorsal crown shadow between ears (signature real-tabby dark crown!)
+            marks.append(polygonMark(space: "head", color: color, alpha: alpha * 0.62, points: [
+                (-24.0, -40.0), (24.0, -40.0), (16.0, -29.0), (0.0, -27.5), (-16.0, -29.0)
             ]))
-            marks.append(strokeMark(space: "head", color: color, width: 3.0, alpha: alpha, points: [
-                (-2.5, -33.0), (-1.8, -23.5), (0.0, -14.5), (1.8, -23.5), (2.5, -33.0)
+            // Bold 5-band M emblem
+            marks.append(strokeMark(space: "head", color: color, width: 3.6, alpha: alpha, points: [
+                (-13.0, -33.0), (-11.2, -24.0), (-7.8, -16.2)
             ]))
-            marks.append(strokeMark(space: "head", color: color, width: 2.8, alpha: alpha, points: [
-                (12.5, -31.5), (11.0, -24.0), (8.2, -17.5)
+            marks.append(strokeMark(space: "head", color: color, width: 3.8, alpha: alpha, points: [
+                (-3.0, -34.0), (-2.0, -23.5), (0.0, -13.2), (2.0, -23.5), (3.0, -34.0)
             ]))
-            marks.append(strokeMark(space: "head", color: color, width: 2.3, alpha: alpha * 0.9, points: [
-                (-21.0, -28.5), (-19.2, -22.0), (-16.5, -16.5)
+            marks.append(strokeMark(space: "head", color: color, width: 3.6, alpha: alpha, points: [
+                (13.0, -33.0), (11.2, -24.0), (7.8, -16.2)
             ]))
-            marks.append(strokeMark(space: "head", color: color, width: 2.3, alpha: alpha * 0.9, points: [
-                (21.0, -28.5), (19.2, -22.0), (16.5, -16.5)
+            marks.append(strokeMark(space: "head", color: color, width: 3.0, alpha: alpha * 0.92, points: [
+                (-22.5, -29.5), (-20.0, -22.0), (-16.8, -15.5)
             ]))
-        }
-
-        func appendCheekStripes(color: String, alpha: Double = 0.78) {
-            marks.append(strokeMark(space: "head", color: color, width: 2.6, alpha: alpha, points: [
-                (-42.0, 3.5), (-35.5, 6.2), (-29.0, 6.8)
-            ]))
-            marks.append(strokeMark(space: "head", color: color, width: 2.2, alpha: alpha * 0.92, points: [
-                (-42.0, 13.5), (-36.0, 14.8), (-30.5, 14.8)
-            ]))
-            marks.append(strokeMark(space: "head", color: color, width: 2.6, alpha: alpha, points: [
-                (42.0, 3.5), (35.5, 6.2), (29.0, 6.8)
-            ]))
-            marks.append(strokeMark(space: "head", color: color, width: 2.2, alpha: alpha * 0.92, points: [
-                (42.0, 13.5), (36.0, 14.8), (30.5, 14.8)
+            marks.append(strokeMark(space: "head", color: color, width: 3.0, alpha: alpha * 0.92, points: [
+                (22.5, -29.5), (20.0, -22.0), (16.8, -15.5)
             ]))
         }
 
-        func appendRibStripes(color: String, alpha: Double = 0.72) {
-            marks.append(strokeMark(space: "body", color: color, width: 3.4, alpha: alpha, points: [
-                (-49.0, -41.0), (-41.0, -41.2), (-33.0, -35.0)
+        func appendCheekStripes(color: String, alpha: Double = 0.86) {
+            // Upper outer-eye Cleopatra eyeliner sweep + lower cheek tabby stripe on both sides
+            marks.append(strokeMark(space: "head", color: color, width: 3.2, alpha: alpha, points: [
+                (-45.0, 0.5), (-36.5, 2.2), (-28.5, 1.2)
             ]))
-            marks.append(strokeMark(space: "body", color: color, width: 3.1, alpha: alpha, points: [
-                (-49.0, -21.0), (-41.0, -20.8), (-34.5, -14.5)
+            marks.append(strokeMark(space: "head", color: color, width: 3.0, alpha: alpha * 0.94, points: [
+                (-44.0, 10.5), (-35.5, 11.8), (-28.0, 9.8)
             ]))
-            marks.append(strokeMark(space: "body", color: color, width: 3.4, alpha: alpha, points: [
-                (49.0, -41.0), (41.0, -41.2), (33.0, -35.0)
+            marks.append(strokeMark(space: "head", color: color, width: 3.2, alpha: alpha, points: [
+                (45.0, 0.5), (36.5, 2.2), (28.5, 1.2)
             ]))
-            marks.append(strokeMark(space: "body", color: color, width: 3.1, alpha: alpha, points: [
-                (49.0, -21.0), (41.0, -20.8), (34.5, -14.5)
+            marks.append(strokeMark(space: "head", color: color, width: 3.0, alpha: alpha * 0.94, points: [
+                (44.0, 10.5), (35.5, 11.8), (28.0, 9.8)
             ]))
         }
 
-        func appendTailRings(color: String, alpha: Double = 0.62) {
-            for xPos in [36.0, 58.0, 78.0] {
-                marks.append(strokeMark(space: "tail", color: color, width: 3.8, alpha: alpha, points: [
-                    (xPos, 9.0), (xPos, -9.0)
+        func appendRibStripes(color: String, alpha: Double = 0.86) {
+            // 1) Two classic Tabby "Lord's Necklace" curved chest bands across upper torso!
+            marks.append(strokeMark(space: "body", color: color, width: 4.0, alpha: alpha * 0.92, points: [
+                (-44.0, -52.0), (-26.0, -40.0), (0.0, -34.0), (26.0, -40.0), (44.0, -52.0)
+            ]))
+            marks.append(strokeMark(space: "body", color: color, width: 4.2, alpha: alpha, points: [
+                (-48.0, -38.0), (-28.0, -27.0), (0.0, -22.0), (28.0, -27.0), (48.0, -38.0)
+            ]))
+            // 2) Dense curved mackerel tiger stripes wrapping from flanks across ribs & belly!
+            for (yOut, yIn) in [(-24.0, -13.0), (-10.0, -1.0), (4.0, 11.0)] {
+                marks.append(strokeMark(space: "body", color: color, width: 4.4, alpha: alpha, points: [
+                    (-52.0, yOut), (-34.0, (yOut + yIn) * 0.5 + 1.5), (-11.0, yIn)
+                ]))
+                marks.append(strokeMark(space: "body", color: color, width: 4.4, alpha: alpha, points: [
+                    (52.0, yOut), (34.0, (yOut + yIn) * 0.5 + 1.5), (11.0, yIn)
+                ]))
+            }
+        }
+
+        func appendArmTabbyBracelets(color: String, alpha: Double = 0.86) {
+            // 5 crisp tiger bracelet rings along BOTH front legs (sitting & reaching!) + hind leg!
+            for space in ["leftArm", "rightArm", "hindLeg"] {
+                for xPct in [20.0, 36.0, 52.0, 68.0, 83.0] {
+                    marks.append(strokeMark(space: space, color: color, width: 4.0, alpha: alpha, points: [
+                        (xPct, -10.5), (xPct + 2.0, 0.0), (xPct, 10.5)
+                    ]))
+                }
+            }
+        }
+
+        func appendTailRings(color: String, alpha: Double = 0.88) {
+            for xPos in [16.0, 32.0, 48.0, 64.0, 78.0] {
+                marks.append(strokeMark(space: "tail", color: color, width: 5.6, alpha: alpha, points: [
+                    (xPos, 10.5), (xPos, -10.5)
                 ]))
             }
         }
 
         func appendTailTip(color: String) {
-            regions.append(smoothRegion(space: "tail", fill: color, points: [
-                (76.0, -11.0), (102.0, -11.0), (104.0, 0.0), (102.0, 11.0), (76.0, 11.0), (72.0, 0.0)
-            ], tension: 0.20))
+            marks.append(polygonMark(space: "tail", color: color, alpha: 0.96, points: [
+                (80.0, -11.5), (103.0, -11.5), (105.0, 0.0), (103.0, 11.5), (80.0, 11.5)
+            ]))
         }
 
-        func appendChestBib(style: CatChestBibStyle, bibColor: String) {
+        // Drawn as `polygonMark` AFTER body stripes so the fluffy white throat kerchief / bib sits cleanly OVER the stripes!
+        func appendChestBibOverlayMark(style: CatChestBibStyle, bibColor: String, includeBellyWisp: Bool = false) {
             switch style {
             case .none:
                 break
             case .locket:
-                regions.append(smoothRegion(space: "body", fill: bibColor, points: [
-                    (0.0, -64.0), (15.0, -54.0), (12.0, -34.0), (0.0, -26.0), (-12.0, -34.0), (-15.0, -54.0)
+                marks.append(polygonMark(space: "body", color: bibColor, points: [
+                    (0.0, -65.0), (14.0, -56.0), (11.0, -40.0), (0.0, -33.0), (-11.0, -40.0), (-14.0, -56.0)
                 ]))
+            case .triangleCollar:
+                // Authentic V-shaped white throat kerchief (like 花椒!) — leaves chest necklaces & rib stripes 100% visible below y = -34!
+                marks.append(polygonMark(space: "body", color: bibColor, points: [
+                    (0.0, -78.0), (26.0, -68.0), (28.0, -54.0), (17.0, -43.0),
+                    (0.0, -31.0), (-17.0, -43.0), (-28.0, -54.0), (-26.0, -68.0)
+                ]))
+                if includeBellyWisp {
+                    // Subtle narrow vertical white belly tuft lower down between the striped front legs!
+                    marks.append(polygonMark(space: "body", color: bibColor, alpha: 0.94, points: [
+                        (0.0, -14.0), (6.5, -3.0), (5.5, 16.0), (0.0, 22.0), (-5.5, 16.0), (-6.5, -3.0)
+                    ]))
+                }
             case .fullBib:
-                regions.append(smoothRegion(space: "body", fill: bibColor, points: [
-                    (0.0, -78.0), (26.0, -68.0), (35.0, -34.0), (32.0, 12.0),
-                    (18.0, 42.0), (0.0, 48.0), (-18.0, 42.0), (-32.0, 12.0),
-                    (-35.0, -34.0), (-26.0, -68.0)
+                marks.append(polygonMark(space: "body", color: bibColor, points: [
+                    (0.0, -78.0), (22.0, -68.0), (26.0, -34.0), (24.0, 10.0),
+                    (15.0, 36.0), (0.0, 42.0), (-15.0, 36.0), (-24.0, 10.0),
+                    (-26.0, -34.0), (-22.0, -68.0)
                 ]))
             }
         }
@@ -248,11 +283,20 @@ public enum CatCoatCompiler {
                 regions.append(smoothRegion(space: "head", fill: capColor, points: [
                     (8.0, -34.0), (5.0, -10.0), (10.0, 8.0), (34.0, 12.0), (44.0, -8.0), (36.0, -34.0)
                 ], tension: 0.30))
+            case .noseBridgeBlaze:
+                // Authentic Tabby-Bicolor narrow nasal-bridge white flame:
+                // Eyes stay 100% surrounded by tabby fur while a crisp white wedge rises up the nose bridge & flares across whisker pads!
+                marks.append(polygonMark(space: "head", color: muzzleWhiteColor, points: [
+                    (0.0, -6.5), (3.8, -1.0), (6.5, 5.5), (15.0, 11.5),
+                    (31.0, 16.5), (34.0, 23.0), (24.0, 33.5), (0.0, 36.0),
+                    (-24.0, 33.5), (-34.0, 23.0), (-31.0, 16.5), (-15.0, 11.5),
+                    (-6.5, 5.5), (-3.8, -1.0)
+                ]))
             case .whiteMuzzle:
-                regions.append(smoothRegion(space: "head", fill: muzzleWhiteColor, points: [
-                    (0.0, 1.0), (18.0, 8.0), (30.0, 20.0), (22.0, 34.0),
-                    (0.0, 36.0), (-22.0, 34.0), (-30.0, 20.0), (-18.0, 8.0)
-                ], tension: 0.28))
+                marks.append(polygonMark(space: "head", color: muzzleWhiteColor, points: [
+                    (0.0, 3.0), (16.0, 9.5), (29.0, 20.0), (22.0, 34.0),
+                    (0.0, 36.0), (-22.0, 34.0), (-29.0, 20.0), (-16.0, 9.5)
+                ]))
             case .sealMask:
                 break
             }
@@ -274,14 +318,15 @@ public enum CatCoatCompiler {
             if leftHasSock {
                 let stop = dna.frontLeftSock == .highSock ? 0.35 : 0.68
                 partGradients["leftArm"] = ["from": baseLegHex, "to": sockWhiteHex, "stop": stop]
-            } else if rightHasSock {
+            } else {
+                // Explicit uniform arm gradient prevents CatRenderer from auto-bleeding `pal.belly` white onto dark shoulders!
                 partGradients["leftArm"] = ["from": baseLegHex, "to": baseLegHex, "stop": 0.5]
             }
 
             if rightHasSock {
                 let stop = dna.frontRightSock == .highSock ? 0.35 : 0.68
                 partGradients["rightArm"] = ["from": baseLegHex, "to": sockWhiteHex, "stop": stop]
-            } else if leftHasSock {
+            } else {
                 partGradients["rightArm"] = ["from": baseLegHex, "to": baseLegHex, "stop": 0.5]
             }
 
@@ -305,13 +350,13 @@ public enum CatCoatCompiler {
                 palette["outline"] = "#8C857CB8"
                 palette["crease"] = "#948C8299"
             }
-            if dna.faceBlaze == .whiteMuzzle {
-                appendColoredCapForBlaze(.whiteMuzzle, capColor: pHex, muzzleWhiteColor: milk, width: dna.blazeWidth)
+            if dna.faceBlaze == .whiteMuzzle || dna.faceBlaze == .noseBridgeBlaze {
+                appendColoredCapForBlaze(dna.faceBlaze, capColor: pHex, muzzleWhiteColor: milk, width: dna.blazeWidth)
             } else if dna.faceBlaze != .none && dna.faceBlaze != .sealMask {
                 palette["headBody"] = sHex
                 appendColoredCapForBlaze(dna.faceBlaze, capColor: pHex, muzzleWhiteColor: sHex, width: dna.blazeWidth)
             }
-            appendChestBib(style: dna.chestBib, bibColor: milk)
+            appendChestBibOverlayMark(style: dna.chestBib, bibColor: milk)
             applyLimbSocks(baseLegHex: pHex, sockWhiteHex: milk)
             if dna.foreheadM { appendForeheadM(color: darkenHex(pHex, amount: 0.22), alpha: 0.55) }
             if dna.tailTipDip { appendTailTip(color: sHex) }
@@ -320,44 +365,17 @@ public enum CatCoatCompiler {
         case .tuxedoBicolor:
             let whiteHex = luminance(of: sHex) > 0.45 ? sHex : milk
             let darkHex = pHex
-            let useWhiteBaseHead = (dna.faceBlaze != .none && dna.faceBlaze != .whiteMuzzle && dna.faceBlaze != .sealMask)
+            let useWhiteBaseHead = (dna.faceBlaze != .none && dna.faceBlaze != .whiteMuzzle && dna.faceBlaze != .noseBridgeBlaze && dna.faceBlaze != .sealMask)
 
-            if dna.chestBib == .fullBib {
-                // Classic cow / blue-white / tuxedo: white chest & belly core wrapped with colored back saddle & cow flanks
-                palette["body"] = whiteHex
+            // Keep torso & sleeves in dark coat (`darkHex`) with crisp white chest bib & white mittens (never ghostly all-white arms!)
+            palette["body"] = darkHex
+            palette["legs"] = darkHex
+            if dna.chestBib != .none {
                 palette["belly"] = whiteHex
-                palette["legs"] = whiteHex
-                palette["paws"] = whiteHex
-                palette["hindLeg"] = darkHex
-                palette["hindPaw"] = dna.hindSocks ? whiteHex : darkHex
-                // Left & right lateral coat wrap / cow patches on `.body`
-                regions.append(smoothRegion(space: "body", fill: darkHex, points: [
-                    (-54.0, -76.0), (-26.0, -68.0), (-30.0, -32.0), (-24.0, 6.0),
-                    (-36.0, 22.0), (-56.0, 16.0), (-58.0, -30.0)
-                ], tension: 0.26))
-                regions.append(smoothRegion(space: "body", fill: darkHex, points: [
-                    (54.0, -76.0), (58.0, -30.0), (56.0, 16.0), (34.0, 22.0),
-                    (25.0, 2.0), (31.0, -34.0), (26.0, -68.0)
-                ], tension: 0.26))
-                // Seeded cute cow spot on lower side
-                regions.append(smoothRegion(space: "body", fill: darkHex, points: [
-                    (flipSpot * 36.0, -18.0 + shiftSpot),
-                    (flipSpot * 48.0, -12.0 + shiftSpot),
-                    (flipSpot * 46.0, 8.0 + shiftSpot),
-                    (flipSpot * 30.0, 6.0 + shiftSpot)
-                ], tension: 0.32))
-                if dna.frontLeftSock == .none {
-                    partGradients["leftArm"] = ["from": darkHex, "to": darkHex, "stop": 0.5]
-                }
-                if dna.frontRightSock == .none {
-                    partGradients["rightArm"] = ["from": darkHex, "to": darkHex, "stop": 0.5]
-                }
-            } else {
-                palette["body"] = darkHex
-                palette["legs"] = darkHex
-                appendChestBib(style: dna.chestBib, bibColor: whiteHex)
-                applyLimbSocks(baseLegHex: darkHex, sockWhiteHex: whiteHex)
             }
+            appendChestBibOverlayMark(style: dna.chestBib, bibColor: whiteHex)
+            applyLimbSocks(baseLegHex: darkHex, sockWhiteHex: whiteHex)
+            idleLegs = "legs"
 
             palette["earOuter"] = (dna.faceBlaze == .eyePatchRight) ? whiteHex : darkHex
             if dna.faceBlaze == .splitHalf || dna.faceBlaze == .eyePatchLeft {
@@ -372,8 +390,8 @@ public enum CatCoatCompiler {
                 appendColoredCapForBlaze(dna.faceBlaze, capColor: darkHex, muzzleWhiteColor: whiteHex, width: dna.blazeWidth)
             } else {
                 palette["headBody"] = darkHex
-                if dna.faceBlaze == .whiteMuzzle {
-                    appendColoredCapForBlaze(.whiteMuzzle, capColor: darkHex, muzzleWhiteColor: whiteHex, width: dna.blazeWidth)
+                if dna.faceBlaze == .whiteMuzzle || dna.faceBlaze == .noseBridgeBlaze {
+                    appendColoredCapForBlaze(dna.faceBlaze, capColor: darkHex, muzzleWhiteColor: whiteHex, width: dna.blazeWidth)
                 }
             }
             if dna.chinSpot {
@@ -519,43 +537,65 @@ public enum CatCoatCompiler {
                 (-36.0, -8.0), (-12.0, -6.0), (-16.0, 14.0), (-40.0, 12.0)
             ], tension: 0.34))
             appendTailTip(color: amberPatch)
-            appendChestBib(style: dna.chestBib, bibColor: creamGold)
+            appendChestBibOverlayMark(style: dna.chestBib, bibColor: creamGold)
 
         case .tabby, .tabbyBicolor:
             let baseFur = pHex
             let bibCol = luminance(of: sHex) > 0.50 ? sHex : milk
-            let stripeHex = luminance(of: tHex) < luminance(of: baseFur) ? tHex : darkenHex(baseFur, amount: 0.38)
-            let isBicolor = (dna.patternFamily == .tabbyBicolor || dna.chestBib == .fullBib)
+            let stripeHex = luminance(of: tHex) < luminance(of: baseFur) ? tHex : darkenHex(baseFur, amount: 0.45)
+            let isBicolor = (dna.patternFamily == .tabbyBicolor || dna.chestBib != .none)
 
             palette["body"] = baseFur
             palette["headBody"] = baseFur
             palette["stripes"] = stripeHex
-            palette["earOuter"] = baseFur
+            palette["earOuter"] = darkenHex(baseFur, amount: 0.22)
+            // Natural warm tawny-brown inner ear fluff on dark brown/charcoal tabbies instead of neon pink
+            if luminance(of: baseFur) < 0.42 && dna.earInnerHex == "#E4A6A8" {
+                palette["earInner"] = "#78624F"
+            }
             palette["tail"] = baseFur
-            palette["legs"] = isBicolor ? bibCol : baseFur
-
-            if isBicolor {
-                palette["belly"] = bibCol
-                appendChestBib(style: .fullBib, bibColor: bibCol)
-                applyLimbSocks(baseLegHex: baseFur, sockWhiteHex: bibCol)
-            } else {
-                appendChestBib(style: dna.chestBib, bibColor: bibCol)
-                applyLimbSocks(baseLegHex: baseFur, sockWhiteHex: bibCol)
+            // CRITICAL: Keep legs in rich dark tabby `baseFur` (NEVER chalk-white sleeves!), with 5 tiger bracelet rings!
+            palette["legs"] = baseFur
+            if pLum < 0.48 {
+                // Natural deep charcoal-umber leg creases & contour instead of chalky light-grey default creases
+                palette["crease"] = darkenHex(baseFur, amount: 0.34)
+                palette["outline"] = darkenHex(baseFur, amount: 0.38)
             }
+            idleLegs = "legs"
 
-            if dna.faceBlaze == .invertedV || dna.faceBlaze == .skewLeft || dna.faceBlaze == .skewRight {
+            // Subtle darker dorsal crown & upper-back gradient for rich 2.5D agouti coat depth
+            partGradients["head"] = ["from": darkenHex(baseFur, amount: 0.22), "to": baseFur, "stop": 0.55]
+            partGradients["body"] = ["from": darkenHex(baseFur, amount: 0.14), "to": baseFur, "stop": 0.55]
+
+            applyLimbSocks(baseLegHex: baseFur, sockWhiteHex: bibCol)
+
+            // 1. Draw full-body tiger rib stripes, chest necklaces, arm bracelets, forehead M & cheek eyeliners FIRST
+            if dna.foreheadM { appendForeheadM(color: stripeHex, alpha: 0.90) }
+            if dna.cheekStripes { appendCheekStripes(color: stripeHex, alpha: 0.88) }
+            appendRibStripes(color: stripeHex, alpha: 0.88)
+            appendArmTabbyBracelets(color: stripeHex, alpha: 0.88)
+            if dna.tailRings { appendTailRings(color: stripeHex, alpha: 0.90) }
+            // Tabby tail tips are always rich dark `stripeHex` (never white!)
+            appendTailTip(color: stripeHex)
+
+            // 2. Layer white muzzle / nose-bridge flame & V-collar kerchief ON TOP so white stays snowy crisp while stripes surround it!
+            let effectiveBlaze: CatFaceBlaze = (dna.faceBlaze == .none && isBicolor) ? .noseBridgeBlaze : dna.faceBlaze
+            if effectiveBlaze == .invertedV || effectiveBlaze == .skewLeft || effectiveBlaze == .skewRight {
                 palette["headBody"] = bibCol
-                appendColoredCapForBlaze(dna.faceBlaze, capColor: baseFur, muzzleWhiteColor: bibCol, width: dna.blazeWidth)
-            } else if dna.faceBlaze == .whiteMuzzle || isBicolor {
-                appendColoredCapForBlaze(.whiteMuzzle, capColor: baseFur, muzzleWhiteColor: bibCol, width: dna.blazeWidth)
+                appendColoredCapForBlaze(effectiveBlaze, capColor: baseFur, muzzleWhiteColor: bibCol, width: dna.blazeWidth)
+            } else if effectiveBlaze == .noseBridgeBlaze || effectiveBlaze == .whiteMuzzle {
+                appendColoredCapForBlaze(effectiveBlaze, capColor: baseFur, muzzleWhiteColor: bibCol, width: dna.blazeWidth)
             }
 
-            if dna.foreheadM { appendForeheadM(color: stripeHex, alpha: 0.84) }
-            if dna.cheekStripes { appendCheekStripes(color: stripeHex, alpha: 0.80) }
-            appendRibStripes(color: stripeHex, alpha: 0.76)
-            if dna.tailRings { appendTailRings(color: stripeHex, alpha: 0.65) }
-            if dna.tailTipDip { appendTailTip(color: isBicolor ? bibCol : stripeHex) }
-            idleLegs = isBicolor ? "chest" : "legs"
+            let effectiveBib: CatChestBibStyle = (dna.chestBib == .none && dna.patternFamily == .tabbyBicolor) ? .triangleCollar : dna.chestBib
+            if effectiveBib != .none {
+                palette["belly"] = bibCol
+                appendChestBibOverlayMark(
+                    style: effectiveBib,
+                    bibColor: bibCol,
+                    includeBellyWisp: (effectiveBib == .triangleCollar && dna.patternFamily == .tabbyBicolor)
+                )
+            }
 
         case .shaded:
             let dorsalHex = pHex

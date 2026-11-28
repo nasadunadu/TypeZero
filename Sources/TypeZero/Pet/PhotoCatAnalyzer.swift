@@ -38,6 +38,7 @@ public enum CatPatternFamily: String, Codable, CaseIterable, Identifiable, Senda
 
 public enum CatFaceBlaze: String, Codable, CaseIterable, Identifiable, Sendable {
     case none = "none"
+    case noseBridgeBlaze = "nose_bridge_blaze"
     case invertedV = "inverted_v"
     case skewLeft = "skew_left"
     case skewRight = "skew_right"
@@ -52,16 +53,17 @@ public enum CatFaceBlaze: String, Codable, CaseIterable, Identifiable, Sendable 
 
     public var title: String {
         switch self {
-        case .none:          return "纯色面庞"
-        case .invertedV:     return "正八字开脸"
-        case .skewLeft:      return "左偏刘海"
-        case .skewRight:     return "右偏刘海"
-        case .helmetCap:     return "齐眉警长帽"
-        case .splitHalf:     return "阴阳半脸"
-        case .eyePatchLeft:  return "左眼海盗斑"
-        case .eyePatchRight: return "右眼海盗斑"
-        case .whiteMuzzle:   return "奶白嘴套"
-        case .sealMask:      return "挖煤渐变脸"
+        case .none:            return "纯色面庞"
+        case .noseBridgeBlaze: return "窄鼻梁白嘴套 (狸白经典)"
+        case .invertedV:       return "宽正八字开脸"
+        case .skewLeft:        return "左偏刘海"
+        case .skewRight:       return "右偏刘海"
+        case .helmetCap:       return "齐眉警长帽"
+        case .splitHalf:       return "阴阳半脸"
+        case .eyePatchLeft:    return "左眼海盗斑"
+        case .eyePatchRight:   return "右眼海盗斑"
+        case .whiteMuzzle:     return "仅下嘴套白"
+        case .sealMask:        return "挖煤渐变脸"
         }
     }
 }
@@ -69,15 +71,17 @@ public enum CatFaceBlaze: String, Codable, CaseIterable, Identifiable, Sendable 
 public enum CatChestBibStyle: String, Codable, CaseIterable, Identifiable, Sendable {
     case none = "none"
     case locket = "locket"
+    case triangleCollar = "triangle_collar"
     case fullBib = "full_bib"
 
     public var id: String { rawValue }
 
     public var title: String {
         switch self {
-        case .none:    return "无白胸"
-        case .locket:  return "胸口小撮白"
-        case .fullBib: return "大白胸围脖"
+        case .none:           return "无白胸"
+        case .locket:         return "胸口小撮白"
+        case .triangleCollar: return "倒三角白领巾"
+        case .fullBib:        return "整片大白胸腹"
         }
     }
 }
@@ -228,16 +232,16 @@ public struct CatPhotoAnalysisResult: Sendable {
 
 public enum PhotoCatAnalyzer {
     private static let visionSystemPrompt = """
-    你是顶级猫咪品种、毛色遗传学与 2D 矢量角色美术总监。请仔细观察用户上传的猫咪照片，剥离室内黄光/阴影色偏（例如白毛在暖光下仍应还原为纯净奶白 #F5F1E8 而非脏黄，纯黑毛还原为深邃绒黑 #1C1B20），输出严格符合以下字段的纯 JSON 对象（不要输出任何 Markdown 代码块或额外解释）：
+    你是顶级猫咪品种、毛色遗传学与写实插画美术总监。请极其仔细地观察照片里这只猫的每一处真实细节（毛色深浅、身上是否有虎斑横纹、白毛只到脖子领巾还是铺满整片肚子、前腿和前爪到底是深色虎斑腿还是纯白袜子、鼻梁白色是否切入眼眶），输出纯 JSON 对象（严禁 Markdown 代码块）：
     {
-      "breedBadge": "简短花色品种名，如 海双布偶 / 三花小猫 / 奶牛警长 / 金渐层英短 / 狸花白手套 / 橘白起司 / 纯白异瞳",
+      "breedBadge": "精准简短特征名，如 黑狸花白领巾 / 海双布偶 / 三花小猫 / 奶牛警长 / 金渐层英短 / 橘白起司",
       "patternFamily": "solid | tuxedo_bicolor | tabby | tabby_bicolor | calico | tortoiseshell | colorpoint | ragdoll_bicolor | shaded | van",
-      "faceBlaze": "none | inverted_v | skew_left | skew_right | helmet_cap | split_half | eye_patch_left | eye_patch_right | white_muzzle | seal_mask",
-      "blazeWidth": 0.56,
+      "faceBlaze": "none | nose_bridge_blaze | inverted_v | skew_left | skew_right | helmet_cap | split_half | eye_patch_left | eye_patch_right | white_muzzle | seal_mask",
+      "blazeWidth": 0.45,
       "foreheadM": false,
       "cheekStripes": false,
       "chinSpot": false,
-      "chestBib": "none | locket | full_bib",
+      "chestBib": "none | locket | triangle_collar | full_bib",
       "frontLeftSock": "none | mitten | high_sock",
       "frontRightSock": "none | mitten | high_sock",
       "hindSocks": false,
@@ -255,16 +259,17 @@ public enum PhotoCatAnalyzer {
       "cheekFullness": 1.06,
       "earSize": 1.00
     }
-    关键色彩语义约定：
-    1. solid（纯色猫）：primaryFurHex 为通体主毛色。
-    2. tuxedo_bicolor（奶牛/蓝白/橘白等双色加白猫）：primaryFurHex 填有色毛（如黑 #1C1B20 / 蓝灰 #7B8594 / 橘 #DB964D），secondaryFurHex 填奶白毛（#F5F1E8）；根据面部白色开脸形状选择 faceBlaze（正八字选 inverted_v 并给 blazeWidth 0.35~0.80；偏分选 skew_left/skew_right；齐眉黑帽白下半脸选 helmet_cap；单眼斑选 eye_patch_left/right）。
-    3. ragdoll_bicolor（海双/蓝双布偶）：primaryFurHex 填重点耳背深色（海豹褐 #4A3529 或蓝灰 #8792A1），secondaryFurHex 填奶白 #F6F2EA，faceBlaze 选 inverted_v，irisLeftHex/irisRightHex 填冰湖蓝 #6BC5F8，cheekFullness 1.12~1.20。
-    4. colorpoint（暹罗/重点色挖煤）：primaryFurHex 填身体浅奶油色 #F3E8D6，secondaryFurHex 填挖煤重点深色 #3A281F，faceBlaze 选 seal_mask。
-    5. calico（三花）：primaryFurHex 填奶白底色 #F5F1E8，secondaryFurHex 填暖橘斑 #DC8E43，tertiaryFurHex 填墨黑灰斑 #252429。
-    6. tortoiseshell（玳瑁）：primaryFurHex 填深褐黑底 #26201E，secondaryFurHex 填琥珀金橘斑 #D68A3E，tertiaryFurHex 填暖奶油斑 #E6BA7E。
-    7. tabby / tabby_bicolor（狸花/美短/橘虎斑）：primaryFurHex 填底毛色，secondaryFurHex 填奶白胸腹色 #F4EFE6，tertiaryFurHex 填深色虎斑条纹色（如黑褐 #34302D、深银灰 #4E5356 或深橘 #A65E2A），foreheadM=true，cheekStripes=true，tailRings=true。
-    8. shaded（金渐层/银渐层）：primaryFurHex 填背顶渐层暖杏金 #DFAA67 或浅银灰 #C5CAC8，secondaryFurHex 填下颌胸腹奶白 #F7F4EC，tertiaryFurHex 填柔和细纹/尾尖深色 #6E5238 或 #5B6063。
-    9. 异瞳鸳鸯眼（heterochromia=true）时分别准确填写猫自身左眼（画面右侧）与右眼（画面左侧）虹膜颜色；若闭眼看不到瞳色，请按该品种最经典高颜值瞳色补全。
+    【极其关键的写实还原铁律（严禁犯错）】：
+    1. 虎斑纹必查：只要额头有 M 纹、脸颊有眼线纹、身上或前腿有一圈圈深色条纹，哪怕带白嘴套/白胸，也必须选 tabby 或 tabby_bicolor（foreheadM=true, cheekStripes=true, tailRings=true, tailTipDip=false；注意狸花/虎斑猫尾尖绝大多数是纯黑深色而非白色！），绝对禁止选成没有条纹的 tuxedo_bicolor！
+    2. 深色黑狸花/炭黑虎斑色彩铁律：primaryFurHex 必须填人眼看到的【深沉主毛色】，偏黑的深色狸花猫（黑炭条纹占大面积、底绒深暖灰褐）primaryFurHex 必须填深炭黑褐色（#38312B ~ #443B33），tertiaryFurHex 填纯墨黑条纹色（#141314），绝对禁止把局部反光浅灰毛尖当成主色填成浅灰咖色（> #605850）！纯黑/奶牛黑猫填 #1A1A1F。
+    3. 开脸精确区分（nose_bridge_blaze vs inverted_v）：
+       - 如果两只眼睛四周 100% 被深色/虎斑毛包裹，白色只是从两眼内侧鼻梁中间窄窄一道向下散开包住粉鼻子和白嘴套（最典型的白嘴白领巾狸花猫！），必须选 "nose_bridge_blaze"！
+       - 只有宽大的白色倒 V 直接盖住半边内脸颊时才选 "inverted_v"。
+    4. 白领巾 vs 整片白肚皮（triangle_collar vs full_bib）：
+       - 如果白色主要集中在下巴与脖子正下方的倒三角白围脖/白领巾，领巾往下胸膛和前肩依然布满深色虎斑横纹，必须选 "triangle_collar"（绝不能选 full_bib 把整片胸膛涂白盖住虎斑纹）！
+       - 只有从脖子一直到大肚子整面全白时才选 "full_bib"。
+    5. 前腿与前爪严禁臆测白手套：仔细看两条前腿下半截和前脚趾！如果整条前腿都是深色带黑色手镯横纹一直到深色脚掌（前爪没有明显白手套），frontLeftSock 和 frontRightSock 必须填 "none"！只有前脚掌真有一截纯白手套才填 "mitten"。
+    6. 耳内与鼻头与瞳色：狸花猫耳内是棕灰耳毛（earInnerHex 填 #76604E，勿填假粉红）；粉鼻头填柔和樱花粉 #F0A6AE，砖红鼻填 #B86B5E；绿瞳填通透翡翠绿 #589154。
     """
 
     public static func analyzeImage(
@@ -304,6 +309,7 @@ public enum PhotoCatAnalyzer {
             let trimmedBYOK = byokAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
             if !llmConfig.useOfficialCloudTrial && !trimmedBYOK.isEmpty {
                 if var remoteDNA = await requestBYOKVisionDNA(dataURL: dataURL, config: llmConfig, apiKey: trimmedBYOK) {
+                    remoteDNA = calibrateWithPhotometry(remoteDNA, prep: localPrep)
                     if !preferredName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         remoteDNA.name = preferredName.trimmingCharacters(in: .whitespacesAndNewlines)
                     } else {
@@ -314,7 +320,7 @@ public enum PhotoCatAnalyzer {
                         dna: remoteDNA,
                         previewPNG: localPrep.previewPNG,
                         usedVisionModel: true,
-                        sourceSummary: "✨ 多模态视觉精修 · \(remoteDNA.breedBadge)"
+                        sourceSummary: "✨ 多模态视觉 + 像素测光精修 · \(remoteDNA.breedBadge)"
                     )
                 }
             }
@@ -323,6 +329,7 @@ public enum PhotoCatAnalyzer {
             let trimmedJWT = cloudJWT.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmedJWT.isEmpty {
                 if var cloudDNA = await requestOfficialCloudVisionDNA(dataURL: dataURL, jwt: trimmedJWT) {
+                    cloudDNA = calibrateWithPhotometry(cloudDNA, prep: localPrep)
                     if !preferredName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         cloudDNA.name = preferredName.trimmingCharacters(in: .whitespacesAndNewlines)
                     } else {
@@ -333,7 +340,7 @@ public enum PhotoCatAnalyzer {
                         dna: cloudDNA,
                         previewPNG: localPrep.previewPNG,
                         usedVisionModel: true,
-                        sourceSummary: "✨ 云端视觉深度还原 · \(cloudDNA.breedBadge)"
+                        sourceSummary: "✨ 云端视觉 + 像素测光精修 · \(cloudDNA.breedBadge)"
                     )
                 }
             }
@@ -341,6 +348,7 @@ public enum PhotoCatAnalyzer {
             // Path C: Fallback to BYOK even if `useOfficialCloudTrial` was on but cloud wasn't reachable
             if !trimmedBYOK.isEmpty {
                 if var remoteDNA = await requestBYOKVisionDNA(dataURL: dataURL, config: llmConfig, apiKey: trimmedBYOK) {
+                    remoteDNA = calibrateWithPhotometry(remoteDNA, prep: localPrep)
                     if !preferredName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         remoteDNA.name = preferredName.trimmingCharacters(in: .whitespacesAndNewlines)
                     } else {
@@ -351,7 +359,7 @@ public enum PhotoCatAnalyzer {
                         dna: remoteDNA,
                         previewPNG: localPrep.previewPNG,
                         usedVisionModel: true,
-                        sourceSummary: "✨ 视觉模型深度还原 · \(remoteDNA.breedBadge)"
+                        sourceSummary: "✨ 视觉模型 + 像素测光精修 · \(remoteDNA.breedBadge)"
                     )
                 }
             }
@@ -608,6 +616,54 @@ public enum PhotoCatAnalyzer {
         let croppedCatImage: CGImage
         let previewPNG: Data
         let dna: CatPhotoDNA
+        let nonWhiteMedianLum: Double
+        let nonWhiteDarkHex: String
+        let lowerWhiteRatio: Double
+        let bottomPawsDarkRatio: Double
+    }
+
+    /// Anchors VLM-guessed hex colors against the real foreground-masked cat pixel photometry so dark/black cats
+    /// are NEVER washed out into mid-grey and non-existent white arms/bellies are corrected!
+    private static func calibrateWithPhotometry(_ raw: CatPhotoDNA, prep: LocalPrepOutput) -> CatPhotoDNA {
+        var dna = raw
+        let c = CatCoatCompiler.rgbComponents(dna.primaryFurHex)
+        let vlmLum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+
+        switch dna.patternFamily {
+        case .tabby, .tabbyBicolor:
+            dna.foreheadM = true
+            dna.cheekStripes = true
+            dna.tailRings = true
+            dna.tailTipDip = true
+            // If real cat fur is dark (< 0.28 median luminance) and VLM gave washed-out grey (> 0.27), pull down to rich dark charcoal-umber!
+            if prep.nonWhiteMedianLum < 0.29 && vlmLum > 0.25 {
+                let targetScale = max(0.38, min(0.72, (prep.nonWhiteMedianLum * 1.15) / max(0.08, vlmLum)))
+                let nr = max(0.16, min(0.30, c.r * targetScale))
+                let ng = max(0.14, min(0.26, c.g * targetScale))
+                let nb = max(0.12, min(0.23, c.b * targetScale))
+                dna.primaryFurHex = String(format: "#%02X%02X%02X", Int((nr * 255).rounded()), Int((ng * 255).rounded()), Int((nb * 255).rounded()))
+                dna.tertiaryFurHex = "#141314"
+            }
+            // If lower torso isn't overwhelmingly white (< 36%), prefer V-shaped `triangleCollar` over full-torso white vest!
+            if dna.chestBib == .fullBib && prep.lowerWhiteRatio < 0.36 {
+                dna.chestBib = .triangleCollar
+            }
+            // If bottom paw region is predominantly dark (> 72% dark), clear hallucinated white front mittens & hind socks!
+            if prep.bottomPawsDarkRatio > 0.72 {
+                dna.frontLeftSock = .none
+                dna.frontRightSock = .none
+                dna.hindSocks = false
+            }
+            // Tabby & tabby-bicolor cats genetically have solid dark/black tail tips (not white tips)
+            dna.tailTipDip = false
+        case .solid, .tuxedoBicolor:
+            if prep.nonWhiteMedianLum < 0.18 && vlmLum > 0.20 {
+                dna.primaryFurHex = prep.nonWhiteDarkHex
+            }
+        default:
+            break
+        }
+        return dna
     }
 
     private static func prepareLocalVisionFeatures(from sourceImage: CGImage, preferredName: String) -> LocalPrepOutput {
@@ -723,6 +779,10 @@ public enum PhotoCatAnalyzer {
         var leftTopDark = 0.0, rightTopDark = 0.0
         var edgeEnergy = 0.0, edgeSamples = 0.0
 
+        var nonWhiteLums: [Double] = []
+        nonWhiteLums.reserveCapacity(grid * grid / 2)
+        var bottomDarkCount = 0.0, bottomTotalCount = 0.0
+        var lowerTorsoWhite = 0.0, lowerTorsoTotal = 0.0
         var gingerRGB = (r: 0.0, g: 0.0, b: 0.0, n: 0.0)
         var darkRGB = (r: 0.0, g: 0.0, b: 0.0, n: 0.0)
         var greyRGB = (r: 0.0, g: 0.0, b: 0.0, n: 0.0)
@@ -741,6 +801,17 @@ public enum PhotoCatAnalyzer {
                 let lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
 
                 let isWhite = lum > 0.68 && chroma < 0.17
+                if !isWhite {
+                    nonWhiteLums.append(lum)
+                }
+                if gy >= Int(Double(grid) * 0.55) && gy < Int(Double(grid) * 0.85) {
+                    lowerTorsoTotal += 1
+                    if isWhite { lowerTorsoWhite += 1 }
+                }
+                if gy >= Int(Double(grid) * 0.78) {
+                    bottomTotalCount += 1
+                    if !isWhite && lum < 0.42 { bottomDarkCount += 1 }
+                }
                 let isBlack = lum < 0.22 && chroma < 0.14
                 let isGinger = (r > b + 0.13) && (r > g + 0.04) && lum > 0.22 && lum < 0.82
                 let isSealBrown = (r > b + 0.07) && lum >= 0.14 && lum <= 0.42 && !isGinger
@@ -795,6 +866,10 @@ public enum PhotoCatAnalyzer {
         let stripeContrast = edgeSamples > 0 ? edgeEnergy / edgeSamples : 0
         let botWhiteFrac = botTotal > 0 ? botWhite / botTotal : 0
         let topColoredFrac = topTotal > 0 ? topDark / topTotal : 0
+        nonWhiteLums.sort()
+        let nonWhiteMedianLum = nonWhiteLums.isEmpty ? 0.35 : nonWhiteLums[nonWhiteLums.count * 42 / 100]
+        let lowerWhiteRatio = lowerTorsoTotal > 0 ? (lowerTorsoWhite / lowerTorsoTotal) : 0
+        let bottomPawsDarkRatio = bottomTotalCount > 0 ? (bottomDarkCount / bottomTotalCount) : 0.5
 
         func hexFromSum(_ s: (r: Double, g: Double, b: Double, n: Double), fallback: String) -> String {
             guard s.n > 5 else { return fallback }
@@ -957,42 +1032,50 @@ public enum PhotoCatAnalyzer {
                 dna.irisRightHex = "#72CBF9"
                 dna.noseHex = "#2D1E1B"
             }
+        } else if stripeContrast > 0.050 || ((blackRatio + brownSealRatio) > 0.28 && whiteRatio > 0.05 && whiteRatio < 0.36) {
+            let hasWhiteBib = whiteRatio > 0.07
+            let isDarkCharcoalTabby = nonWhiteMedianLum < 0.28 || blackRatio > 0.22
+            dna.patternFamily = hasWhiteBib ? .tabbyBicolor : .tabby
+            dna.breedBadge = isDarkCharcoalTabby ? (hasWhiteBib ? "黑狸花白领巾" : "黑炭狸花猫") : (greyBlueRatio > brownSealRatio ? "美短银虎斑" : "中华狸花猫")
+            dna.name = defaultName.isEmpty ? "花椒" : defaultName
+            dna.primaryFurHex = isDarkCharcoalTabby ? "#3D352E" : (greyBlueRatio > brownSealRatio ? "#B6BCB8" : "#6D5E4F")
+            dna.secondaryFurHex = "#F5F1E8"
+            dna.tertiaryFurHex = isDarkCharcoalTabby ? "#141314" : (greyBlueRatio > brownSealRatio ? "#424649" : "#241F1C")
+            dna.faceBlaze = hasWhiteBib ? .noseBridgeBlaze : .whiteMuzzle
+            dna.foreheadM = true
+            dna.cheekStripes = true
+            dna.tailRings = true
+            dna.tailTipDip = true
+            dna.chestBib = hasWhiteBib ? (lowerWhiteRatio > 0.38 ? .fullBib : .triangleCollar) : .locket
+            dna.frontLeftSock = bottomPawsDarkRatio > 0.68 ? .none : .mitten
+            dna.frontRightSock = bottomPawsDarkRatio > 0.68 ? .none : .mitten
+            dna.hindSocks = bottomPawsDarkRatio < 0.55 && hasWhiteBib
+            dna.earInnerHex = "#78624F"
+            dna.irisLeftHex = "#5A9456"
+            dna.irisRightHex = "#5A9456"
+            dna.noseHex = hasWhiteBib ? "#F0A4AE" : "#B86B5E"
         } else if (blackRatio > 0.16 || greyBlueRatio > 0.22) && (whiteRatio > 0.18 || botWhiteFrac > 0.28) {
             let isBlue = greyBlueRatio > blackRatio * 1.15
-            dna.patternFamily = stripeContrast > 0.068 ? .tabbyBicolor : .tuxedoBicolor
+            dna.patternFamily = .tuxedoBicolor
             dna.breedBadge = isBlue ? "蓝白英短" : "奶牛警长"
             dna.name = defaultName.isEmpty ? (isBlue ? "芋泥" : "警长") : defaultName
-            dna.primaryFurHex = isBlue ? hexFromSum(greyRGB, fallback: "#7B8594") : "#1E1E24"
+            dna.primaryFurHex = isBlue ? hexFromSum(greyRGB, fallback: "#7B8594") : "#1A1A20"
             dna.secondaryFurHex = "#F5F1E8"
-            dna.tertiaryFurHex = "#44484D"
+            dna.tertiaryFurHex = "#34363B"
             if abs(leftTopDark - rightTopDark) > topTotal * 0.14 {
                 dna.faceBlaze = leftTopDark > rightTopDark ? .skewLeft : .skewRight
             } else {
                 dna.faceBlaze = .invertedV
             }
-            dna.chestBib = .fullBib
+            dna.chestBib = lowerWhiteRatio > 0.35 ? .fullBib : .triangleCollar
             dna.frontLeftSock = .mitten
             dna.frontRightSock = .mitten
             dna.hindSocks = true
+            dna.tailTipDip = false
             dna.cheekFullness = isBlue ? 1.14 : 1.04
             dna.irisLeftHex = isBlue ? "#DF9E38" : "#D6EA52"
             dna.irisRightHex = dna.irisLeftHex
             dna.noseHex = isBlue ? "#C97D82" : "#ECA2A6"
-        } else if stripeContrast > 0.058 {
-            dna.patternFamily = .tabby
-            dna.breedBadge = greyBlueRatio > brownSealRatio ? "美短银虎斑" : "中华狸花猫"
-            dna.name = defaultName.isEmpty ? "虎子" : defaultName
-            dna.primaryFurHex = greyBlueRatio > brownSealRatio ? "#BFC4C0" : "#8D7B68"
-            dna.secondaryFurHex = "#F2EEE4"
-            dna.tertiaryFurHex = greyBlueRatio > brownSealRatio ? "#4B4F52" : "#2D2723"
-            dna.faceBlaze = .whiteMuzzle
-            dna.foreheadM = true
-            dna.cheekStripes = true
-            dna.tailRings = true
-            dna.chestBib = .locket
-            dna.irisLeftHex = "#C8D062"
-            dna.irisRightHex = "#C8D062"
-            dna.noseHex = "#B86B5E"
         } else {
             dna.patternFamily = .solid
             dna.breedBadge = "英短蓝猫"
@@ -1011,6 +1094,15 @@ public enum PhotoCatAnalyzer {
         }
 
         dna.sanitize()
-        return LocalPrepOutput(croppedCatImage: croppedCat, previewPNG: previewPNG, dna: dna)
+        let darkHexSample = hexFromSum(darkRGB, fallback: "#1C1B20")
+        return LocalPrepOutput(
+            croppedCatImage: croppedCat,
+            previewPNG: previewPNG,
+            dna: dna,
+            nonWhiteMedianLum: nonWhiteMedianLum,
+            nonWhiteDarkHex: darkHexSample,
+            lowerWhiteRatio: lowerWhiteRatio,
+            bottomPawsDarkRatio: bottomPawsDarkRatio
+        )
     }
 }

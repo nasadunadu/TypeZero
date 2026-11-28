@@ -1283,9 +1283,9 @@ async function createApp(customDbPath, options = {}) {
 
   // ---------- 5b. Custom Pet Photo Vision DNA Extraction (`/api/pet/analyze-photo`) ----------
   const PET_PHOTO_SYSTEM_PROMPT = [
-    "你是顶级猫咪品种、毛色遗传学与 2D 矢量角色美术总监。",
-    "请观察用户上传的猫咪照片，剥离室内黄光/阴影色偏（白毛保持纯净奶白 #F5F1E8，纯黑毛保持绒黑 #1C1B20），仅输出一个纯 JSON 对象：",
-    '{"breedBadge":"如 海双布偶/三花小猫/奶牛警长/金渐层英短/狸花白手套/橘白起司","patternFamily":"solid|tuxedo_bicolor|tabby|tabby_bicolor|calico|tortoiseshell|colorpoint|ragdoll_bicolor|shaded|van","faceBlaze":"none|inverted_v|skew_left|skew_right|helmet_cap|split_half|eye_patch_left|eye_patch_right|white_muzzle|seal_mask","blazeWidth":0.56,"foreheadM":false,"cheekStripes":false,"chinSpot":false,"chestBib":"none|locket|full_bib","frontLeftSock":"none|mitten|high_sock","frontRightSock":"none|mitten|high_sock","hindSocks":false,"tailRings":false,"tailTipDip":false,"heterochromia":false,"primaryFurHex":"#RRGGBB","secondaryFurHex":"#RRGGBB","tertiaryFurHex":"#RRGGBB","irisLeftHex":"#RRGGBB","irisRightHex":"#RRGGBB","noseHex":"#RRGGBB","earInnerHex":"#RRGGBB","isSleekBuild":false,"cheekFullness":1.06,"earSize":1.0}'
+    "你是顶级猫咪品种、毛色遗传学与写实插画美术总监。请极其仔细地观察照片里猫咪的真实细节，仅输出一个纯 JSON 对象：",
+    '{"breedBadge":"如 黑狸花白领巾/海双布偶/三花小猫/奶牛警长/金渐层英短","patternFamily":"solid|tuxedo_bicolor|tabby|tabby_bicolor|calico|tortoiseshell|colorpoint|ragdoll_bicolor|shaded|van","faceBlaze":"none|nose_bridge_blaze|inverted_v|skew_left|skew_right|helmet_cap|split_half|eye_patch_left|eye_patch_right|white_muzzle|seal_mask","blazeWidth":0.45,"foreheadM":false,"cheekStripes":false,"chinSpot":false,"chestBib":"none|locket|triangle_collar|full_bib","frontLeftSock":"none|mitten|high_sock","frontRightSock":"none|mitten|high_sock","hindSocks":false,"tailRings":false,"tailTipDip":false,"heterochromia":false,"primaryFurHex":"#RRGGBB","secondaryFurHex":"#RRGGBB","tertiaryFurHex":"#RRGGBB","irisLeftHex":"#RRGGBB","irisRightHex":"#RRGGBB","noseHex":"#RRGGBB","earInnerHex":"#RRGGBB","isSleekBuild":false,"cheekFullness":1.06,"earSize":1.0}',
+    "关键铁律：1.只要额头有M纹或身上/腿上有条纹，哪怕带白胸也必须选 tabby 或 tabby_bicolor(foreheadM=true,cheekStripes=true,tailRings=true,tailTipDip=false)，严禁选成无条纹的 tuxedo_bicolor；2.偏黑的深色狸花猫 primaryFurHex 必须填深炭黑褐色(#38312B~#443B33)，tertiaryFurHex 填纯墨黑(#141314)，绝不能填成浅灰；3.两眼四周都是深色虎斑、白色仅顺鼻梁中间窄窄向下包住嘴套时必须选 nose_bridge_blaze；4.白毛只到脖子下方倒三角白领巾、往下胸膛仍是虎斑横纹时必须选 triangle_collar；5.前腿虎斑纹一直延伸到深色脚掌无白袜时 frontLeftSock/frontRightSock 必须填 none。"
   ].join("\n");
 
   app.post("/api/pet/analyze-photo", requireUser, async (req, res) => {

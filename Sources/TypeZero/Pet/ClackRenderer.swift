@@ -294,31 +294,29 @@ enum ClackRenderer {
         }
 
         if let sp = seatedPose {
-            drawWithOptionalStickerOutline(
-                in: ctx,
-                bounds: CGRect(x: 130, y: 120, width: 250, height: 230),
-                enabled: whiteOutline
-            ) { subCtx in
-                drawSeatedTail(in: subCtx, pose: sp, pal: seatedPal)
-                drawSeatedBody(in: subCtx, pose: sp, pal: seatedPal)
+            if whiteOutline {
+                drawOuterStickerHaloOnly(
+                    in: ctx,
+                    bounds: CGRect(x: 95, y: 36, width: 295, height: 315)
+                ) { subCtx in
+                    drawSeatedTail(in: subCtx, pose: sp, pal: seatedPal)
+                    drawSeatedBody(in: subCtx, pose: sp, pal: seatedPal)
+                    drawCatHead(in: subCtx, pose: sp, pal: seatedPal, tension: 0, profile: 0, bodyClip: nil)
+                }
             }
+            drawSeatedTail(in: ctx, pose: sp, pal: seatedPal)
+            drawSeatedBody(in: ctx, pose: sp, pal: seatedPal)
         }
 
         // 3. 3D Perspective Mechanical Keyboard & Mouse
         drawKeyboard(in: ctx, pose: pose, showKeyLabels: showKeyLabels, nowMs: nowMs)
         drawMouse(in: ctx, pose: pose, nowMs: nowMs)
 
-        // 4. Reaching Front Arms + 3D Head & Expressive Eyes
+        // 4. Reaching Front Arms + 3D Head & Expressive Eyes (drawn cleanly without inner-arm white cutout borders!)
         if let sp = seatedPose {
-            drawWithOptionalStickerOutline(
-                in: ctx,
-                bounds: CGRect(x: 55, y: 40, width: 340, height: 325),
-                enabled: whiteOutline
-            ) { subCtx in
-                drawReachingArm(in: subCtx, pose: sp, isLeft: true, pal: seatedPal)
-                drawReachingArm(in: subCtx, pose: sp, isLeft: false, pal: seatedPal)
-                drawCatHead(in: subCtx, pose: sp, pal: seatedPal, tension: 0, profile: 0, bodyClip: nil)
-            }
+            drawReachingArm(in: ctx, pose: sp, isLeft: true, pal: seatedPal)
+            drawReachingArm(in: ctx, pose: sp, isLeft: false, pal: seatedPal)
+            drawCatHead(in: ctx, pose: sp, pal: seatedPal, tension: 0, profile: 0, bodyClip: nil)
 
             if isMusicPlaying && handover == nil {
                 drawMusicNotes(in: ctx, pose: sp)
@@ -375,14 +373,18 @@ enum ClackRenderer {
             } else {
                 let sp = ClackHandoverDirector.blendWorkingPose(actor, livePose: livePose)
                 let pal = ClackBreedPalette.resolve(coat: actor.breed, customSkin: actor.customSkin)
-                drawWithOptionalStickerOutline(
-                    in: ctx,
-                    bounds: CGRect(x: 130, y: 120, width: 250, height: 230),
-                    enabled: whiteOutline
-                ) { subCtx in
-                    drawSeatedTail(in: subCtx, pose: sp, pal: pal)
-                    drawSeatedBody(in: subCtx, pose: sp, pal: pal)
+                if whiteOutline {
+                    drawOuterStickerHaloOnly(
+                        in: ctx,
+                        bounds: CGRect(x: 95, y: 36, width: 295, height: 315)
+                    ) { subCtx in
+                        drawSeatedTail(in: subCtx, pose: sp, pal: pal)
+                        drawSeatedBody(in: subCtx, pose: sp, pal: pal)
+                        drawCatHead(in: subCtx, pose: sp, pal: pal, tension: 0, profile: 0, bodyClip: nil)
+                    }
                 }
+                drawSeatedTail(in: ctx, pose: sp, pal: pal)
+                drawSeatedBody(in: ctx, pose: sp, pal: pal)
             }
         }
         ctx.restoreGState()
@@ -404,19 +406,58 @@ enum ClackRenderer {
 
         let sp = ClackHandoverDirector.blendWorkingPose(actor, livePose: livePose)
         let pal = ClackBreedPalette.resolve(coat: actor.breed, customSkin: actor.customSkin)
-        drawWithOptionalStickerOutline(
-            in: ctx,
-            bounds: CGRect(x: 55, y: 40, width: 340, height: 325),
-            enabled: whiteOutline
-        ) { subCtx in
-            drawReachingArm(in: subCtx, pose: sp, isLeft: true, pal: pal)
-            drawReachingArm(in: subCtx, pose: sp, isLeft: false, pal: pal)
-            drawCatHead(in: subCtx, pose: sp, pal: pal, tension: 0, profile: 0, bodyClip: nil)
-        }
+        let _ = whiteOutline
+        drawReachingArm(in: ctx, pose: sp, isLeft: true, pal: pal)
+        drawReachingArm(in: ctx, pose: sp, isLeft: false, pal: pal)
+        drawCatHead(in: ctx, pose: sp, pal: pal, tension: 0, profile: 0, bodyClip: nil)
         ctx.restoreGState()
     }
 
     private static let stickerColorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+
+    private static func drawOuterStickerHaloOnly(
+        in ctx: CGContext,
+        bounds: CGRect,
+        drawBlock: (CGContext) -> Void
+    ) {
+        let scale: CGFloat = 2.0
+        let pxW = max(1, Int(ceil(bounds.width * scale)))
+        let pxH = max(1, Int(ceil(bounds.height * scale)))
+        guard let off = CGContext(
+            data: nil,
+            width: pxW,
+            height: pxH,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: stickerColorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return }
+        off.setAllowsAntialiasing(true)
+        off.setShouldAntialias(true)
+        off.setLineJoin(.round)
+        off.setLineCap(.round)
+        off.translateBy(x: 0, y: CGFloat(pxH))
+        off.scaleBy(x: scale, y: -scale)
+        off.translateBy(x: -bounds.minX, y: -bounds.minY)
+        drawBlock(off)
+        guard let img = off.makeImage() else { return }
+
+        ctx.saveGState()
+        ctx.translateBy(x: bounds.minX, y: bounds.maxY)
+        ctx.scaleBy(x: 1.0, y: -1.0)
+        let drawRect = CGRect(x: 0, y: 0, width: bounds.width, height: bounds.height)
+        let r: CGFloat = 3.2
+        ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+        for k in 0..<8 {
+            let ang = CGFloat(k) * (.pi * 0.25)
+            ctx.draw(img, in: drawRect.offsetBy(dx: cos(ang) * r, dy: sin(ang) * r))
+        }
+        ctx.setBlendMode(.sourceIn)
+        ctx.setFillColor(NSColor.white.withAlphaComponent(0.96).cgColor)
+        ctx.fill(drawRect.insetBy(dx: -r - 2, dy: -r - 2))
+        ctx.endTransparencyLayer()
+        ctx.restoreGState()
+    }
 
     private static func drawWithOptionalStickerOutline(
         in ctx: CGContext,
@@ -709,6 +750,36 @@ enum ClackRenderer {
     // MARK: - Tabby Markings (`re`, `Ze`, `je`, `jn`) & Seated Cat (`ts`, `en`, `Ms`, `ns`)
 
     private static func tabbyLegStops(pal: ClackBreedPalette, isRight: Bool, farBlend: CGFloat = 0) -> [(CGFloat, NSColor)] {
+        if let dna = pal.dna {
+            let baseFur = ClackBreedPalette.lerpColor(pal.fur, ClackBreedPalette.hex(0x23201E), farBlend * 0.28)
+            let bandCol = ClackBreedPalette.lerpColor(pal.stripeDark, ClackBreedPalette.hex(0x101012), farBlend * 0.22)
+            let sockCol = ClackBreedPalette.lerpColor(pal.bibCream, ClackBreedPalette.hex(0xE8E4DC), farBlend * 0.25)
+            let sockStyle = isRight ? dna.frontRightSock : dna.frontLeftSock
+            switch sockStyle {
+            case .none:
+                return [
+                    (0.0, baseFur), (0.20, baseFur),
+                    (0.22, bandCol), (0.29, bandCol),
+                    (0.31, baseFur), (0.39, baseFur),
+                    (0.41, bandCol), (0.48, bandCol),
+                    (0.50, baseFur), (0.58, baseFur),
+                    (0.60, bandCol), (0.67, bandCol),
+                    (0.69, baseFur), (0.76, baseFur),
+                    (0.78, bandCol), (0.85, bandCol),
+                    (0.87, baseFur), (1.0, baseFur)
+                ]
+            case .mitten, .highSock:
+                let cut: CGFloat = (sockStyle == .highSock) ? 0.62 : (isRight ? 0.78 : 0.82)
+                return [
+                    (0.0, baseFur), (0.22, baseFur),
+                    (0.24, bandCol), (0.31, bandCol),
+                    (0.33, baseFur), (0.43, baseFur),
+                    (0.45, bandCol), (0.52, bandCol),
+                    (0.54, baseFur), (cut, baseFur),
+                    (cut + 0.02, sockCol), (1.0, sockCol)
+                ]
+            }
+        }
         let baseFur = ClackBreedPalette.lerpColor(pal.fur, pal.isSilverTabby ? ClackBreedPalette.hex(0x9FA5A0) : ClackBreedPalette.hex(0xBE8046), farBlend)
         let bandCol = ClackBreedPalette.lerpColor(
             pal.isSilverTabby ? ClackBreedPalette.hex(0x555A5C) : ClackBreedPalette.hex(0xBF7C40),
@@ -738,7 +809,26 @@ enum ClackRenderer {
         ctx.saveGState()
         ctx.setLineWidth(width)
         ctx.setLineCap(.butt)
-        for (a, l, col) in [(CGFloat(0.08), CGFloat(0.24), pal.stripeDark), (0.46, 0.64, pal.stripeDark), (0.82, 1.0, pal.tailTipLight)] {
+        let segments: [(CGFloat, CGFloat, NSColor)]
+        let tipCapColor: NSColor
+        if let _ = pal.dna {
+            // Tabby & tabby-bicolor tail tips are rich solid dark `pal.stripeDark`
+            segments = [
+                (0.06, 0.19, pal.stripeDark),
+                (0.31, 0.44, pal.stripeDark),
+                (0.56, 0.69, pal.stripeDark),
+                (0.79, 1.00, pal.stripeDark)
+            ]
+            tipCapColor = pal.stripeDark
+        } else {
+            segments = [
+                (0.08, 0.24, pal.stripeDark),
+                (0.46, 0.64, pal.stripeDark),
+                (0.82, 1.00, pal.tailTipLight)
+            ]
+            tipCapColor = pal.tailTipLight
+        }
+        for (a, l, col) in segments {
             ctx.beginPath()
             ctx.move(to: eval(a))
             for step in 1...8 {
@@ -747,15 +837,87 @@ enum ClackRenderer {
             ctx.setStrokeColor(col.cgColor)
             ctx.strokePath()
         }
-        fillEllipse(ctx, x: p3[0], y: p3[1], rx: width * 0.5, ry: width * 0.5, color: pal.tailTipLight)
+        fillEllipse(ctx, x: p3[0], y: p3[1], rx: width * 0.5, ry: width * 0.5, color: tipCapColor)
         ctx.restoreGState()
     }
 
-    // Exact port of `function je(t, e, n)` — white chest bib + 6 tabby side stripes clipped outside bib!
+    // Exact port of `function je(t, e, n)` — white chest bib / V-collar kerchief + dense tabby stripes!
     private static func drawTabbyBodyBibAndStripes(in ctx: CGContext, pal: ClackBreedPalette, standBlend e: CGFloat, mapPt: (CGFloat, CGFloat) -> CGPoint) {
         func s(_ o: CGFloat, _ i: CGFloat, _ r: CGFloat, _ a: CGFloat) -> CGPoint {
             mapPt(o + (r - o) * e, i + (a - i) * e)
         }
+        if let dna = pal.dna {
+            let bib = CGMutablePath()
+            var hasBib = false
+            switch dna.chestBib {
+            case .none:
+                break
+            case .locket:
+                hasBib = true
+                bib.move(to: s(-20, -172, 66, -135))
+                bib.addQuadCurve(to: s(0, -126, 63, -108), control: s(-18, -142, 63, -120))
+                bib.addQuadCurve(to: s(20, -172, 82, -136), control: s(18, -142, 84, -120))
+                bib.closeSubpath()
+            case .triangleCollar:
+                hasBib = true
+                // Crisp inverted-triangle white throat kerchief (`倒三角白领巾`) + narrow lower belly wisp!
+                bib.move(to: s(-44, -190, 64, -142))
+                bib.addQuadCurve(to: s(0, -108, 62, -102), control: s(-26, -144, 63, -118))
+                bib.addQuadCurve(to: s(45, -190, 86, -143), control: s(26, -144, 92, -118))
+                bib.closeSubpath()
+                if e < 0.35 {
+                    let wisp = CGMutablePath()
+                    wisp.move(to: s(-8, -68, 60, -88))
+                    wisp.addQuadCurve(to: s(0, -12, 62, -76), control: s(-11, -36, 58, -82))
+                    wisp.addQuadCurve(to: s(8, -68, 68, -88), control: s(11, -36, 66, -82))
+                    wisp.closeSubpath()
+                    bib.addPath(wisp)
+                }
+            case .fullBib:
+                hasBib = true
+                bib.move(to: s(-46, -190, 64, -141))
+                bib.addCurve(to: s(-13, -109, 60, -98), control1: s(-32, -155, 67, -122), control2: s(-16, -145, 62, -107))
+                bib.addCurve(to: s(-38, 3, 58, -75), control1: s(-12, -41, 58, -92), control2: s(-26, -18, 57, -83))
+                bib.addLine(to: s(37, 3, 80, -73))
+                bib.addLine(to: s(13, -109, 97, -79))
+                bib.addQuadCurve(to: s(48, -190, 86, -143), control: s(16, -144, 106, -98))
+                bib.closeSubpath()
+            }
+
+            if hasBib {
+                fillPath(ctx, bib, pal.bibCream)
+            }
+
+            ctx.saveGState()
+            if hasBib {
+                let exterior = CGMutablePath()
+                exterior.addRect(CGRect(x: -2048, y: -2048, width: 4096, height: 4096))
+                exterior.addPath(bib)
+                ctx.addPath(exterior)
+                ctx.clip(using: .evenOdd)
+            }
+
+            ctx.setFillColor(pal.stripeDark.withAlphaComponent(0.90).cgColor)
+            let innerReach: CGFloat = (dna.chestBib == .fullBib) ? 34.0 : 12.0
+            // Chest necklace sweep + 5 bold mackerel rib stripes on both flanks
+            for side in [-1.0, 1.0] as [CGFloat] {
+                for idx in 0..<5 {
+                    let r = -148.0 + 24.0 * CGFloat(idx)
+                    let a = -74.0 + 23.0 * CGFloat(idx) + (side + 1.0) * 6.0
+                    let inX = (idx == 0) ? 4.0 : innerReach
+                    let st = CGMutablePath()
+                    st.move(to: s(side * 74, r, a, -192))
+                    st.addQuadCurve(to: s(side * inX, r + 15, a + 7, -120 + CGFloat(idx % 2) * 11), control: s(side * 44, r + 18, a - 5, -148))
+                    st.addQuadCurve(to: s(side * 75, r + 10, a + 13, -192), control: s(side * 46, r + 27, a + 10, -152))
+                    st.closeSubpath()
+                    ctx.addPath(st)
+                    ctx.fillPath()
+                }
+            }
+            ctx.restoreGState()
+            return
+        }
+
         let bib = CGMutablePath()
         bib.move(to: s(-46, -190, 64, -141))
         bib.addCurve(to: s(-13, -109, 60, -98), control1: s(-32, -155, 67, -122), control2: s(-16, -145, 62, -107))
@@ -813,6 +975,20 @@ enum ClackRenderer {
         ctx.restoreGState()
 
         if pal.tabby {
+            if pal.dna != nil {
+                // Basal tail tiger rings on the inner segment `[282,288]..[325,279+s]`
+                ctx.saveGState()
+                ctx.setLineWidth(17.0)
+                ctx.setLineCap(.butt)
+                ctx.setStrokeColor(pal.stripeDark.cgColor)
+                for (x0, y0, x1, y1) in [(294.0, 288.5, 304.0, 289.0 + s * 0.25), (312.0, 286.5 + s * 0.55, 321.0, 281.5 + s * 0.85)] as [(CGFloat, CGFloat, CGFloat, CGFloat)] {
+                    ctx.beginPath()
+                    ctx.move(to: CGPoint(x: x0, y: y0))
+                    ctx.addLine(to: CGPoint(x: x1, y: y1))
+                    ctx.strokePath()
+                }
+                ctx.restoreGState()
+            }
             drawTabbyTailRings(in: ctx, pal: pal, p0: [325, 279 + s], p1: [335, 262 + s], p2: [343, 252 + o], p3: [363, 252 + o], width: 17.0)
         } else if let dna = pal.dna, dna.tailTipDip || dna.patternFamily == .calico || dna.patternFamily == .shaded {
             let tipCol: NSColor = {
@@ -845,6 +1021,7 @@ enum ClackRenderer {
 
     private static func drawPawMarking(_ ctx: CGContext, pal: ClackBreedPalette, x: CGFloat, y: CGFloat) {
         if pal.tabby {
+            if let dna = pal.dna, !dna.hindSocks { return }
             fillEllipse(ctx, x: x, y: y, rx: 14, ry: 14, color: pal.bibCream)
             return
         }
@@ -1490,7 +1667,7 @@ enum ClackRenderer {
             ctx.restoreGState()
         }
 
-        // Tabby (`黄粽子` / `美短`) white lower muzzle, 4 forehead M-stripes, cheek stripes & pink nose (`jn`)!
+        // Tabby (`黄粽子` / `美短` / Custom Tabby DNA) forehead M-stripes, cheek stripes, narrow nasal-bridge blaze & pink nose!
         if n.tabby {
             ctx.saveGState()
             ctx.addPath(headFull)
@@ -1499,44 +1676,111 @@ enum ClackRenderer {
                 let r = c(proj.project(vx, vy, vz), 17.0 + vx * 0.65 + vz * 0.45, vy * 0.91 + 7.0)
                 return CGPoint(x: r[0], y: r[1])
             }
-            let muzzle = CGMutablePath()
-            muzzle.move(to: mapHead(-52, 42, 3))
-            muzzle.addCurve(to: mapHead(0, 31, 28), control1: mapHead(-35, 36, 12), control2: mapHead(-15, 37, 24))
-            muzzle.addCurve(to: mapHead(52, 42, 3), control1: mapHead(14, 37, 24), control2: mapHead(36, 36, 12))
-            muzzle.addLine(to: mapHead(65, 73, 0))
-            muzzle.addLine(to: mapHead(-65, 73, 0))
-            muzzle.closeSubpath()
-            fillPath(ctx, muzzle, n.bibCream)
+
+            // Crown darkening + forehead M + double outer-eye/cheek stripes first, then clean white blaze on top!
+            if n.dna != nil {
+                let crownShade = CGMutablePath()
+                crownShade.move(to: mapHead(-36, -44, 2))
+                crownShade.addQuadCurve(to: mapHead(36, -44, 2), control: mapHead(0, -52, 0))
+                crownShade.addQuadCurve(to: mapHead(0, -18, 19), control: mapHead(22, -26, 12))
+                crownShade.addQuadCurve(to: mapHead(-36, -44, 2), control: mapHead(-22, -26, 12))
+                crownShade.closeSubpath()
+                fillPath(ctx, crownShade, n.stripeDark.withAlphaComponent(0.55))
+            }
 
             ctx.setFillColor(n.stripeDark.cgColor)
-            for fx in [-15.0, -5.0, 5.0, 15.0] as [CGFloat] {
-                let mid = abs(fx) < 10.0
+            for fx in [-17.0, -7.0, 0.0, 7.0, 17.0] as [CGFloat] {
+                if n.dna == nil && fx == 0.0 { continue }
+                let mid = abs(fx) < 9.0
                 let st = CGMutablePath()
-                st.move(to: mapHead(fx, -41, 2))
-                st.addQuadCurve(to: mapHead(fx * 0.85, mid ? -11 : -18, 21), control: mapHead(fx - 5, -24, 16))
-                st.addQuadCurve(to: mapHead(fx + 3, -41, 2), control: mapHead(fx + 4, -23, 16))
+                st.move(to: mapHead(fx - 1.5, -42, 2))
+                st.addQuadCurve(to: mapHead(fx * 0.82, mid ? -10 : -17, 21), control: mapHead(fx - 4.5, -24, 16))
+                st.addQuadCurve(to: mapHead(fx + 2.5, -42, 2), control: mapHead(fx + 4.0, -23, 16))
                 st.closeSubpath()
                 ctx.addPath(st)
                 ctx.fillPath()
             }
+            let cheekRows: [CGFloat] = (n.dna != nil) ? [4.0, 14.0, 23.0] : [8.0, 18.0]
             for side in [-1.0, 1.0] as [CGFloat] {
-                for sy in [8.0, 18.0] as [CGFloat] {
+                for sy in cheekRows {
                     let ck = CGMutablePath()
-                    ck.move(to: mapHead(side * 57, sy - 8, 0))
-                    ck.addQuadCurve(to: mapHead(side * 32, sy + 4, 21), control: mapHead(side * 44, sy + 3, 10))
-                    ck.addQuadCurve(to: mapHead(side * 57, sy, 0), control: mapHead(side * 42, sy + 10, 12))
+                    ck.move(to: mapHead(side * 58, sy - 8, 0))
+                    ck.addQuadCurve(to: mapHead(side * 30, sy + 4, 21), control: mapHead(side * 44, sy + 3, 10))
+                    ck.addQuadCurve(to: mapHead(side * 58, sy + 1, 0), control: mapHead(side * 42, sy + 10, 12))
                     ck.closeSubpath()
                     ctx.addPath(ck)
                     ctx.fillPath()
                 }
             }
-            // Cute pink triangle nose
+
+            if let dna = n.dna {
+                switch dna.faceBlaze {
+                case .none, .sealMask:
+                    break
+                case .noseBridgeBlaze:
+                    // Narrow white flame rising strictly between inner eye corners (`x: ±5`), flaring below cheeks into puffy white whisker pads!
+                    let blaze = CGMutablePath()
+                    blaze.move(to: mapHead(0, -3, 25))
+                    blaze.addQuadCurve(to: mapHead(-8, 17, 25), control: mapHead(-4.5, 6, 25))
+                    blaze.addQuadCurve(to: mapHead(-48, 38, 4), control: mapHead(-22, 26, 18))
+                    blaze.addLine(to: mapHead(-65, 73, 0))
+                    blaze.addLine(to: mapHead(65, 73, 0))
+                    blaze.addLine(to: mapHead(48, 38, 4))
+                    blaze.addQuadCurve(to: mapHead(8, 17, 25), control: mapHead(22, 26, 18))
+                    blaze.addQuadCurve(to: mapHead(0, -3, 25), control: mapHead(4.5, 6, 25))
+                    blaze.closeSubpath()
+                    fillPath(ctx, blaze, n.bibCream)
+                case .invertedV:
+                    let spread = CGFloat(18.0 + dna.blazeWidth * 28.0)
+                    let blaze = CGMutablePath()
+                    blaze.move(to: mapHead(0, -9, 24))
+                    blaze.addQuadCurve(to: mapHead(-spread, 42, 5), control: mapHead(-spread * 0.52, 16, 20))
+                    blaze.addLine(to: mapHead(-65, 73, 0))
+                    blaze.addLine(to: mapHead(65, 73, 0))
+                    blaze.addLine(to: mapHead(spread, 42, 5))
+                    blaze.addQuadCurve(to: mapHead(0, -9, 24), control: mapHead(spread * 0.52, 16, 20))
+                    blaze.closeSubpath()
+                    fillPath(ctx, blaze, n.bibCream)
+                default:
+                    let muzzle = CGMutablePath()
+                    muzzle.move(to: mapHead(-52, 42, 3))
+                    muzzle.addCurve(to: mapHead(0, 29, 28), control1: mapHead(-35, 36, 12), control2: mapHead(-15, 35, 24))
+                    muzzle.addCurve(to: mapHead(52, 42, 3), control1: mapHead(14, 35, 24), control2: mapHead(36, 36, 12))
+                    muzzle.addLine(to: mapHead(65, 73, 0))
+                    muzzle.addLine(to: mapHead(-65, 73, 0))
+                    muzzle.closeSubpath()
+                    fillPath(ctx, muzzle, n.bibCream)
+                }
+            } else {
+                let muzzle = CGMutablePath()
+                muzzle.move(to: mapHead(-52, 42, 3))
+                muzzle.addCurve(to: mapHead(0, 31, 28), control1: mapHead(-35, 36, 12), control2: mapHead(-15, 37, 24))
+                muzzle.addCurve(to: mapHead(52, 42, 3), control1: mapHead(14, 37, 24), control2: mapHead(36, 36, 12))
+                muzzle.addLine(to: mapHead(65, 73, 0))
+                muzzle.addLine(to: mapHead(-65, 73, 0))
+                muzzle.closeSubpath()
+                fillPath(ctx, muzzle, n.bibCream)
+            }
+
+            // Cute pink triangle nose + `:3` mouth
             let noseP = CGMutablePath()
-            noseP.move(to: mapHead(-4, 17, 26))
-            noseP.addQuadCurve(to: mapHead(4, 17, 26), control: mapHead(0, 15, 27))
-            noseP.addQuadCurve(to: mapHead(-4, 17, 26), control: mapHead(0, 25, 28))
+            noseP.move(to: mapHead(-4.2, 17, 26))
+            noseP.addQuadCurve(to: mapHead(4.2, 17, 26), control: mapHead(0, 14.8, 27))
+            noseP.addQuadCurve(to: mapHead(-4.2, 17, 26), control: mapHead(0, 25.2, 28))
             noseP.closeSubpath()
-            fillPath(ctx, noseP, ClackBreedPalette.hex(0xAF6D57))
+            fillPath(ctx, noseP, n.customNose ?? ClackBreedPalette.hex(0xAF6D57))
+
+            if n.dna != nil && o < 0.85 {
+                let ml = mapHead(-8, 28, 25), mm = mapHead(0, 25, 27), mr = mapHead(8, 28, 25)
+                ctx.saveGState()
+                ctx.setStrokeColor(ClackBreedPalette.hex(0x7A685C, alpha: 0.72).cgColor)
+                ctx.setLineWidth(1.3)
+                ctx.move(to: ml)
+                ctx.addQuadCurve(to: mm, control: CGPoint(x: (ml.x + mm.x) * 0.5, y: ml.y + 2.4))
+                ctx.addQuadCurve(to: mr, control: CGPoint(x: (mm.x + mr.x) * 0.5, y: mr.y + 2.4))
+                ctx.strokePath()
+                ctx.restoreGState()
+            }
 
             // Inner ear triangles
             for ear in [f, p] {
@@ -1836,7 +2080,11 @@ enum ClackRenderer {
             ctx.saveGState()
             ctx.setAlpha(wAlpha)
             ctx.setLineWidth(1.35)
-            ctx.setStrokeColor((n.tabby ? ClackBreedPalette.hex(0xF2E4CD) : ClackBreedPalette.hex(0x676269)).cgColor)
+            let outerWhiskerCol: NSColor = {
+                if n.dna != nil && n.tabby { return ClackBreedPalette.hex(0xFAF8F3) }
+                return n.tabby ? ClackBreedPalette.hex(0xF2E4CD) : ClackBreedPalette.hex(0x676269)
+            }()
+            ctx.setStrokeColor(outerWhiskerCol.cgColor)
             ctx.addPath(wPath)
             ctx.strokePath()
 

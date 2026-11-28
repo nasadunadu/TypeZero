@@ -941,6 +941,11 @@ public enum SelfTestSuite {
         if let customSheetPath = ProcessInfo.processInfo.environment["TZ_RENDER_CUSTOM_CAT_SHEET"], !customSheetPath.isEmpty {
             renderCustomCatVerificationSheet(skins: compiledSampleSkins, to: customSheetPath)
         }
+        if let photoIn = ProcessInfo.processInfo.environment["TZ_TEST_CAT_PHOTO_IN"],
+           let photoOut = ProcessInfo.processInfo.environment["TZ_TEST_CAT_PHOTO_OUT"],
+           !photoIn.isEmpty, !photoOut.isEmpty {
+            renderPhotoToRigComparisonSheet(photoPath: photoIn, outPath: photoOut)
+        }
 
         let parsedSample = PhotoCatAnalyzer.parseVisionTextResponse("""
         ```json
@@ -1307,6 +1312,89 @@ public enum SelfTestSuite {
             )
             ctx.restoreGState()
         }
+
+        if let outImg = ctx.makeImage() {
+            let data = NSMutableData()
+            if let dest = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil) {
+                CGImageDestinationAddImage(dest, outImg, nil)
+                if CGImageDestinationFinalize(dest) {
+                    try? (data as Data).write(to: URL(fileURLWithPath: outPath))
+                }
+            }
+        }
+    }
+
+    private static func renderPhotoToRigComparisonSheet(photoPath: String, outPath: String) {
+        let url = URL(fileURLWithPath: photoPath)
+        let byok = KeychainHelper.loadAPIKey(for: LLMConfig.default.selectedProvider)
+        let jwt = KeychainHelper.loadCloudJWT()
+        var analyzed: CatPhotoAnalysisResult? = nil
+        let sem = DispatchSemaphore(value: 0)
+        Task {
+            analyzed = try? await PhotoCatAnalyzer.analyzeImage(
+                at: url,
+                preferredName: "花椒",
+                llmConfig: .default,
+                byokAPIKey: byok,
+                cloudJWT: jwt
+            )
+            sem.signal()
+        }
+        _ = sem.wait(timeout: .now() + 18.0)
+        guard let res = analyzed,
+              let sk = try? CatCoatCompiler.compileSkinSpec(from: res.dna, previewPNG: res.previewPNG) else { return }
+        print("  [PhotoToRig] source=\(res.sourceSummary) | pattern=\(res.dna.patternFamily.rawValue) | blaze=\(res.dna.faceBlaze.rawValue) | bib=\(res.dna.chestBib.rawValue) | primary=\(res.dna.primaryFurHex) | stripe=\(res.dna.tertiaryFurHex) | socks=(\(res.dna.frontLeftSock.rawValue),\(res.dna.frontRightSock.rawValue))")
+
+        let totalW = 1140, totalH = 420
+        let cs = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(
+            data: nil, width: totalW, height: totalH, bitsPerComponent: 8, bytesPerRow: totalW * 4,
+            space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return }
+        ctx.translateBy(x: 0, y: CGFloat(totalH))
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.setFillColor(NSColor(srgbRed: 0.94, green: 0.95, blue: 0.98, alpha: 1.0).cgColor)
+        ctx.fill(CGRect(x: 0, y: 0, width: totalW, height: totalH))
+
+        // Panel 1: KuroCat Seated Idle (shows V-bib, chest necklaces, rib tiger stripes, sitting leg bracelets, ringed black-tip tail!)
+        ctx.saveGState()
+        ctx.translateBy(x: 10, y: 55)
+        let pSit = CatPhysics()
+        CatRenderer.draw(in: ctx, physics: pSit, showPermissionPill: false, isPreview: true, customSkinOverride: sk)
+        let hc1 = CatRenderer.headPosition(pSit, skin: sk)
+        CatCanvasView.drawCatNameBadgeStatic(
+            in: ctx, headCenterX: hc1.x, headTopY: hc1.y - 38.0, minX: 6, maxX: 354, minY: -36,
+            name: "花椒", mood: "🐾", accentColor: (sk.palette.irisLeft ?? sk.palette.iris)?.srgbNS ?? .systemGreen, alpha: 1.0, phase: 0.3
+        )
+        ctx.restoreGState()
+
+        // Panel 2: KuroCat Typing + Mouse Reaching (verifies dark striped arms & paws while reaching!)
+        ctx.saveGState()
+        ctx.translateBy(x: 385, y: 55)
+        let pType = CatPhysics()
+        let now = CACurrentMediaTime()
+        pType.triggerVoiceKeyDown(.d, at: now)
+        for _ in 0..<8 {
+            let inp = ScriptedFrameInput(
+                now: now + 0.05, activeKeys: [.d], orderedKeys: [.d],
+                mouseScreenPos: CGPoint(x: 70, y: 255), mouseVelocity: CGVector(dx: 12, dy: 0),
+                leftMouseDown: true, rightMouseDown: false,
+                lastMouseMoveTime: now, lastMouseClickTime: now, lastKeyActivityTime: now
+            )
+            pType.step(dt: 0.016, windowFrameInScreen: CGRect(x: 0, y: 0, width: 360, height: 320), scripted: inp)
+        }
+        CatRenderer.draw(in: ctx, physics: pType, showPermissionPill: false, isPreview: true, customSkinOverride: sk)
+        ctx.restoreGState()
+
+        // Panel 3: Clack-Clack 1:1 Original 3D Style
+        ctx.saveGState()
+        ctx.translateBy(x: 755, y: 35)
+        let sim = ClackSimulation(initialBreed: .classicBlack, initialCustomSkinID: "1122334455667788", initialSkin: sk)
+        ClackRenderer.drawStage(
+            in: ctx, pose: sim.pose, breed: .classicBlack, handover: nil, customSkin: sk,
+            anchorX: 185, anchorY: 325, baseScale: 0.78, whiteOutline: true
+        )
+        ctx.restoreGState()
 
         if let outImg = ctx.makeImage() {
             let data = NSMutableData()
