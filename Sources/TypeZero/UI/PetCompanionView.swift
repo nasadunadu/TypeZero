@@ -755,6 +755,20 @@ struct PetCompanionView: View {
                     TZHairline()
 
                     HStack(spacing: 10) {
+                        Text("待机游动与尾拍键盘")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(TZTheme.inkPrimary)
+                            .lineLimit(1)
+                        Spacer()
+                        Button("试一下") {
+                            pet.triggerFishSwimShowcaseDemo()
+                        }
+                        .buttonStyle(TZSecondaryButtonStyle(compact: true, capsule: true))
+                    }
+
+                    TZHairline()
+
+                    HStack(spacing: 10) {
                         Text("戳肚鼓成刺球")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(TZTheme.inkPrimary)

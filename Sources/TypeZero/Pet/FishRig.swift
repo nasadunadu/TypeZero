@@ -196,11 +196,38 @@ final class FishSwimPhysics {
     static let bodyCenterAnchor = CGPoint(x: 184, y: 170)
 
     var pos = Spring2D(FishSwimPhysics.bodyCenterAnchor)
-    var microTilt = Spring1D(0)        // gentle ±0.03 rad head lean (never dizzy!)
-    var puff = Spring1D(0)             // 0 = calm front puffer, 1 = puffed-up spiky balloon in place!
+    var microTilt = Spring1D(0)        // gentle ±0.03 rad head lean during typing (never dizzy!)
+    var puff = Spring1D(0)             // 0 = normal puffer, 1 = puffed-up derpy spiky balloon!
     var leftFinSlap = Spring1D(0)      // subtle tap recoil on left elongated fin
     var rightFinSlap = Spring1D(0)     // subtle tap recoil on right elongated fin
     var mouthOpen = Spring1D(0.24)     // 0.24 = goofy buck-tooth smile, 0.78 = blowing bubbles / puff
+
+    // MARK: - Fast-Typing Emotional Arc (Happy -> Serious -> Reluctant 💢 -> POOF Derpy Balloon!)
+    /// Smooth 0..1 intensity tracking frantic typing escalation:
+    /// 0.00-0.28 happy | 0.28-0.56 serious | 0.56-0.85 reluctant/grumpy | >=0.86 POOF into wide-eyed derpy spiky ball!
+    var typingFrenzy = Spring1D(0)
+    private var frenzyEnergy: CGFloat = 0
+    private var recentKeyTimestamps: [CFTimeInterval] = []
+    private var lastPuffFromFrenzy: Bool = false
+
+    // MARK: - Calm Infrequent Idle Side-Swim Showcase + Tail-Tap Keyboard Trick
+    var sideBlend = Spring1D(0)        // 0 = front-facing steady desk posture, 1 = full side-profile swimming fish!
+    var turnCos = Spring1D(1.0)        // +1 facing right, -1 facing left (smooth 3D foreshortened pivot!)
+    var swimPitch = Spring1D(0)        // buoyant swim pitch; lifts nose up during tail-tap trick!
+    var tailTapFlex = Spring1D(0)      // 0..1 downward broom-fan tail flex to kiss a keycap!
+
+    private(set) var isShowcaseActive: Bool = false
+    private var showcaseForced: Bool = false
+    private var showcaseElapsed: CGFloat = 0
+    private let showcaseDuration: CGFloat = 7.2
+    private var showcaseDir: CGFloat = 1.0          // alternates +1 / -1 each patrol
+    private var showcaseTapKey: PhysicalKey = .n
+    private var showcaseDidTriggerTap: Bool = false
+    private var idleSeconds: CGFloat = 0
+    private var nextShowcaseCooldown: CGFloat = 15.0 // calm & unhurried (not frequent!)
+    private var pendingTailTapKey: PhysicalKey? = nil
+    private(set) var tailTapRippleTimer: CGFloat = 0
+    private(set) var tailTapRipplePoint: CGPoint? = nil
 
     private(set) var swimPhase: CGFloat = 0
     private(set) var finPhase: CGFloat = 0
@@ -212,10 +239,74 @@ final class FishSwimPhysics {
     var bubbles: [FishBubbleParticle] = []
     var droplets: [FishSplashDroplet] = []
 
+    func consumePendingTailTapKey() -> PhysicalKey? {
+        defer { pendingTailTapKey = nil }
+        return pendingTailTapKey
+    }
+
+    func cancelShowcaseToFront(cooldownRange: ClosedRange<CGFloat> = 16.0...26.0) {
+        if isShowcaseActive {
+            isShowcaseActive = false
+            showcaseForced = false
+            showcaseElapsed = 0
+            sideBlend.target = 0
+            swimPitch.target = 0
+            tailTapFlex.target = 0
+        }
+        idleSeconds = 0
+        nextShowcaseCooldown = CGFloat.random(in: cooldownRange)
+    }
+
+    /// Triggers one graceful left/right full-fish swim showcase + playful broom-fan tail keycap tap!
+    func triggerIdleShowcaseNow(direction: CGFloat? = nil, forced: Bool = true) {
+        guard puff.value < 0.25 else { return }
+        isShowcaseActive = true
+        showcaseForced = forced
+        showcaseElapsed = 0
+        showcaseDidTriggerTap = false
+        if let dir = direction {
+            showcaseDir = dir >= 0 ? 1.0 : -1.0
+        } else {
+            showcaseDir = -showcaseDir
+        }
+        // Choose a real top/home-row key on the tail's exact side of the keyboard!
+        let leftTailKeys: [PhysicalKey] = [.n, .m, .b, .k, .j]
+        let rightTailKeys: [PhysicalKey] = [.v, .c, .x, .f, .d]
+        showcaseTapKey = (showcaseDir > 0 ? leftTailKeys : rightTailKeys).randomElement() ?? .space
+        turnCos.value = showcaseDir
+        turnCos.target = showcaseDir
+        spawnMouthBubbles(count: 2)
+    }
+
+    /// Deterministic snapshot helper for Visual QA verification sheets.
+    func setShowcaseSnapshot(elapsed: CGFloat, direction: CGFloat = 1.0, tapKey: PhysicalKey = .n) {
+        isShowcaseActive = true
+        showcaseForced = true
+        showcaseDir = direction >= 0 ? 1.0 : -1.0
+        showcaseTapKey = tapKey
+        showcaseElapsed = elapsed
+        showcaseDidTriggerTap = elapsed > 2.95
+        turnCos.value = showcaseDir
+        turnCos.target = showcaseDir
+        sideBlend.value = 1.0
+        sideBlend.target = 1.0
+        let tapPt = KeyboardLayout.canvasPoint(for: tapKey)
+        let preX = max(116, min(260, tapPt.x + showcaseDir * 70.0))
+        pos = Spring2D(CGPoint(x: preX, y: 148))
+    }
+
+    func setTypingFrenzySnapshot(_ level: CGFloat) {
+        frenzyEnergy = max(0, min(1.0, level))
+        typingFrenzy.value = frenzyEnergy
+        typingFrenzy.target = frenzyEnergy
+    }
+
     func triggerKeySwoop(at keyPt: CGPoint, isLeftSide: Bool, now: CFTimeInterval) {
+        // Any real typing instantly returns the fish to its rock-steady front-facing desk posture!
+        cancelShowcaseToFront()
+
         targetKeyPoint = keyPt
         recentKeyTimer = 0.28
-        // Body stays rock-steady; only a tiny micro-tilt toward the active side + fin slap impulse!
         microTilt.target = isLeftSide ? -0.028 : 0.028
         if isLeftSide {
             leftFinSlap.value = min(1.0, leftFinSlap.value + 0.85)
@@ -223,51 +314,76 @@ final class FishSwimPhysics {
             rightFinSlap.value = min(1.0, rightFinSlap.value + 0.85)
         }
 
-        // 3 gentle micro droplets on the tapped keycap
-        for idx in 0..<3 {
-            let ang = -CGFloat.pi * (0.28 + CGFloat(idx) * 0.22) + CGFloat.random(in: -0.08...0.08)
-            let spd = CGFloat.random(in: 34...58)
+        // Accumulate fast-typing frenzy (Happy -> Serious -> Reluctant 💢 -> POOF Derpy Spiky Balloon!)
+        recentKeyTimestamps.append(now)
+        if recentKeyTimestamps.count > 48 {
+            recentKeyTimestamps.removeFirst(recentKeyTimestamps.count - 48)
+        }
+        if puffHoldTimer <= 0.05 {
+            frenzyEnergy = min(1.05, frenzyEnergy + 0.062)
+        } else if lastPuffFromFrenzy {
+            // Keep puffed a little longer while user keeps hammering keys!
+            puffHoldTimer = min(3.4, max(puffHoldTimer, 1.35))
+        }
+
+        spawnKeyDroplets(at: keyPt, count: 3)
+    }
+
+    private func spawnKeyDroplets(at keyPt: CGPoint, count: Int) {
+        for idx in 0..<count {
+            let ang = -CGFloat.pi * (0.24 + CGFloat(idx) * (0.52 / CGFloat(max(1, count)))) + CGFloat.random(in: -0.08...0.08)
+            let spd = CGFloat.random(in: 36...62)
             droplets.append(FishSplashDroplet(
                 x: keyPt.x + CGFloat.random(in: -4...4),
                 y: keyPt.y - 5,
                 vx: cos(ang) * spd,
-                vy: sin(ang) * spd - 12,
-                radius: CGFloat.random(in: 2.0...3.2),
+                vy: sin(ang) * spd - 14,
+                radius: CGFloat.random(in: 2.0...3.3),
                 age: 0,
-                life: CGFloat.random(in: 0.26...0.38)
+                life: CGFloat.random(in: 0.28...0.42)
             ))
         }
-        if droplets.count > 16 { droplets.removeFirst(droplets.count - 16) }
-        _ = now
+        if droplets.count > 18 { droplets.removeFirst(droplets.count - 18) }
     }
 
-    func triggerPuffUp(duration: CGFloat = 2.1) {
+    func triggerPuffUp(duration: CGFloat = 2.4, fromFrenzy: Bool = false) {
+        cancelShowcaseToFront()
+        lastPuffFromFrenzy = fromFrenzy
         puffHoldTimer = max(puffHoldTimer, duration)
         puff.target = 1.0
-        puff.velocity = max(puff.velocity, 6.0)
-        mouthOpen.value = 0.82
+        puff.velocity = max(puff.velocity, 6.8)
+        mouthOpen.value = 0.85
         spawnMouthBubbles(count: 3)
     }
 
     func registerBellyPoke(now: CFTimeInterval) {
-        triggerPuffUp(duration: 2.2)
+        triggerPuffUp(duration: 2.4, fromFrenzy: false)
         _ = now
     }
 
     func spawnMouthBubbles(count: Int) {
-        // Spawn clearly outside & above the upper-right head contour so bubbles NEVER overlap the eyeball!
-        let baseX = pos.point.x + 58.0 + puff.value * 18.0
-        let baseY = pos.point.y - 46.0 - puff.value * 14.0
+        // Spawn clearly outside & above the snout/head contour so bubbles NEVER overlap eyeballs or float over the tail!
+        let sb = max(0, min(1, sideBlend.value))
+        let faceSign: CGFloat = turnCos.value >= 0 ? 1.0 : -1.0
+        let baseX: CGFloat
+        let baseY: CGFloat
+        if isShowcaseActive || sb > 0.30 {
+            baseX = pos.point.x + faceSign * 56.0
+            baseY = pos.point.y - 12.0
+        } else {
+            baseX = pos.point.x + 58.0 + puff.value * 18.0
+            baseY = pos.point.y - 46.0 - puff.value * 14.0
+        }
         for i in 0..<count {
             let f = CGFloat(i)
             bubbles.append(FishBubbleParticle(
-                x: baseX + f * 7.5 + CGFloat.random(in: -2...4),
+                x: baseX + faceSign * f * 7.0 + CGFloat.random(in: -2...4),
                 y: baseY - f * 15.0,
-                vx: CGFloat.random(in: 4...10),
+                vx: faceSign * CGFloat.random(in: 4...10),
                 vy: -CGFloat.random(in: 22...32),
                 radius: max(3.2, 5.8 - f * 1.0 + CGFloat.random(in: -0.4...0.4)),
                 age: 0,
-                life: CGFloat.random(in: 1.4...2.2)
+                life: CGFloat.random(in: 1.5...2.2)
             ))
         }
         if bubbles.count > 14 { bubbles.removeFirst(bubbles.count - 14) }
@@ -282,19 +398,48 @@ final class FishSwimPhysics {
         mouseClickLeft: Bool,
         mouseClickRight: Bool,
         isDragging: Bool,
+        isDictating: Bool = false,
         anger: CGFloat,
+        enableAnger: Bool = true,
         petIntensity: CGFloat,
         canPuffUp: Bool,
         reducedMotion: Bool
     ) {
-        let motionMul: CGFloat = reducedMotion ? 0.35 : 1.0
-        // Calm, soothing tail wag & idle fin breath (never frantic!)
-        swimPhase += dt * (2.6 + (recentKeyTimer > 0 ? 1.8 : 0.0)) * motionMul
-        finPhase += dt * 3.8 * motionMul
+        let motionMul: CGFloat = reducedMotion ? 0.45 : 1.0
+        let swimSpeed: CGFloat = isShowcaseActive ? 5.6 : (2.6 + (recentKeyTimer > 0 ? 1.8 : 0.0) + typingFrenzy.value * 2.2)
+        swimPhase += dt * swimSpeed * motionMul
+        finPhase += dt * (3.8 + typingFrenzy.value * 3.0) * motionMul
 
-        // 1. In-place puff-up lifecycle (poke/drag/very fast typing)
-        if canPuffUp && (isDragging || anger > 0.55 || petIntensity > 0.70) {
-            puffHoldTimer = max(puffHoldTimer, 0.55)
+        // 1. Fast-typing emotional escalation (Happy -> Serious -> Reluctant 💢 -> POOF Derpy Spiky Balloon!)
+        recentKeyTimestamps.removeAll { now - $0 > 2.4 }
+        let kps = CGFloat(recentKeyTimestamps.count) / 2.4
+        if enableAnger {
+            // 3 kps -> gentle serious, 5.5 kps -> reluctant 💢, >=7.5 kps or rapid burst -> POOF derpy balloon!
+            let rateTarget = max(0, min(1.0, (kps - 2.0) / 5.8))
+            let combined = max(frenzyEnergy, max(rateTarget, anger * 0.92))
+            if kps < 2.5 && recentKeyTimer <= 0.01 {
+                frenzyEnergy = max(0, frenzyEnergy - dt * 0.24)
+            } else {
+                frenzyEnergy = max(frenzyEnergy - dt * 0.08, combined)
+            }
+            if canPuffUp && frenzyEnergy >= 0.86 && puffHoldTimer <= 0.05 {
+                // Comedic flip! Furious typing pops the puffer into a bewildered wide-eyed derpy spiky balloon!
+                triggerPuffUp(duration: 3.0, fromFrenzy: true)
+            }
+        } else {
+            frenzyEnergy = max(0, frenzyEnergy - dt * 0.4)
+        }
+        // Once puffed into the derpy balloon, clear angry tension so expression flips straight to innocent wide-eyed derp!
+        typingFrenzy.target = puff.value > 0.28 ? 0.0 : max(0, min(1.0, frenzyEnergy))
+        typingFrenzy.step(dt: dt, stiffness: 85, damping: 16)
+
+        // 2. In-place puff-up lifecycle (frenzy climax / poke / drag)
+        if canPuffUp && (isDragging || petIntensity > 0.70 || (enableAnger && anger > 0.78)) {
+            if puffHoldTimer <= 0.05 {
+                triggerPuffUp(duration: 2.2, fromFrenzy: anger > 0.78)
+            } else {
+                puffHoldTimer = max(puffHoldTimer, 0.55)
+            }
         }
         if puffHoldTimer > 0 && canPuffUp {
             let wasPuffed = puff.value > 0.35
@@ -302,30 +447,158 @@ final class FishSwimPhysics {
             puff.target = 1.0
             if puffHoldTimer <= 0.01 && wasPuffed {
                 spawnMouthBubbles(count: 3)
+                // Cool down frenzy after deflating so the fish returns happy & relaxed!
+                frenzyEnergy = min(frenzyEnergy, 0.14)
+                lastPuffFromFrenzy = false
             }
         } else {
             puff.target = 0.0
         }
         puff.step(dt: dt, stiffness: 185, damping: 14)
 
-        // 2. Rock-steady body anchor with gentle ±1.6px underwater breathing (zero dizzy typing wobble!)
-        // When operating the left mouse, calmly glide 16px left so the left fin arcs naturally onto the mouse.
-        if recentKeyTimer > 0 {
-            recentKeyTimer = max(0, recentKeyTimer - dt)
-        } else {
-            microTilt.target = mouseActive ? -0.025 : 0.0
-        }
-        let breatheY = sin(time * 2.1) * 1.6 * motionMul
-        let dragLiftY: CGFloat = isDragging ? -8.0 : 0.0
-        let mouseSlideX: CGFloat = mouseActive ? -16.0 : 0.0
-        pos.target = CGPoint(x: Self.bodyCenterAnchor.x + mouseSlideX, y: Self.bodyCenterAnchor.y + breatheY + dragLiftY)
-        pos.step(dt: dt, stiffness: mouseActive ? 75 : 120, damping: 18)
-        microTilt.step(dt: dt, stiffness: 140, damping: 20)
+        // 3. Calm Infrequent Idle Side-Swim Showcase + Tail-Tap Keyboard Trick!
+        let userBusy = recentKeyTimer > 0.02
+            || (!showcaseForced && mouseActive)
+            || mouseClickLeft || mouseClickRight
+            || isDragging || isDictating
+            || puff.value > 0.15 || puffHoldTimer > 0.01
+            || typingFrenzy.value > 0.12
 
-        if mouseActive && mouseClickLeft {
-            leftFinSlap.value = max(leftFinSlap.value, 0.72)
+        if userBusy {
+            cancelShowcaseToFront(cooldownRange: reducedMotion ? 28.0...42.0 : 16.0...26.0)
+        } else if !isShowcaseActive {
+            idleSeconds += dt
+            if idleSeconds >= nextShowcaseCooldown {
+                triggerIdleShowcaseNow(direction: nil, forced: false)
+            }
         }
-        if mouseActive && mouseClickRight {
+
+        if isShowcaseActive {
+            showcaseElapsed += dt
+            let t = showcaseElapsed
+            let dir = showcaseDir
+            let roamScale: CGFloat = reducedMotion ? 0.55 : 1.0
+            let tapPt = KeyboardLayout.canvasPoint(for: showcaseTapKey)
+
+            func smoothstep(_ edge0: CGFloat, _ edge1: CGFloat, _ x: CGFloat) -> CGFloat {
+                let u = max(0, min(1, (x - edge0) / max(0.0001, edge1 - edge0)))
+                return u * u * (3 - 2 * u)
+            }
+
+            if t < 0.75 {
+                // Phase 1: Lift gracefully above desk & morph into full aquarium fish profile
+                let k = smoothstep(0.0, 0.75, t)
+                sideBlend.target = 1.0
+                turnCos.target = dir
+                pos.target = CGPoint(x: Self.bodyCenterAnchor.x + dir * 10 * k, y: 170 - 24 * k)
+                swimPitch.target = -0.06 * k
+                tailTapFlex.target = 0
+            } else if t < 2.25 {
+                // Phase 2: Leisurely glide across the keyboard showing full fish body & flank ocelli
+                let k = smoothstep(0.75, 2.25, t)
+                let targetX = Self.bodyCenterAnchor.x + dir * (10 + 48 * roamScale * k)
+                let waveY = sin(swimPhase * 0.75) * 5.0 * motionMul
+                sideBlend.target = 1.0
+                turnCos.target = dir
+                pos.target = CGPoint(x: targetX, y: 146 + waveY)
+                swimPitch.target = cos(swimPhase * 0.75) * 0.05
+                tailTapFlex.target = 0
+                if abs(t - 1.45) < dt * 1.1 {
+                    spawnMouthBubbles(count: 2)
+                }
+            } else if t < 3.60 {
+                // Phase 3: 「尾巴炫技触碰键盘」— Arc nose playfully up, dip golden broom-fan tail down to kiss `tapPt` dead-center!
+                let enterK = smoothstep(2.25, 2.86, t)
+                let exitK = 1.0 - smoothstep(3.04, 3.60, t)
+                let tapArc = min(enterK, exitK)
+
+                // Exact rotated tail-tip offset at pitch=-0.25, flex=1.0 is ~(-69*dir, +76) -> anchor so broom-fan tip kisses `tapPt`!
+                let anchorX = max(116, min(260, tapPt.x + dir * 70.0))
+                let anchorY = max(144, min(182, tapPt.y - 76.0))
+                let restX = Self.bodyCenterAnchor.x + dir * (58 * roamScale)
+                pos.target = CGPoint(
+                    x: restX + (anchorX - restX) * min(1, enterK * 1.25),
+                    y: 146 + (anchorY - 146) * tapArc
+                )
+                sideBlend.target = 1.0
+                turnCos.target = dir
+                swimPitch.target = -0.25 * tapArc
+                tailTapFlex.target = tapArc
+
+                if !showcaseDidTriggerTap && t >= 2.86 {
+                    showcaseDidTriggerTap = true
+                    pendingTailTapKey = showcaseTapKey
+                    tailTapRipplePoint = tapPt
+                    tailTapRippleTimer = 0.45
+                    spawnKeyDroplets(at: tapPt, count: 4)
+                    spawnMouthBubbles(count: 2)
+                }
+            } else if t < 6.15 {
+                // Phase 4: Smooth 3D mid-water turn + calm cruise across the opposite side & back to center!
+                let k = smoothstep(3.60, 6.15, t)
+                let startX = max(116, min(260, tapPt.x + dir * 70.0))
+                let oppX = Self.bodyCenterAnchor.x - dir * (48 * roamScale)
+                let midK = smoothstep(3.60, 5.15, t)
+                let backK = smoothstep(5.15, 6.15, t)
+                let curX = (startX + (oppX - startX) * midK) * (1 - backK) + Self.bodyCenterAnchor.x * backK
+                let waveY = sin(swimPhase * 0.75) * 4.5 * motionMul
+                sideBlend.target = 1.0
+                turnCos.target = -dir
+                pos.target = CGPoint(x: curX, y: 144 + waveY)
+                swimPitch.target = cos(swimPhase * 0.75) * 0.045
+                tailTapFlex.target = 0
+                if abs(t - 4.35) < dt * 1.1 {
+                    spawnMouthBubbles(count: 2)
+                }
+                _ = k
+            } else if t < showcaseDuration {
+                // Phase 5: Gracefully descend back behind keyboard & morph seamlessly into front-facing pose!
+                let k = smoothstep(6.15, showcaseDuration, t)
+                sideBlend.target = 0.0
+                turnCos.target = -dir
+                pos.target = CGPoint(x: Self.bodyCenterAnchor.x, y: 144 + (Self.bodyCenterAnchor.y - 144) * k)
+                swimPitch.target = 0
+                tailTapFlex.target = 0
+            } else {
+                cancelShowcaseToFront(cooldownRange: reducedMotion ? 30.0...44.0 : 18.0...28.0)
+            }
+
+            pos.step(dt: dt, stiffness: (t >= 2.25 && t < 3.60) ? 88 : 54, damping: 14)
+            sideBlend.step(dt: dt, stiffness: 55, damping: 14)
+            turnCos.step(dt: dt, stiffness: 46, damping: 13)
+            swimPitch.step(dt: dt, stiffness: 68, damping: 15)
+            tailTapFlex.step(dt: dt, stiffness: 120, damping: 15)
+            microTilt.target = 0
+            microTilt.step(dt: dt, stiffness: 120, damping: 18)
+        } else {
+            // 4. Rock-steady front-facing desk anchor (zero dizzy typing wobble!)
+            if recentKeyTimer > 0 {
+                recentKeyTimer = max(0, recentKeyTimer - dt)
+            } else {
+                microTilt.target = mouseActive ? -0.025 : 0.0
+            }
+            let breatheY = sin(time * 2.1) * 1.6 * motionMul
+            let dragLiftY: CGFloat = isDragging ? -8.0 : 0.0
+            let mouseSlideX: CGFloat = mouseActive ? -16.0 : 0.0
+            // Subtle grumpy tremor when typing gets furious right before puffing!
+            let grumpyJitterX: CGFloat = (typingFrenzy.value > 0.62 && puff.value < 0.2) ? sin(time * 36.0) * 1.1 * (typingFrenzy.value - 0.62) : 0.0
+            pos.target = CGPoint(x: Self.bodyCenterAnchor.x + mouseSlideX + grumpyJitterX, y: Self.bodyCenterAnchor.y + breatheY + dragLiftY)
+            pos.step(dt: dt, stiffness: mouseActive ? 75 : 120, damping: 18)
+            microTilt.step(dt: dt, stiffness: 140, damping: 20)
+
+            sideBlend.target = 0
+            sideBlend.step(dt: dt, stiffness: 95, damping: 17)
+            swimPitch.target = 0
+            swimPitch.step(dt: dt, stiffness: 90, damping: 16)
+            tailTapFlex.target = 0
+            tailTapFlex.step(dt: dt, stiffness: 110, damping: 16)
+        }
+
+        if tailTapRippleTimer > 0 {
+            tailTapRippleTimer = max(0, tailTapRippleTimer - dt)
+        }
+
+        if mouseActive && (mouseClickLeft || mouseClickRight) {
             leftFinSlap.value = max(leftFinSlap.value, 0.72)
         }
         leftFinSlap.target = 0
@@ -333,18 +606,20 @@ final class FishSwimPhysics {
         leftFinSlap.step(dt: dt, stiffness: 260, damping: 20)
         rightFinSlap.step(dt: dt, stiffness: 260, damping: 20)
 
-        mouthOpen.target = puff.value > 0.25 ? 0.75 : 0.24
+        mouthOpen.target = puff.value > 0.25 ? 0.75 : (typingFrenzy.value > 0.35 ? 0.08 : 0.24)
         mouthOpen.step(dt: dt, stiffness: 140, damping: 16)
 
-        // 3. Occasional gentle ambient bubbles
+        // 5. Occasional gentle ambient bubbles
         nextBubbleCooldown -= dt
         if nextBubbleCooldown <= 0 {
-            nextBubbleCooldown = CGFloat.random(in: 3.4...5.8)
-            mouthOpen.value = max(mouthOpen.value, 0.48)
-            spawnMouthBubbles(count: Int.random(in: 1...2))
+            nextBubbleCooldown = CGFloat.random(in: 3.6...6.2)
+            if typingFrenzy.value < 0.45 {
+                mouthOpen.value = max(mouthOpen.value, 0.48)
+                spawnMouthBubbles(count: Int.random(in: 1...2))
+            }
         }
 
-        // 4. Advance bubbles & micro splash droplets
+        // 6. Advance bubbles & micro splash droplets
         for i in bubbles.indices {
             bubbles[i].age += dt
             bubbles[i].x += (bubbles[i].vx + sin(time * 3.2 + CGFloat(i)) * 4.5) * dt
@@ -360,36 +635,46 @@ final class FishSwimPhysics {
             droplets[i].vy += 200.0 * dt
         }
         droplets.removeAll { $0.age >= $0.life }
-        _ = (now, mouseCenter)
+        _ = mouseCenter
     }
 }
 
-// MARK: - Front-Facing Steady 2.5D Vector Fish Renderer (Head Forward + Elongated Typing Fins + Zero Headphones!)
+// MARK: - Dual-Mode 2.5D Vector Fish Renderer (Steady Front Typing + Idle Side-Swim & Tail-Tap + Zero Headphones!)
 
 enum FishRenderer {
     private static let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
 
-    /// Head anchor point for floating `🫧 <name>` badge cleanly above the front-facing puffer's crown!
+    /// Head anchor point for floating `🫧 <name>` badge cleanly above either front-facing or side-swimming crown!
     static func headPosition(_ physics: CatPhysics, dna: FishPhotoDNA) -> CGPoint {
-        let c = physics.fishSwim.pos.point
-        let puff = max(0, min(1, physics.fishSwim.puff.value))
-        let topY = c.y - (52.0 * CGFloat(dna.plumpness) + puff * 18.0)
-        return CGPoint(x: c.x, y: topY)
+        let swim = physics.fishSwim
+        let c = swim.pos.point
+        let puff = max(0, min(1, swim.puff.value))
+        let sb = max(0, min(1, swim.sideBlend.value))
+        let frontTopY = c.y - (52.0 * CGFloat(dna.plumpness) + puff * 18.0)
+        let sideTopY = c.y - (38.0 * CGFloat(dna.plumpness))
+        let faceSign: CGFloat = swim.turnCos.value >= 0 ? 1.0 : -1.0
+        let sideHeadX = c.x + faceSign * 14.0
+        return CGPoint(
+            x: c.x + (sideHeadX - c.x) * sb,
+            y: frontTopY + (sideTopY - frontTopY) * sb
+        )
     }
 
     static func hitTestFish(point pt: CGPoint, physics: CatPhysics) -> Bool {
-        let c = physics.fishSwim.pos.point
-        let puff = max(0, min(1, physics.fishSwim.puff.value))
-        let rx: CGFloat = 62.0 + puff * 16.0
-        let ry: CGFloat = 64.0 + puff * 14.0
+        let swim = physics.fishSwim
+        let c = swim.pos.point
+        let puff = max(0, min(1, swim.puff.value))
+        let sb = max(0, min(1, swim.sideBlend.value))
+        let rx: CGFloat = (62.0 + puff * 16.0) * (1 - sb) + 78.0 * sb
+        let ry: CGFloat = (64.0 + puff * 14.0) * (1 - sb) + 46.0 * sb
         let dx = (pt.x - c.x) / rx
         let dy = (pt.y - c.y) / ry
         return (dx * dx + dy * dy) <= 1.0
     }
 
-    // MARK: - Two-Pass Desk Sandwich Rendering (Back: Body/Tail/Face behind keyboard; Front: Elongated Pectoral Fins over keys & mouse!)
+    // MARK: - Two-Pass Desk Sandwich Rendering
 
-    /// Pass 1 (Drawn BEHIND Keyboard & Mouse): Steady front-facing puffer torso, curled right tail, dorsal crest, eyes & buck-toothed smile.
+    /// Pass 1 (Drawn BEHIND Keyboard & Mouse): Steady front-facing puffer torso during typing/rest.
     static func drawBodyBehindDesk(
         in ctx: CGContext,
         physics: CatPhysics,
@@ -397,9 +682,15 @@ enum FishRenderer {
         whiteOutline: Bool
     ) {
         let swim = physics.fishSwim
+        let sb = max(0, min(1, swim.sideBlend.value))
+        let frontAlpha = max(0, min(1, 1.0 - sb * 1.45))
+        guard frontAlpha > 0.02 else { return }
+
         let pos = swim.pos.point
         let puff = max(0, min(1, swim.puff.value))
 
+        ctx.saveGState()
+        if frontAlpha < 0.99 { ctx.setAlpha(frontAlpha) }
         if whiteOutline {
             drawWithStickerOutline(in: ctx, bounds: CGRect(x: 40, y: 40, width: 310, height: 260)) { subCtx in
                 drawFrontBodyAndTail(in: subCtx, physics: physics, dna: dna, pos: pos, puff: puff)
@@ -407,9 +698,12 @@ enum FishRenderer {
         } else {
             drawFrontBodyAndTail(in: ctx, physics: physics, dna: dna, pos: pos, puff: puff)
         }
+        ctx.restoreGState()
     }
 
-    /// Pass 2 (Drawn IN FRONT OF Keyboard & Mouse): Elongated curved translucent left & right typing/mouse fins + water droplets + bubbles!
+    /// Pass 2 (Drawn IN FRONT OF Keyboard & Mouse):
+    /// - When steady (`sideBlend < 0.55`): elongated translucent left & right typing/mouse fins!
+    /// - When idle patrolling (`sideBlend > 0.20`): full lifted aquarium side-profile fish whose broom-fan tail can cleanly dip onto the keyboard!
     /// Note: Fish NEVER wears headphones — keeping 100% aquatic visual consistency!
     static func drawFinsAndEffectsInFront(
         in ctx: CGContext,
@@ -420,43 +714,69 @@ enum FishRenderer {
         let swim = physics.fishSwim
         let pos = swim.pos.point
         let puff = max(0, min(1, swim.puff.value))
+        let sb = max(0, min(1, swim.sideBlend.value))
 
-        // Gentle keycap ripple & droplets
+        // Keycap tap ripples (from regular fin typing OR idle tail-tap trick!)
         if swim.recentKeyTimer > 0.02, let kpt = swim.targetKeyPoint {
             drawKeyTapRipple(in: ctx, center: kpt, progress: 1.0 - min(1.0, swim.recentKeyTimer / 0.28))
         }
+        if swim.tailTapRippleTimer > 0.02, let tpt = swim.tailTapRipplePoint {
+            let p = 1.0 - min(1.0, swim.tailTapRippleTimer / 0.45)
+            drawKeyTapRipple(in: ctx, center: tpt, progress: p)
+            drawTailTapSparkleArc(in: ctx, center: tpt, progress: p)
+        }
         drawSplashDroplets(in: ctx, droplets: swim.droplets)
 
-        // Two graceful elongated translucent pectoral fins driven 1:1 by KuroCat's `leftPaw` & `rightPaw`!
-        let finCol = CatCoatCompiler.swiftUIColor(dna.finHex)
-        let bodyCol = CatCoatCompiler.swiftUIColor(dna.primaryBodyHex)
-        let spotOuterCol = CatCoatCompiler.swiftUIColor(dna.spotOuterHex)
-        let contourCol = blendColor(spotOuterCol, NSColor(srgbRed: 0.16, green: 0.11, blue: 0.10, alpha: 1.0), t: 0.46)
-        let plump = CGFloat(dna.plumpness)
+        // A. Front-facing elongated translucent typing/mouse fins (gracefully retract as fish lifts up to swim!)
+        let finAlpha = max(0, min(1, 1.0 - sb * 1.85))
+        if finAlpha > 0.02 {
+            let finCol = CatCoatCompiler.swiftUIColor(dna.finHex)
+            let bodyCol = CatCoatCompiler.swiftUIColor(dna.primaryBodyHex)
+            let spotOuterCol = CatCoatCompiler.swiftUIColor(dna.spotOuterHex)
+            let contourCol = blendColor(spotOuterCol, NSColor(srgbRed: 0.16, green: 0.11, blue: 0.10, alpha: 1.0), t: 0.46)
+            let plump = CGFloat(dna.plumpness)
 
-        let bodyHalfW = (46.0 + puff * 14.0) * min(1.12, plump)
-        let leftShoulder = CGPoint(x: pos.x - bodyHalfW + 5.0, y: pos.y + 11.0)
-        let rightShoulder = CGPoint(x: pos.x + bodyHalfW - 5.0, y: pos.y + 11.0)
+            let frenzySwell: CGFloat = (puff < 0.28 && dna.canPuffUp) ? max(0, swim.typingFrenzy.value - 0.56) * 14.0 : 0.0
+            let bodyHalfW = (46.0 + puff * 14.0 + frenzySwell) * min(1.12, plump)
+            let leftShoulder = CGPoint(x: pos.x - bodyHalfW + 5.0, y: pos.y + 11.0)
+            let rightShoulder = CGPoint(x: pos.x + bodyHalfW - 5.0, y: pos.y + 11.0)
 
-        // Use exact CatPhysics leftPaw & rightPaw coordinates (so typing left/right keys & gripping left mouse feel identical to KuroCat!)
-        let idleBreathL = CGPoint(x: sin(swim.finPhase) * 1.5, y: cos(swim.finPhase) * 1.3)
-        let idleBreathR = CGPoint(x: -sin(swim.finPhase + 0.9) * 1.5, y: cos(swim.finPhase + 0.9) * 1.3)
+            let idleBreathL = CGPoint(x: sin(swim.finPhase) * 1.5, y: cos(swim.finPhase) * 1.3)
+            let idleBreathR = CGPoint(x: -sin(swim.finPhase + 0.9) * 1.5, y: cos(swim.finPhase + 0.9) * 1.3)
 
-        let rawLeftTip = physics.leftPaw.point
-        let rawRightTip = physics.rightPaw.point
-        let leftActive = physics.leftPawTyping || physics.leftPawOnMouse
-        let rightActive = physics.rightPawTyping
+            let rawLeftTip = physics.leftPaw.point
+            let rawRightTip = physics.rightPaw.point
+            let leftActive = physics.leftPawTyping || physics.leftPawOnMouse
+            let rightActive = physics.rightPawTyping
 
-        let leftTarget: CGPoint = leftActive
-            ? CGPoint(x: rawLeftTip.x, y: rawLeftTip.y + swim.leftFinSlap.value * 2.5)
-            : CGPoint(x: 150.0 + idleBreathL.x, y: 234.0 + idleBreathL.y)
-        let rightTarget: CGPoint = rightActive
-            ? CGPoint(x: rawRightTip.x, y: rawRightTip.y + swim.rightFinSlap.value * 2.5)
-            : CGPoint(x: 218.0 + idleBreathR.x, y: 234.0 + idleBreathR.y)
+            let leftTarget: CGPoint = leftActive
+                ? CGPoint(x: rawLeftTip.x, y: rawLeftTip.y + swim.leftFinSlap.value * 2.5)
+                : CGPoint(x: 150.0 + idleBreathL.x, y: 234.0 + idleBreathL.y)
+            let rightTarget: CGPoint = rightActive
+                ? CGPoint(x: rawRightTip.x, y: rawRightTip.y + swim.rightFinSlap.value * 2.5)
+                : CGPoint(x: 218.0 + idleBreathR.x, y: 234.0 + idleBreathR.y)
 
-        // Draw elongated translucent fins directly (NEVER wrap with an opaque white sticker outline cutting across the cheek!)
-        drawElongatedPectoralFin(in: ctx, shoulder: leftShoulder, tip: leftTarget, isLeft: true, isReaching: leftActive, finScale: CGFloat(dna.finLength), finCol: finCol, bodyCol: bodyCol, contourCol: contourCol, whiteOutline: whiteOutline)
-        drawElongatedPectoralFin(in: ctx, shoulder: rightShoulder, tip: rightTarget, isLeft: false, isReaching: rightActive, finScale: CGFloat(dna.finLength), finCol: finCol, bodyCol: bodyCol, contourCol: contourCol, whiteOutline: whiteOutline)
+            ctx.saveGState()
+            if finAlpha < 0.99 { ctx.setAlpha(finAlpha) }
+            drawElongatedPectoralFin(in: ctx, shoulder: leftShoulder, tip: leftTarget, isLeft: true, isReaching: leftActive, finScale: CGFloat(dna.finLength), finCol: finCol, bodyCol: bodyCol, contourCol: contourCol, whiteOutline: whiteOutline)
+            drawElongatedPectoralFin(in: ctx, shoulder: rightShoulder, tip: rightTarget, isLeft: false, isReaching: rightActive, finScale: CGFloat(dna.finLength), finCol: finCol, bodyCol: bodyCol, contourCol: contourCol, whiteOutline: whiteOutline)
+            ctx.restoreGState()
+        }
+
+        // B. Full Side-Profile Free-Swimming Showcase Fish (`待机游动展示鱼形态 + 尾巴炫技轻拍键盘`)
+        let sideAlpha = max(0, min(1, (sb - 0.18) / 0.52))
+        if sideAlpha > 0.02 {
+            ctx.saveGState()
+            if sideAlpha < 0.99 { ctx.setAlpha(sideAlpha) }
+            if whiteOutline {
+                drawWithStickerOutline(in: ctx, bounds: CGRect(x: 10, y: 36, width: 340, height: 265)) { subCtx in
+                    drawSideShowcaseFish(in: subCtx, physics: physics, dna: dna, pos: pos)
+                }
+            } else {
+                drawSideShowcaseFish(in: ctx, physics: physics, dna: dna, pos: pos)
+            }
+            ctx.restoreGState()
+        }
 
         // Crisp rising ambient water bubbles
         drawWaterBubbles(in: ctx, bubbles: swim.bubbles)
@@ -566,11 +886,14 @@ enum FishRenderer {
         ctx.setFillColor(NSColor.white.withAlphaComponent(0.25).cgColor)
         ctx.fillEllipse(in: CGRect(x: -20, y: -44 * plump - puff * 12, width: 40, height: 11))
 
-        // Cute symmetrical rosy puffer cheek blushes!
-        let blushA: CGFloat = 0.28 + puff * 0.24 + physics.petHeadIntensity * 0.22
-        ctx.setFillColor(NSColor(srgbRed: 0.95, green: 0.44, blue: 0.44, alpha: blushA).cgColor)
-        ctx.fillEllipse(in: CGRect(x: -36 - puff * 6, y: -13, width: 13, height: 8.5))
-        ctx.fillEllipse(in: CGRect(x: 23 + puff * 6, y: -13, width: 13, height: 8.5))
+        // Cute symmetrical rosy puffer cheek blushes (warmer when getting annoyed/pouting, rosy-cute when puffed!)
+        let frenzy = max(0, min(1, swim.typingFrenzy.value))
+        let angerGate = max(0, min(1, 1.0 - puff * 3.0))
+        let reluctance = max(0, min(1, (frenzy - 0.56) / 0.28)) * angerGate
+        let blushA: CGFloat = 0.28 + puff * 0.28 + reluctance * 0.30 + physics.petHeadIntensity * 0.22
+        ctx.setFillColor(NSColor(srgbRed: 0.96, green: 0.40, blue: 0.42, alpha: min(0.75, blushA)).cgColor)
+        ctx.fillEllipse(in: CGRect(x: -36 - puff * 6, y: -13, width: 13 + puff * 2, height: 8.5 + puff * 1.5))
+        ctx.fillEllipse(in: CGRect(x: 23 + puff * 4, y: -13, width: 13 + puff * 2, height: 8.5 + puff * 1.5))
 
         ctx.restoreGState() // end torso clip
 
@@ -585,17 +908,24 @@ enum FishRenderer {
         ctx.restoreGState()
 
         // 5. Two Symmetrical High-Set Protruding 3D Amber-Red Puffer Eyes (`#E24E24`)
+        // Emotion arc: Happy -> Serious upper lids -> Reluctant V-brows -> POOF wide-eyed innocent derpy balloon (`O_o`)!
         let eyeOffsetX: CGFloat = 31.0 * min(1.10, plump) + puff * 8.0
         let eyeY: CGFloat = -28.0 * min(1.10, plump) - puff * 8.0
-        let eyeR: CGFloat = 10.6 + puff * 1.8
-        drawFrontFishEye(in: ctx, center: CGPoint(x: -eyeOffsetX, y: eyeY), radius: eyeR, irisCol: irisCol, bodyCol: bodyCol, contourCol: contourCol, gaze: physics.eyeGaze.point, blink: physics.effectiveEyeClosure, puff: puff)
-        drawFrontFishEye(in: ctx, center: CGPoint(x: eyeOffsetX, y: eyeY), radius: eyeR, irisCol: irisCol, bodyCol: bodyCol, contourCol: contourCol, gaze: physics.eyeGaze.point, blink: physics.effectiveEyeClosure, puff: puff)
+        let eyeR: CGFloat = 10.6 + puff * 2.2
+        drawFrontFishEye(in: ctx, center: CGPoint(x: -eyeOffsetX, y: eyeY), radius: eyeR, isLeft: true, irisCol: irisCol, bodyCol: bodyCol, contourCol: contourCol, gaze: physics.eyeGaze.point, blink: physics.effectiveEyeClosure, puff: puff, frenzy: frenzy)
+        drawFrontFishEye(in: ctx, center: CGPoint(x: eyeOffsetX, y: eyeY), radius: eyeR, isLeft: false, irisCol: irisCol, bodyCol: bodyCol, contourCol: contourCol, gaze: physics.eyeGaze.point, blink: physics.effectiveEyeClosure, puff: puff, frenzy: frenzy)
 
-        // 6. Front-Center Plump Rounded "Dog-Head" Lips + Two Adorable Symmetrical White Buck Teeth (`两颗小板牙`)!
+        // Cute anime red cross-vein `💢` when getting seriously reluctant right before puffing (vanishes immediately upon puffing into derpy ball!)
+        if reluctance > 0.25 {
+            drawReluctantAngerMark(in: ctx, center: CGPoint(x: -14, y: -44 * min(1.12, plump)), alpha: min(1.0, (reluctance - 0.25) / 0.55))
+        }
+
+        // 6. Front-Center Mouth: Happy buck-tooth smile -> Serious straight -> Reluctant frown -> Derpy tiny `•o•` when puffed!
         drawFrontFishMouth(
             in: ctx,
             dna: dna,
             puff: puff,
+            frenzy: frenzy,
             mouthOpen: max(0, min(1, swim.mouthOpen.value)),
             bellyCol: bellyCol,
             contourCol: contourCol
@@ -1060,21 +1390,28 @@ enum FishRenderer {
         ctx.restoreGState()
     }
 
-    // MARK: - Front-Facing Protruding 3D Eyes & Buck-Toothed Smile
+    // MARK: - Front-Facing Protruding 3D Eyes & Emotional Arc (Happy -> Serious -> Reluctant 💢 -> Derpy Puff `O_o`)
 
     private static func drawFrontFishEye(
         in ctx: CGContext,
         center: CGPoint,
         radius: CGFloat,
+        isLeft: Bool,
         irisCol: NSColor,
         bodyCol: NSColor,
         contourCol: NSColor,
         gaze: CGPoint,
         blink: CGFloat,
-        puff: CGFloat
+        puff: CGFloat,
+        frenzy: CGFloat
     ) {
         ctx.saveGState()
         ctx.translateBy(x: center.x, y: center.y)
+
+        // Anger/seriousness vanishes the instant the puffer pops into a wide-eyed derpy spiky balloon!
+        let angerGate = max(0, min(1, 1.0 - puff * 3.0))
+        let seriousness = max(0, min(1, (frenzy - 0.28) / 0.30)) * angerGate
+        let reluctance = max(0, min(1, (frenzy - 0.56) / 0.28)) * angerGate
 
         // Protruding fleshy puffer eye socket turret
         let turretR = radius * 1.24
@@ -1084,7 +1421,7 @@ enum FishRenderer {
         ctx.setLineWidth(1.45)
         ctx.strokeEllipse(in: CGRect(x: -turretR, y: -turretR * 0.94, width: turretR * 2, height: turretR * 1.88))
 
-        if blink > 0.72 && puff < 0.25 {
+        if blink > 0.72 && puff < 0.25 && seriousness < 0.25 {
             let arc = CGMutablePath()
             arc.move(to: CGPoint(x: -radius * 0.72, y: 1))
             arc.addQuadCurve(to: CGPoint(x: radius * 0.72, y: 1), control: CGPoint(x: 0, y: -radius * 0.58))
@@ -1109,23 +1446,91 @@ enum FishRenderer {
             ctx.drawLinearGradient(grad, start: CGPoint(x: 0, y: -radius), end: CGPoint(x: 0, y: radius), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
         }
 
-        let gx = max(-1, min(1, gaze.x)) * radius * 0.28
-        let gy = max(-1, min(1, gaze.y)) * radius * 0.25
-        let pupilR = radius * (puff > 0.25 ? (0.48 - puff * 0.14) : 0.52)
+        // When puffed into derpy spiky ball (`puff > 0.35`): pupils look slightly wide & innocently bewildered (`O_o`)!
+        let derpyOut: CGFloat = puff > 0.30 ? (isLeft ? -0.10 : 0.10) * puff : 0.0
+        let gx = (max(-1, min(1, gaze.x)) * (1.0 - puff * 0.65) + derpyOut) * radius * 0.28
+        let gy = (max(-1, min(1, gaze.y)) * (1.0 - puff * 0.65)) * radius * 0.25
+        let pupilR = radius * (puff > 0.25 ? (0.44 - puff * 0.14) : (0.52 - seriousness * 0.06))
         ctx.setFillColor(NSColor(srgbRed: 0.09, green: 0.07, blue: 0.09, alpha: 1.0).cgColor)
         ctx.fillEllipse(in: CGRect(x: gx - pupilR, y: gy - pupilR, width: pupilR * 2, height: pupilR * 2))
 
-        // Crisp glossy wet catchlights
+        // Crisp glossy wet catchlights (extra sparkling bright when derpy-puffed!)
         ctx.setFillColor(NSColor.white.withAlphaComponent(0.96).cgColor)
-        let hlR = radius * 0.27
+        let hlR = radius * (0.27 + puff * 0.04)
         ctx.fillEllipse(in: CGRect(x: -radius * 0.42, y: -radius * 0.48, width: hlR * 2, height: hlR * 1.8))
-        ctx.setFillColor(NSColor.white.withAlphaComponent(0.68).cgColor)
-        ctx.fillEllipse(in: CGRect(x: radius * 0.18, y: radius * 0.18, width: hlR * 0.85, height: hlR * 0.85))
+        ctx.setFillColor(NSColor.white.withAlphaComponent(0.74).cgColor)
+        ctx.fillEllipse(in: CGRect(x: radius * 0.18, y: radius * 0.18, width: hlR * 0.92, height: hlR * 0.92))
+
+        // Progressive Serious -> Reluctant/Grumpy slanted upper eyelid (`严肃 -> 不情愿`)!
+        if seriousness > 0.04 {
+            let lidDrop = radius * (0.30 * seriousness + 0.22 * reluctance)
+            let slant = radius * (0.16 * seriousness + 0.30 * reluctance) * (isLeft ? 1.0 : -1.0)
+            let lidPath = CGMutablePath()
+            lidPath.move(to: CGPoint(x: -radius - 3, y: -radius - 3))
+            lidPath.addLine(to: CGPoint(x: radius + 3, y: -radius - 3))
+            lidPath.addLine(to: CGPoint(x: radius + 3, y: -radius + lidDrop + slant))
+            lidPath.addLine(to: CGPoint(x: -radius - 3, y: -radius + lidDrop - slant))
+            lidPath.closeSubpath()
+
+            ctx.setFillColor(blendColor(bodyCol, NSColor(srgbRed: 0.85, green: 0.72, blue: 0.56, alpha: 1.0), t: 0.35).cgColor)
+            ctx.addPath(lidPath)
+            ctx.fillPath()
+
+            // Crisp dark eyelid crease emphasizing serious/reluctant stare
+            ctx.setStrokeColor(contourCol.withAlphaComponent(0.88).cgColor)
+            ctx.setLineWidth(1.65)
+            ctx.beginPath()
+            ctx.move(to: CGPoint(x: -radius - 1, y: -radius + lidDrop - slant))
+            ctx.addLine(to: CGPoint(x: radius + 1, y: -radius + lidDrop + slant))
+            ctx.strokePath()
+        }
         ctx.restoreGState()
 
         ctx.setStrokeColor(contourCol.withAlphaComponent(0.90).cgColor)
         ctx.setLineWidth(1.5)
         ctx.strokeEllipse(in: irisRect)
+
+        // Expressive furrowed brow line perched right over the turret during Stage 1-2 (`严肃 -> 很不情愿`)
+        if seriousness > 0.18 {
+            let browA = min(1.0, (seriousness - 0.15) * 1.15)
+            let innerDip = 3.2 * seriousness + 4.8 * reluctance
+            let outerLift = 1.5 * reluctance
+            let sign: CGFloat = isLeft ? 1.0 : -1.0 // +x is toward center for left eye
+            let brow = CGMutablePath()
+            brow.move(to: CGPoint(x: -sign * radius * 0.85, y: -turretR - 2.0 - outerLift))
+            brow.addQuadCurve(
+                to: CGPoint(x: sign * radius * 0.82, y: -turretR + innerDip),
+                control: CGPoint(x: 0, y: -turretR + innerDip * 0.35 - 1.5)
+            )
+            ctx.setStrokeColor(contourCol.withAlphaComponent(0.86 * browA).cgColor)
+            ctx.setLineWidth(2.0 + reluctance * 0.5)
+            ctx.setLineCap(.round)
+            ctx.addPath(brow)
+            ctx.strokePath()
+        }
+
+        ctx.restoreGState()
+    }
+
+    private static func drawReluctantAngerMark(in ctx: CGContext, center: CGPoint, alpha: CGFloat) {
+        let a = max(0, min(1, alpha))
+        guard a > 0.05 else { return }
+        ctx.saveGState()
+        ctx.translateBy(x: center.x, y: center.y)
+        ctx.setStrokeColor(NSColor(srgbRed: 0.90, green: 0.22, blue: 0.22, alpha: 0.92 * a).cgColor)
+        ctx.setLineWidth(1.9)
+        ctx.setLineCap(.round)
+        ctx.setLineJoin(.round)
+        // Classic crisp 4-quadrant anime cross-vein `💢`
+        let r: CGFloat = 5.2
+        let gap: CGFloat = 1.6
+        for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] as [(CGFloat, CGFloat)] {
+            let p = CGMutablePath()
+            p.move(to: CGPoint(x: sx * r, y: sy * gap))
+            p.addQuadCurve(to: CGPoint(x: sx * gap, y: sy * r), control: CGPoint(x: sx * gap * 0.9, y: sy * gap * 0.9))
+            ctx.addPath(p)
+            ctx.strokePath()
+        }
         ctx.restoreGState()
     }
 
@@ -1133,6 +1538,7 @@ enum FishRenderer {
         in ctx: CGContext,
         dna: FishPhotoDNA,
         puff: CGFloat,
+        frenzy: CGFloat,
         mouthOpen: CGFloat,
         bellyCol: NSColor,
         contourCol: NSColor
@@ -1143,25 +1549,67 @@ enum FishRenderer {
         ctx.saveGState()
         ctx.translateBy(x: 0, y: my)
 
-        if puff > 0.35 {
-            // Adorable front-facing startled ":O" puffer mouth!
-            let r = 6.2 + puff * 2.0
+        // Stage 3 Climax (`puff > 0.30`): Instant flip into adorably stunned, innocent derpy `"•o•"` puffer mouth!
+        if puff > 0.30 {
+            let r = 5.4 + puff * 1.5
             ctx.setFillColor(lipCol.cgColor)
-            ctx.fillEllipse(in: CGRect(x: -r, y: -r * 0.88, width: r * 2, height: r * 1.76))
-            ctx.setFillColor(NSColor(srgbRed: 0.46, green: 0.18, blue: 0.20, alpha: 0.92).cgColor)
-            ctx.fillEllipse(in: CGRect(x: -r * 0.56, y: -r * 0.48, width: r * 1.12, height: r * 0.96))
-            ctx.setStrokeColor(contourCol.withAlphaComponent(0.82).cgColor)
-            ctx.setLineWidth(1.4)
-            ctx.strokeEllipse(in: CGRect(x: -r, y: -r * 0.88, width: r * 2, height: r * 1.76))
+            ctx.fillEllipse(in: CGRect(x: -r, y: -r * 0.92, width: r * 2, height: r * 1.84))
+            ctx.setFillColor(NSColor(srgbRed: 0.50, green: 0.20, blue: 0.23, alpha: 0.92).cgColor)
+            ctx.fillEllipse(in: CGRect(x: -r * 0.54, y: -r * 0.48, width: r * 1.08, height: r * 0.96))
+            // Tiny pink tongue dot inside the bewildered "o"
+            ctx.setFillColor(NSColor(srgbRed: 0.92, green: 0.48, blue: 0.50, alpha: 0.85).cgColor)
+            ctx.fillEllipse(in: CGRect(x: -r * 0.30, y: r * 0.05, width: r * 0.60, height: r * 0.38))
+            ctx.setStrokeColor(contourCol.withAlphaComponent(0.80).cgColor)
+            ctx.setLineWidth(1.35)
+            ctx.strokeEllipse(in: CGRect(x: -r, y: -r * 0.92, width: r * 2, height: r * 1.84))
             ctx.restoreGState()
             return
         }
 
-        // Friendly, goofy front-facing puffer smile (`◡`) with two cute rounded ivory buck teeth peeking playfully!
+        // Stage 1 -> Stage 2 (`严肃 -> 很不情愿瘪嘴`): Smooth progression from straight serious line to grumpy pouting frown (`︵`)!
+        if frenzy > 0.32 {
+            let seriousness = max(0, min(1, (frenzy - 0.32) / 0.26))
+            let reluctance = max(0, min(1, (frenzy - 0.56) / 0.28))
+            let w: CGFloat = 9.5 + reluctance * 2.2
+            let archLift: CGFloat = -reluctance * 5.2 // curves mouth center UP and corners DOWN into an unmistakable reluctant pout `︵`!
+            let cornerDrop: CGFloat = reluctance * 3.0
+
+            let lipCurve = CGMutablePath()
+            lipCurve.move(to: CGPoint(x: -w, y: cornerDrop))
+            lipCurve.addQuadCurve(to: CGPoint(x: w, y: cornerDrop), control: CGPoint(x: 0, y: archLift))
+
+            // Soft plump coral lip cushion behind the pout
+            ctx.setStrokeColor(lipCol.cgColor)
+            ctx.setLineWidth(5.4)
+            ctx.setLineCap(.round)
+            ctx.addPath(lipCurve)
+            ctx.strokePath()
+
+            // Crisp grumpy/serious mouth line
+            ctx.setStrokeColor(contourCol.withAlphaComponent(0.86).cgColor)
+            ctx.setLineWidth(1.65 + seriousness * 0.25)
+            ctx.setLineCap(.round)
+            ctx.addPath(lipCurve)
+            ctx.strokePath()
+
+            // Tiny pinched lower pout crease when really reluctant
+            if reluctance > 0.25 {
+                let chin = CGMutablePath()
+                chin.move(to: CGPoint(x: -4.2, y: cornerDrop + 2.8))
+                chin.addQuadCurve(to: CGPoint(x: 4.2, y: cornerDrop + 2.8), control: CGPoint(x: 0, y: cornerDrop + 1.4))
+                ctx.setStrokeColor(contourCol.withAlphaComponent(0.45 * reluctance).cgColor)
+                ctx.setLineWidth(1.1)
+                ctx.addPath(chin)
+                ctx.strokePath()
+            }
+            ctx.restoreGState()
+            return
+        }
+
+        // Stage 0 (Calm & Happy): Friendly, goofy front-facing puffer smile (`◡`) with two cute rounded ivory buck teeth!
         let openH = 4.6 + mouthOpen * 3.4
         let smileW: CGFloat = 10.5
 
-        // Soft happy curved mouth cavity
         let cavity = CGMutablePath()
         cavity.move(to: CGPoint(x: -smileW, y: -1.6))
         cavity.addQuadCurve(to: CGPoint(x: smileW, y: -1.6), control: CGPoint(x: 0, y: -3.2))
@@ -1171,13 +1619,11 @@ enum FishRenderer {
         ctx.setFillColor(NSColor(srgbRed: 0.56, green: 0.22, blue: 0.26, alpha: 0.90).cgColor)
         ctx.addPath(cavity); ctx.fillPath()
 
-        // Cute soft pink tongue hint inside the smile
         ctx.saveGState()
         ctx.addPath(cavity); ctx.clip()
         ctx.setFillColor(NSColor(srgbRed: 0.90, green: 0.45, blue: 0.48, alpha: 0.85).cgColor)
         ctx.fillEllipse(in: CGRect(x: -5.5, y: openH - 0.8, width: 11.0, height: 6.5))
 
-        // Two adorable rounded ivory buck teeth peeking playfully from the upper lip!
         if dna.hasBuckTeeth {
             let toothCol = NSColor(srgbRed: 0.99, green: 0.98, blue: 0.95, alpha: 1.0)
             let t1 = CGPath(roundedRect: CGRect(x: -3.8, y: -2.4, width: 3.5, height: 4.5), cornerWidth: 1.4, cornerHeight: 1.4, transform: nil)
@@ -1192,7 +1638,6 @@ enum FishRenderer {
         }
         ctx.restoreGState()
 
-        // Soft curved smile lip outline with gentle upturned playful cheek corners!
         let upperArc = CGMutablePath()
         upperArc.move(to: CGPoint(x: -smileW - 1.5, y: -2.4))
         upperArc.addQuadCurve(to: CGPoint(x: smileW + 1.5, y: -2.4), control: CGPoint(x: 0, y: 0.6))
@@ -1206,7 +1651,6 @@ enum FishRenderer {
         ctx.setLineCap(.round)
         ctx.addPath(cavity); ctx.strokePath()
 
-        // Soft subtle lower lip pillow cushion
         let lowerArc = CGMutablePath()
         lowerArc.move(to: CGPoint(x: -smileW * 0.62, y: openH + 3.0))
         lowerArc.addQuadCurve(to: CGPoint(x: smileW * 0.62, y: openH + 3.0), control: CGPoint(x: 0, y: openH + 5.6))
@@ -1214,6 +1658,379 @@ enum FishRenderer {
         ctx.setLineWidth(2.4)
         ctx.addPath(lowerArc); ctx.strokePath()
 
+        ctx.restoreGState()
+    }
+
+    // MARK: - Full Side-Profile Idle Swimming Showcase Fish (`待机游动展示完整鱼形态 + 尾巴炫技轻拍键盘`, Zero Headphones!)
+
+    private static func drawSideShowcaseFish(
+        in ctx: CGContext,
+        physics: CatPhysics,
+        dna: FishPhotoDNA,
+        pos: CGPoint
+    ) {
+        let swim = physics.fishSwim
+        let bodyCol = CatCoatCompiler.swiftUIColor(dna.primaryBodyHex)
+        let bellyCol = CatCoatCompiler.swiftUIColor(dna.bellyHex)
+        let dorsalCol = CatCoatCompiler.swiftUIColor(dna.dorsalHex)
+        let spotOuterCol = CatCoatCompiler.swiftUIColor(dna.spotOuterHex)
+        let spotInnerCol = CatCoatCompiler.swiftUIColor(dna.spotInnerHex)
+        let finCol = CatCoatCompiler.swiftUIColor(dna.finHex)
+        let irisCol = CatCoatCompiler.swiftUIColor(dna.irisHex)
+        let contourCol = blendColor(spotOuterCol, NSColor(srgbRed: 0.16, green: 0.11, blue: 0.10, alpha: 1.0), t: 0.48)
+
+        let plump = CGFloat(dna.plumpness)
+        let finScale = CGFloat(dna.finLength)
+        let faceSign: CGFloat = swim.turnCos.value >= 0 ? 1.0 : -1.0
+        let turnScaleX: CGFloat = max(0.24, abs(swim.turnCos.value))
+        let tapFlex = max(0, min(1, swim.tailTapFlex.value))
+        let tailWave = sin(swim.swimPhase) * (8.5 * (1.0 - tapFlex * 0.7))
+
+        ctx.saveGState()
+        ctx.translateBy(x: pos.x, y: pos.y)
+        ctx.scaleBy(x: faceSign * turnScaleX, y: 1.0)
+        ctx.rotate(by: swim.swimPitch.value)
+
+        // 1. Far-side protruding eye silhouette peeking slightly over the boxy forehead for rich 3/4 depth!
+        let farEyeCenter = CGPoint(x: 42.0, y: -15.5 * min(1.12, plump))
+        ctx.setFillColor(blendColor(bodyCol, NSColor.white, t: 0.10).cgColor)
+        ctx.fillEllipse(in: CGRect(x: farEyeCenter.x - 7.0, y: farEyeCenter.y - 6.8, width: 14.0, height: 13.6))
+        ctx.setStrokeColor(contourCol.withAlphaComponent(0.70).cgColor)
+        ctx.setLineWidth(1.35)
+        ctx.strokeEllipse(in: CGRect(x: farEyeCenter.x - 7.0, y: farEyeCenter.y - 6.8, width: 14.0, height: 13.6))
+
+        // 2. Translucent Dorsal Fin & Ventral Anal Fin
+        drawSideFinFan(
+            in: ctx,
+            rootA: CGPoint(x: -16, y: -23 * min(1.12, plump)),
+            rootB: CGPoint(x: -32, y: -17 * min(1.12, plump)),
+            tip: CGPoint(x: -28 - tailWave * 0.35, y: -44 * min(1.12, plump) * finScale),
+            finCol: finCol,
+            contourCol: contourCol
+        )
+        drawSideFinFan(
+            in: ctx,
+            rootA: CGPoint(x: -16, y: 21 * min(1.12, plump)),
+            rootB: CGPoint(x: -33, y: 15 * min(1.12, plump)),
+            tip: CGPoint(x: -31 - tailWave * 0.25, y: 40 * min(1.12, plump) * finScale),
+            finCol: finCol,
+            contourCol: contourCol
+        )
+
+        // 3. Wide Striped Broom-Fan Caudal Tail (gracefully flexes DOWN by +46px during `tailTapTrick` to tap the keycap!)
+        let droopY: CGFloat = tapFlex * 46.0
+        let pedEnd = CGPoint(x: -54.0 + tapFlex * 4.0, y: droopY * 0.38 + tailWave * 0.28)
+        let fanLen: CGFloat = (dna.bodyProfile == .bettaFlow ? 50.0 : 40.0) * finScale
+        let fanSpread: CGFloat = (dna.bodyProfile == .bettaFlow ? 34.0 : 25.0) * finScale
+        let tailTip = CGPoint(x: pedEnd.x - fanLen * (1.0 - tapFlex * 0.14), y: droopY + tailWave)
+
+        let fan = CGMutablePath()
+        fan.move(to: CGPoint(x: pedEnd.x + 4, y: pedEnd.y - 8))
+        fan.addQuadCurve(
+            to: CGPoint(x: tailTip.x + 3, y: tailTip.y - fanSpread * 0.72),
+            control: CGPoint(x: (pedEnd.x + tailTip.x) * 0.5, y: (pedEnd.y + tailTip.y) * 0.5 - fanSpread * 0.58)
+        )
+        fan.addCurve(
+            to: CGPoint(x: tailTip.x - 2, y: tailTip.y + fanSpread * 0.78),
+            control1: CGPoint(x: tailTip.x - 6, y: tailTip.y - fanSpread * 0.24),
+            control2: CGPoint(x: tailTip.x - 8, y: tailTip.y + fanSpread * 0.28)
+        )
+        fan.addQuadCurve(
+            to: CGPoint(x: pedEnd.x + 4, y: pedEnd.y + 9),
+            control: CGPoint(x: (pedEnd.x + tailTip.x) * 0.5, y: (pedEnd.y + tailTip.y) * 0.5 + fanSpread * 0.58)
+        )
+        fan.closeSubpath()
+
+        ctx.saveGState()
+        ctx.addPath(fan); ctx.clip()
+        if let grad = makeLinearGradient([
+            (0.0, finCol.withAlphaComponent(0.95)),
+            (0.60, blendColor(finCol, dorsalCol, t: 0.20).withAlphaComponent(0.84)),
+            (1.0, NSColor(srgbRed: 0.99, green: 0.96, blue: 0.88, alpha: 0.65))
+        ]) {
+            ctx.drawLinearGradient(grad, start: pedEnd, end: tailTip, options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+        }
+        ctx.setStrokeColor(contourCol.withAlphaComponent(0.42).cgColor)
+        ctx.setLineWidth(1.15)
+        ctx.setLineCap(.round)
+        for i in -3...4 {
+            let f = (CGFloat(i) - 0.5) / 3.5
+            let sy = pedEnd.y + f * 6.5
+            let ey = tailTip.y + f * (fanSpread * 0.68)
+            let ex = tailTip.x + abs(f) * 3.0
+            ctx.beginPath()
+            ctx.move(to: CGPoint(x: pedEnd.x + 2, y: sy))
+            ctx.addQuadCurve(to: CGPoint(x: ex, y: ey), control: CGPoint(x: (pedEnd.x + ex) * 0.5, y: (sy + ey) * 0.5 + droopY * 0.08))
+            ctx.strokePath()
+        }
+        ctx.restoreGState()
+
+        ctx.saveGState()
+        ctx.setStrokeColor(contourCol.withAlphaComponent(0.76).cgColor)
+        ctx.setLineWidth(1.55)
+        ctx.setLineJoin(.round)
+        ctx.addPath(fan); ctx.strokePath()
+        ctx.restoreGState()
+
+        // 4. Iconic Side-Profile Puffer Torpedo Body + Curved Tail Peduncle!
+        let ps = min(1.16, max(0.88, plump))
+        let body = CGMutablePath()
+        body.move(to: CGPoint(x: 54, y: 2))
+        // Upper boxy puffer snout -> rounded dorsal arch -> curved peduncle
+        body.addCurve(
+            to: CGPoint(x: 24, y: -27 * ps),
+            control1: CGPoint(x: 54, y: -15 * ps),
+            control2: CGPoint(x: 42, y: -27 * ps)
+        )
+        body.addCurve(
+            to: CGPoint(x: -54 + tapFlex * 4, y: pedEnd.y - 8.5),
+            control1: CGPoint(x: -4, y: -28 * ps),
+            control2: CGPoint(x: -34, y: -16 + droopY * 0.22)
+        )
+        body.addLine(to: CGPoint(x: -54 + tapFlex * 4, y: pedEnd.y + 8.5))
+        // Plump cream-ivory round puffer belly -> chin
+        body.addCurve(
+            to: CGPoint(x: 22, y: 27 * ps),
+            control1: CGPoint(x: -32, y: 18 + droopY * 0.22),
+            control2: CGPoint(x: -6, y: 30 * ps)
+        )
+        body.addCurve(
+            to: CGPoint(x: 54, y: 2),
+            control1: CGPoint(x: 42, y: 25 * ps),
+            control2: CGPoint(x: 54, y: 14 * ps)
+        )
+        body.closeSubpath()
+
+        ctx.saveGState()
+        ctx.addPath(body); ctx.clip()
+
+        let topShade = blendColor(bodyCol, dorsalCol, t: 0.26)
+        if let grad = makeLinearGradient([
+            (0.00, topShade),
+            (0.32, bodyCol),
+            (0.68, blendColor(bodyCol, bellyCol, t: 0.62)),
+            (1.00, bellyCol)
+        ]) {
+            ctx.drawLinearGradient(grad, start: CGPoint(x: 0, y: -30 * ps), end: CGPoint(x: 0, y: 30 * ps), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+        }
+
+        // Authentic Full Side-Flank Markings (9-10 Double-Ringed Crimson Ocelli + Russet Dorsal Mottling!)
+        switch dna.spotPattern {
+        case .ringedOcelli:
+            let warmDorsal = blendColor(dorsalCol, spotInnerCol, t: 0.34)
+            for (bx, by, rx, ry) in [
+                (28.0, -21.0, 12.0, 5.5),
+                (6.0, -22.5, 13.0, 5.8),
+                (-16.0, -18.5, 11.0, 5.2),
+                (41.0, -9.0, 7.5, 4.5)
+            ] as [(CGFloat, CGFloat, CGFloat, CGFloat)] {
+                ctx.setFillColor(warmDorsal.withAlphaComponent(0.62).cgColor)
+                ctx.fillEllipse(in: CGRect(x: bx - rx, y: by - ry, width: rx * 2, height: ry * 2))
+            }
+
+            let flankOcelli: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+                (16, -9, 6.2, 5.6),
+                (2, -6, 7.2, 6.4),
+                (-11, -10, 6.6, 5.8),
+                (-23, -4, 6.8, 6.0),
+                (-36, -4 + droopY * 0.14, 5.8, 5.2),
+                (-47, 1 + droopY * 0.28, 4.9, 4.4),
+                (8, 7, 6.4, 5.6),
+                (-6, 8, 7.0, 6.2),
+                (-20, 9, 6.2, 5.4),
+                (-34, 7 + droopY * 0.14, 5.4, 4.8)
+            ]
+            for (ox, oy, rx, ry) in flankOcelli {
+                ctx.setFillColor(spotOuterCol.withAlphaComponent(0.92).cgColor)
+                ctx.fillEllipse(in: CGRect(x: ox - rx, y: oy - ry, width: rx * 2, height: ry * 2))
+                ctx.setFillColor(spotInnerCol.cgColor)
+                ctx.fillEllipse(in: CGRect(x: ox - rx * 0.58, y: oy - ry * 0.58, width: rx * 1.16, height: ry * 1.16))
+            }
+
+        case .spotted:
+            ctx.setFillColor(spotOuterCol.withAlphaComponent(0.84).cgColor)
+            for (ox, oy, r) in [(16, -8, 5.5), (0, -6, 6.4), (-16, -6, 6.0), (-32, -2, 5.0), (4, 8, 5.8), (-14, 8, 5.6)] as [(CGFloat, CGFloat, CGFloat)] {
+                ctx.fillEllipse(in: CGRect(x: ox - r, y: oy - r * 0.9, width: r * 2, height: r * 1.8))
+            }
+
+        case .stripedVertical:
+            for bx in [18.0, -6.0, -30.0] as [CGFloat] {
+                let band = CGPath(roundedRect: CGRect(x: bx - 5, y: -32, width: 10, height: 64), cornerWidth: 4, cornerHeight: 4, transform: nil)
+                ctx.setFillColor(bellyCol.cgColor); ctx.addPath(band); ctx.fillPath()
+                ctx.setStrokeColor(spotOuterCol.withAlphaComponent(0.85).cgColor); ctx.setLineWidth(2.0); ctx.addPath(band); ctx.strokePath()
+            }
+
+        case .calicoBlotch:
+            for (ox, oy, rx, ry, col) in [
+                (14.0, -14.0, 16.0, 11.0, spotInnerCol),
+                (-16.0, -6.0, 18.0, 13.0, spotInnerCol),
+                (-2.0, 10.0, 14.0, 10.0, spotOuterCol.withAlphaComponent(0.84))
+            ] as [(CGFloat, CGFloat, CGFloat, CGFloat, NSColor)] {
+                ctx.setFillColor(col.cgColor)
+                ctx.fillEllipse(in: CGRect(x: ox - rx, y: oy - ry, width: rx * 2, height: ry * 2))
+            }
+
+        case .saddleBack:
+            ctx.setFillColor(dorsalCol.withAlphaComponent(0.72).cgColor)
+            ctx.fillEllipse(in: CGRect(x: -36, y: -36, width: 76, height: 24))
+
+        case .solidGradient:
+            break
+        }
+
+        // Glossy wet aquatic back highlight + cute cheek blush
+        ctx.setFillColor(NSColor.white.withAlphaComponent(0.24).cgColor)
+        ctx.fillEllipse(in: CGRect(x: -6, y: -23 * ps, width: 34, height: 7))
+        ctx.setFillColor(NSColor(srgbRed: 0.95, green: 0.44, blue: 0.44, alpha: 0.30).cgColor)
+        ctx.fillEllipse(in: CGRect(x: 31, y: 1, width: 11, height: 7))
+
+        ctx.restoreGState() // end side body clip
+
+        // Crisp KuroCat-style outer contour
+        ctx.saveGState()
+        ctx.setStrokeColor(contourCol.withAlphaComponent(0.86).cgColor)
+        ctx.setLineWidth(1.85)
+        ctx.setLineJoin(.round)
+        ctx.setLineCap(.round)
+        ctx.addPath(body); ctx.strokePath()
+        ctx.restoreGState()
+
+        // 5. High-Set Bulging 3D Amber-Red Puffer Eye (`#E24E24`)
+        drawFrontFishEye(
+            in: ctx,
+            center: CGPoint(x: 30.0, y: -11.5 * ps),
+            radius: 9.8,
+            isLeft: false,
+            irisCol: irisCol,
+            bodyCol: bodyCol,
+            contourCol: contourCol,
+            gaze: CGPoint(x: 0.35, y: tapFlex * 0.45),
+            blink: physics.effectiveEyeClosure,
+            puff: 0,
+            frenzy: 0
+        )
+
+        // 6. Cheerful Side-Profile Dog-Face Puffer Smile + Little Buck Tooth!
+        let lipCol = blendColor(bellyCol, NSColor(srgbRed: 0.97, green: 0.82, blue: 0.76, alpha: 1.0), t: 0.50)
+        ctx.saveGState()
+        let mouthPath = CGMutablePath()
+        mouthPath.move(to: CGPoint(x: 42.5, y: 4.0))
+        mouthPath.addQuadCurve(to: CGPoint(x: 54.0, y: 3.5), control: CGPoint(x: 48.0, y: 10.5))
+        mouthPath.addQuadCurve(to: CGPoint(x: 42.5, y: 4.0), control: CGPoint(x: 48.5, y: 3.2))
+        mouthPath.closeSubpath()
+        ctx.setFillColor(NSColor(srgbRed: 0.54, green: 0.21, blue: 0.25, alpha: 0.90).cgColor)
+        ctx.addPath(mouthPath); ctx.fillPath()
+        if dna.hasBuckTeeth {
+            ctx.saveGState()
+            ctx.addPath(mouthPath); ctx.clip()
+            let tooth = CGPath(roundedRect: CGRect(x: 48.2, y: 2.8, width: 3.4, height: 3.6), cornerWidth: 1.2, cornerHeight: 1.2, transform: nil)
+            ctx.setFillColor(NSColor(srgbRed: 0.99, green: 0.98, blue: 0.95, alpha: 1.0).cgColor)
+            ctx.addPath(tooth); ctx.fillPath()
+            ctx.restoreGState()
+        }
+        let smileLip = CGMutablePath()
+        smileLip.move(to: CGPoint(x: 41.5, y: 4.2))
+        smileLip.addQuadCurve(to: CGPoint(x: 54.5, y: 3.0), control: CGPoint(x: 48.0, y: 6.2))
+        ctx.setStrokeColor(lipCol.cgColor); ctx.setLineWidth(3.2); ctx.setLineCap(.round)
+        ctx.addPath(smileLip); ctx.strokePath()
+        ctx.setStrokeColor(contourCol.withAlphaComponent(0.78).cgColor); ctx.setLineWidth(1.35)
+        ctx.addPath(mouthPath); ctx.strokePath()
+        ctx.restoreGState()
+
+        // 7. Fluttering Translucent Side Pectoral Fin (authentic short helicopter paddle behind gill!)
+        let pecFlutter = sin(swim.finPhase * 2.2) * 0.26
+        ctx.saveGState()
+        ctx.translateBy(x: 15.0, y: 3.5)
+        ctx.rotate(by: pecFlutter)
+        let pec = CGMutablePath()
+        pec.move(to: CGPoint(x: 2, y: -5))
+        pec.addCurve(to: CGPoint(x: -16 * finScale, y: -9), control1: CGPoint(x: -5, y: -11), control2: CGPoint(x: -12, y: -12))
+        pec.addQuadCurve(to: CGPoint(x: -14 * finScale, y: 12), control: CGPoint(x: -20 * finScale, y: 2))
+        pec.addCurve(to: CGPoint(x: 2, y: 6), control1: CGPoint(x: -8, y: 13), control2: CGPoint(x: -2, y: 10))
+        pec.closeSubpath()
+        ctx.saveGState()
+        ctx.addPath(pec); ctx.clip()
+        if let grad = makeLinearGradient([
+            (0.0, finCol.withAlphaComponent(0.84)),
+            (1.0, NSColor(srgbRed: 1.0, green: 0.98, blue: 0.92, alpha: 0.56))
+        ]) {
+            ctx.drawLinearGradient(grad, start: CGPoint(x: 2, y: 0), end: CGPoint(x: -18 * finScale, y: 2), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+        }
+        ctx.setStrokeColor(contourCol.withAlphaComponent(0.32).cgColor)
+        ctx.setLineWidth(0.9)
+        for ry in [-5.0, 0.0, 5.5] as [CGFloat] {
+            ctx.beginPath()
+            ctx.move(to: CGPoint(x: 0, y: ry * 0.45))
+            ctx.addLine(to: CGPoint(x: -14 * finScale, y: ry))
+            ctx.strokePath()
+        }
+        ctx.restoreGState()
+        ctx.setStrokeColor(contourCol.withAlphaComponent(0.68).cgColor)
+        ctx.setLineWidth(1.25)
+        ctx.addPath(pec); ctx.strokePath()
+        ctx.restoreGState()
+
+        ctx.restoreGState()
+    }
+
+    private static func drawSideFinFan(
+        in ctx: CGContext,
+        rootA: CGPoint,
+        rootB: CGPoint,
+        tip: CGPoint,
+        finCol: NSColor,
+        contourCol: NSColor
+    ) {
+        let p = CGMutablePath()
+        p.move(to: rootA)
+        p.addQuadCurve(to: tip, control: CGPoint(x: (rootA.x + tip.x) * 0.5 + 3, y: (rootA.y + tip.y) * 0.5))
+        p.addQuadCurve(to: rootB, control: CGPoint(x: (rootB.x + tip.x) * 0.5 - 6, y: (rootB.y + tip.y) * 0.5))
+        p.closeSubpath()
+
+        ctx.saveGState()
+        ctx.addPath(p); ctx.clip()
+        if let grad = makeLinearGradient([
+            (0.0, finCol.withAlphaComponent(0.86)),
+            (1.0, NSColor(srgbRed: 0.98, green: 0.95, blue: 0.88, alpha: 0.54))
+        ]) {
+            ctx.drawLinearGradient(grad, start: CGPoint(x: (rootA.x + rootB.x) * 0.5, y: (rootA.y + rootB.y) * 0.5), end: tip, options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+        }
+        ctx.setStrokeColor(contourCol.withAlphaComponent(0.32).cgColor)
+        ctx.setLineWidth(0.95)
+        for t in [0.25, 0.50, 0.75] as [CGFloat] {
+            let sx = rootA.x + (rootB.x - rootA.x) * t
+            let sy = rootA.y + (rootB.y - rootA.y) * t
+            ctx.beginPath()
+            ctx.move(to: CGPoint(x: sx, y: sy))
+            ctx.addLine(to: CGPoint(x: tip.x + (t - 0.5) * 8, y: tip.y + (rootA.y < tip.y ? -3 : 3)))
+            ctx.strokePath()
+        }
+        ctx.restoreGState()
+
+        ctx.saveGState()
+        ctx.setStrokeColor(contourCol.withAlphaComponent(0.70).cgColor)
+        ctx.setLineWidth(1.35)
+        ctx.addPath(p); ctx.strokePath()
+        ctx.restoreGState()
+    }
+
+    private static func drawTailTapSparkleArc(in ctx: CGContext, center: CGPoint, progress: CGFloat) {
+        let p = max(0, min(1, progress))
+        let a = (1.0 - p) * 0.90
+        guard a > 0.05 else { return }
+        ctx.saveGState()
+        ctx.translateBy(x: center.x, y: center.y - 6)
+        ctx.setStrokeColor(NSColor(srgbRed: 0.98, green: 0.72, blue: 0.22, alpha: a).cgColor)
+        ctx.setLineWidth(2.0)
+        ctx.setLineCap(.round)
+        let r0: CGFloat = 10 + p * 8
+        let r1: CGFloat = 16 + p * 11
+        for ang in [-2.45, -1.57, -0.68] as [CGFloat] {
+            ctx.beginPath()
+            ctx.move(to: CGPoint(x: cos(ang) * r0, y: sin(ang) * r0))
+            ctx.addLine(to: CGPoint(x: cos(ang) * r1, y: sin(ang) * r1))
+            ctx.strokePath()
+        }
         ctx.restoreGState()
     }
 

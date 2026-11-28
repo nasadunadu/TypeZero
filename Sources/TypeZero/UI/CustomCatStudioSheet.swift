@@ -12,6 +12,7 @@ private final class StudioCatPreviewNSView: NSView {
     var showNameBubble: Bool = true
     var puffTriggerTick: Int = 0
     var keyTriggerTick: Int = 0
+    var swimTriggerTick: Int = 0
     var onDropPhotos: (([URL]) -> Void)?
 
     private var lastPuffTick: Int = 0
@@ -205,6 +206,7 @@ private struct StudioCatPreviewStage: NSViewRepresentable {
     let showNameBubble: Bool
     let puffTriggerTick: Int
     let keyTriggerTick: Int
+    let swimTriggerTick: Int
     let onDropPhotos: ([URL]) -> Void
 
     func makeNSView(context: Context) -> StudioCatPreviewNSView {
@@ -223,13 +225,17 @@ private struct StudioCatPreviewStage: NSViewRepresentable {
         nsView.onDropPhotos = onDropPhotos
         if puffTriggerTick != nsView.puffTriggerTick {
             nsView.puffTriggerTick = puffTriggerTick
-            nsView.physics.fishSwim.triggerPuffUp(duration: 2.2)
+            nsView.physics.fishSwim.triggerPuffUp(duration: 2.5, fromFrenzy: false)
         }
         if keyTriggerTick != nsView.keyTriggerTick {
             nsView.keyTriggerTick = keyTriggerTick
             let keys: [PhysicalKey] = [.f, .i, .s, .h, .j, .k, .d]
             let pick = keys.randomElement() ?? .j
             nsView.physics.triggerVoiceKeyDown(pick)
+        }
+        if swimTriggerTick != nsView.swimTriggerTick {
+            nsView.swimTriggerTick = swimTriggerTick
+            nsView.physics.fishSwim.triggerIdleShowcaseNow(direction: nil, forced: true)
         }
         nsView.needsDisplay = true
     }
@@ -265,6 +271,7 @@ struct CustomCatStudioSheet: View {
     @State private var isAnalyzingPhoto: Bool = false
     @State private var puffTriggerTick: Int = 0
     @State private var keyTriggerTick: Int = 0
+    @State private var swimTriggerTick: Int = 0
     @State private var autoRouteNotice: String = ""
     @State private var errorMessage: String = ""
     @State private var didBootstrap: Bool = false
@@ -404,6 +411,7 @@ struct CustomCatStudioSheet: View {
                     showNameBubble: enableHeadNameBubble,
                     puffTriggerTick: puffTriggerTick,
                     keyTriggerTick: keyTriggerTick,
+                    swimTriggerTick: swimTriggerTick,
                     onDropPhotos: { urls in
                         appendPhotosAndAnalyze(urls: urls)
                     }
@@ -432,26 +440,28 @@ struct CustomCatStudioSheet: View {
             .frame(maxHeight: .infinity)
 
             if selectedSpecies == "fish" {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Button {
                         keyTriggerTick += 1
                     } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "keyboard.fill").font(.system(size: 10.5))
-                            Text("试拍键")
-                        }
-                        .frame(maxWidth: .infinity)
+                        Text("拍键")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(TZSecondaryButtonStyle(compact: true, capsule: true))
+
+                    Button {
+                        swimTriggerTick += 1
+                    } label: {
+                        Text("游一圈")
+                            .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(TZSecondaryButtonStyle(compact: true, capsule: true))
 
                     Button {
                         puffTriggerTick += 1
                     } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "sparkles").font(.system(size: 10.5))
-                            Text("戳肚鼓球")
-                        }
-                        .frame(maxWidth: .infinity)
+                        Text("鼓刺球")
+                            .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(TZSecondaryButtonStyle(compact: true, capsule: true))
                 }

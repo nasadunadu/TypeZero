@@ -1754,7 +1754,7 @@ final class CatPhysics {
             hindFootActive.target = 0.0
         }
 
-        if activeSkin.species == "fish" || forceFishSimulation || fishSwim.puff.value > 0.01 || fishSwim.recentKeyTimer > 0 || !fishSwim.bubbles.isEmpty || !fishSwim.droplets.isEmpty {
+        if activeSkin.species == "fish" || forceFishSimulation || fishSwim.isShowcaseActive || fishSwim.sideBlend.value > 0.01 || fishSwim.puff.value > 0.01 || fishSwim.recentKeyTimer > 0 || !fishSwim.bubbles.isEmpty || !fishSwim.droplets.isEmpty {
             let liveMouseForFish = CGPoint(x: 56 + mouseOffset.point.x, y: 264 + mouseOffset.point.y)
             let canPuff = activeSkin.fishDNA?.canPuffUp ?? true
             fishSwim.step(
@@ -1766,11 +1766,28 @@ final class CatPhysics {
                 mouseClickLeft: curLeftMouse,
                 mouseClickRight: curRightMouse,
                 isDragging: isScruffDragging,
+                isDictating: isDictationListening,
                 anger: angerIntensity.value,
+                enableAnger: s.enableAnger,
                 petIntensity: max(petHeadIntensity, petBodyIntensity),
                 canPuffUp: canPuff,
                 reducedMotion: s.reducedMotion
             )
+            // Playful idle broom-fan tail keycap tap (`尾巴炫技轻拍键盘`) -> light up keycap + subtle desk bounce + clear keycap bubble!
+            if let tappedKey = fishSwim.consumePendingTailTapKey() {
+                let vk = tappedKey.visualKey
+                let tapPt = KeyboardLayout.canvasPoint(for: vk)
+                if s.keyboardKeyGlow && !s.isEffectivePrivacyActive {
+                    keyGlow[vk] = 1.0
+                }
+                kbImpactY.velocity += 22.0
+                kbImpactTilt.velocity += (tapPt.x < 195 ? -0.35 : 0.35)
+                if s.showKeyBadges && !s.isEffectivePrivacyActive {
+                    // Offset floating keycap badge cleanly away from the tail peduncle so it never stamps across the tail!
+                    let badgeDir: CGFloat = fishSwim.turnCos.value >= 0 ? -1.0 : 1.0
+                    spawnFloatingKeycap(label: vk.badgeLabel, near: CGPoint(x: tapPt.x + badgeDir * 28.0, y: tapPt.y + 8.0), now: now)
+                }
+            }
         }
 
         // Held physical keys determine the mode; repeats and mouse buttons do not count.

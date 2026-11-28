@@ -973,14 +973,33 @@ public enum SelfTestSuite {
             fCtx.translateBy(x: 0, y: 320)
             fCtx.scaleBy(x: 1, y: -1)
             let fp = CatPhysics()
-            fp.fishSwim.triggerPuffUp(duration: 1.5)
-            for _ in 0..<8 { fp.step(dt: 0.016, windowFrameInScreen: CGRect(x: 0, y: 0, width: 360, height: 320)) }
+            fp.forceFishSimulation = true
+            let baseNow = CACurrentMediaTime()
+            // 1. Verify idle showcase -> broom-fan tail-tap triggers keyGlow & instant cancel on real keystroke!
+            fp.fishSwim.triggerIdleShowcaseNow(direction: 1.0, forced: true)
+            var didHitTailTap = false
+            for stepIdx in 0..<210 {
+                let t = baseNow + Double(stepIdx) * 0.016
+                let inp = ScriptedFrameInput(now: t, activeKeys: [], orderedKeys: [], mouseScreenPos: CGPoint(x: 180, y: 180), mouseVelocity: .zero, leftMouseDown: false, rightMouseDown: false, lastMouseMoveTime: 0, lastMouseClickTime: 0, lastKeyActivityTime: 0)
+                fp.step(dt: 0.016, windowFrameInScreen: CGRect(x: 0, y: 0, width: 360, height: 320), scripted: inp)
+                if fp.fishSwim.tailTapRippleTimer > 0.01 { didHitTailTap = true }
+            }
+            let sideActiveDuringPatrol = fp.fishSwim.sideBlend.value > 0.7
+            // 2. Verify frantic typing instantly cancels patrol, escalates frenzy, and auto-pops into derpy puffer balloon!
+            for kIdx in 0..<20 {
+                let t = baseNow + 4.0 + Double(kIdx) * 0.07
+                let key: PhysicalKey = (kIdx % 2 == 0) ? .d : .j
+                fp.triggerVoiceKeyDown(key, at: t)
+                let inp = ScriptedFrameInput(now: t, activeKeys: [key], orderedKeys: [key], mouseScreenPos: CGPoint(x: 180, y: 180), mouseVelocity: .zero, leftMouseDown: false, rightMouseDown: false, lastMouseMoveTime: 0, lastMouseClickTime: 0, lastKeyActivityTime: t)
+                fp.step(dt: 0.07, windowFrameInScreen: CGRect(x: 0, y: 0, width: 360, height: 320), scripted: inp)
+            }
+            let frenzyTriggeredPuff = (!fp.fishSwim.isShowcaseActive && fp.fishSwim.puff.target >= 0.99)
             CatRenderer.draw(in: fCtx, physics: fp, showPermissionPill: false, isPreview: true, customSkinOverride: pfSpec)
-            fishRenderOK = fishRenderOK && (fCtx.makeImage() != nil)
+            fishRenderOK = fishRenderOK && (fCtx.makeImage() != nil) && didHitTailTap && sideActiveDuringPatrol && frenzyTriggeredPuff
         }
         expect(
             allFishProfilesOK && fishRenderOK,
-            "All 6 FishBodyProfile Rigs compile to .kurocat v2 (species=fish), parse FishPhotoDNA losslessly, and render 3/4 swimming + puff-up frames cleanly"
+            "All 6 FishBodyProfile Rigs compile to .kurocat v2 (species=fish), perform idle side-swim + broom-fan tail keycap tap, cancel patrol immediately on typing, escalate frenzy -> derpy puff balloon, and render cleanly"
         )
 
         let parsedSample = PhotoCatAnalyzer.parseVisionTextResponse("""
@@ -1477,8 +1496,11 @@ public enum SelfTestSuite {
               let sk = try? FishCoatCompiler.compileSkinSpec(from: fDNA, previewPNG: res.previewPNG) else { return }
         print("  [FishToRig] autoRoutedSpecies=\(res.species) | source=\(res.sourceSummary) | profile=\(fDNA.bodyProfile.rawValue) | pattern=\(fDNA.spotPattern.rawValue) | body=\(fDNA.primaryBodyHex) | belly=\(fDNA.bellyHex) | outer=\(fDNA.spotOuterHex) | inner=\(fDNA.spotInnerHex) | iris=\(fDNA.irisHex) | teeth=\(fDNA.hasBuckTeeth) | puff=\(fDNA.canPuffUp)")
 
+        // 6-Panel (3x2) Comprehensive Visual QA Sheet:
+        // Row 1: [1] Calm Front Typing (`D`+`J`) | [2] Frantic Typing Serious->Reluctant (`💢`+frown) | [3] Frenzy Climax Derpy Spiky Balloon (`O_o`)
+        // Row 2: [4] Idle Side-Swim Showcase (Right) | [5] Idle Tail-Tap Keyboard Trick (`尾巴炫技触碰键盘`) | [6] Idle Side-Swim (Left + `🫧 红斑`)
         let cellW = 380, cellH = 360
-        let totalW = cellW * 2, totalH = cellH * 2
+        let totalW = cellW * 3, totalH = cellH * 2
         let cs = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
         guard let ctx = CGContext(
             data: nil, width: totalW, height: totalH, bitsPerComponent: 8, bytesPerRow: totalW * 4,
@@ -1491,71 +1513,53 @@ public enum SelfTestSuite {
 
         let now = CACurrentMediaTime()
 
-        // Panel 1 (Top-Left): Idle 3/4 Hover Swimming + Rising Bubbles + Floating `🫧 红斑` Name Badge
+        // Panel 1 (Top-Left): Calm Front-Facing Typing (`D` + `J`, happy buck-tooth smile)
         ctx.saveGState()
         ctx.translateBy(x: 10, y: 36)
-        let pIdle = CatPhysics()
-        pIdle.forceFishSimulation = true
-        pIdle.fishSwim.spawnMouthBubbles(count: 3)
-        for i in 0..<10 {
-            let inp = ScriptedFrameInput(
-                now: now + Double(i) * 0.016, activeKeys: [], orderedKeys: [],
-                mouseScreenPos: CGPoint(x: 240, y: 180), mouseVelocity: .zero,
-                leftMouseDown: false, rightMouseDown: false,
-                lastMouseMoveTime: 0, lastMouseClickTime: 0, lastKeyActivityTime: 0
-            )
-            pIdle.step(dt: 0.016, windowFrameInScreen: CGRect(x: 0, y: 0, width: 360, height: 320), scripted: inp)
-        }
-        CatRenderer.draw(in: ctx, physics: pIdle, showPermissionPill: false, isPreview: true, customSkinOverride: sk)
-        let hc = CatRenderer.headPosition(pIdle, skin: sk)
-        CatCanvasView.drawCatNameBadgeStatic(
-            in: ctx, headCenterX: hc.x, headTopY: hc.y - 4.0, minX: 6, maxX: 354, minY: -28,
-            name: "红斑", mood: "🫧", accentColor: NSColor(srgbRed: 0.45, green: 0.85, blue: 1.0, alpha: 1.0), alpha: 1.0, phase: 0.4
-        )
-        ctx.restoreGState()
-
-        // Panel 2 (Top-Right): Steady Body + Both Elongated Pectoral Fins Typing `D` (left) & `J` (right)!
-        ctx.saveGState()
-        ctx.translateBy(x: CGFloat(cellW) + 10, y: 36)
-        let pType = CatPhysics()
-        pType.forceFishSimulation = true
+        let pCalm = CatPhysics()
+        pCalm.forceFishSimulation = true
         for i in 0..<18 {
-            if i == 11 { pType.triggerVoiceKeyDown(.d, at: now + Double(i) * 0.016) }
-            if i == 13 { pType.triggerVoiceKeyDown(.j, at: now + Double(i) * 0.016) }
+            if i == 11 { pCalm.triggerVoiceKeyDown(.d, at: now + Double(i) * 0.016) }
+            if i == 13 { pCalm.triggerVoiceKeyDown(.j, at: now + Double(i) * 0.016) }
             let inp = ScriptedFrameInput(
                 now: now + Double(i) * 0.016, activeKeys: i >= 11 ? [.d, .j] : [], orderedKeys: i >= 11 ? [.d, .j] : [],
                 mouseScreenPos: CGPoint(x: 210, y: 260), mouseVelocity: .zero,
                 leftMouseDown: false, rightMouseDown: false,
                 lastMouseMoveTime: 0, lastMouseClickTime: 0, lastKeyActivityTime: now + Double(i) * 0.016
             )
-            pType.step(dt: 0.016, windowFrameInScreen: CGRect(x: 0, y: 0, width: 360, height: 320), scripted: inp)
+            pCalm.step(dt: 0.016, windowFrameInScreen: CGRect(x: 0, y: 0, width: 360, height: 320), scripted: inp)
         }
-        CatRenderer.draw(in: ctx, physics: pType, showPermissionPill: false, isPreview: true, customSkinOverride: sk)
+        CatRenderer.draw(in: ctx, physics: pCalm, showPermissionPill: false, isPreview: true, customSkinOverride: sk)
         ctx.restoreGState()
 
-        // Panel 3 (Bottom-Left): Mouse-Hugging Glide Pose (Belly atop mouse, fins hugging sides!)
+        // Panel 2 (Top-Mid): Fast Typing Stage 2 (`严肃 -> 很不情愿`: slanted lids, `💢`, grumpy pout!)
         ctx.saveGState()
-        ctx.translateBy(x: 10, y: CGFloat(cellH) + 36)
-        let pMouse = CatPhysics()
-        pMouse.forceFishSimulation = true
-        for i in 0..<38 {
+        ctx.translateBy(x: CGFloat(cellW) + 10, y: 36)
+        let pReluctant = CatPhysics()
+        pReluctant.forceFishSimulation = true
+        pReluctant.fishSwim.setTypingFrenzySnapshot(0.78)
+        for i in 0..<16 {
+            if i == 10 { pReluctant.triggerVoiceKeyDown(.f, at: now + Double(i) * 0.016) }
+            if i == 12 { pReluctant.triggerVoiceKeyDown(.k, at: now + Double(i) * 0.016) }
+            pReluctant.fishSwim.setTypingFrenzySnapshot(0.78)
             let inp = ScriptedFrameInput(
-                now: now + Double(i) * 0.016, activeKeys: [], orderedKeys: [],
-                mouseScreenPos: CGPoint(x: 60, y: 260), mouseVelocity: CGVector(dx: 24, dy: -8),
-                leftMouseDown: i > 30, rightMouseDown: false,
-                lastMouseMoveTime: now + Double(i) * 0.016, lastMouseClickTime: now + Double(i) * 0.016, lastKeyActivityTime: 0
+                now: now + Double(i) * 0.016, activeKeys: i >= 10 ? [.f, .k] : [], orderedKeys: i >= 10 ? [.f, .k] : [],
+                mouseScreenPos: CGPoint(x: 200, y: 250), mouseVelocity: .zero,
+                leftMouseDown: false, rightMouseDown: false,
+                lastMouseMoveTime: 0, lastMouseClickTime: 0, lastKeyActivityTime: now + Double(i) * 0.016
             )
-            pMouse.step(dt: 0.016, windowFrameInScreen: CGRect(x: 0, y: 0, width: 360, height: 320), scripted: inp)
+            pReluctant.step(dt: 0.016, windowFrameInScreen: CGRect(x: 0, y: 0, width: 360, height: 320), scripted: inp)
         }
-        CatRenderer.draw(in: ctx, physics: pMouse, showPermissionPill: false, isPreview: true, customSkinOverride: sk)
+        pReluctant.fishSwim.setTypingFrenzySnapshot(0.78)
+        CatRenderer.draw(in: ctx, physics: pReluctant, showPermissionPill: false, isPreview: true, customSkinOverride: sk)
         ctx.restoreGState()
 
-        // Panel 4 (Bottom-Right): Puffed-Up Spiky Balloon Easter Egg (`噗！鼓成刺球`)
+        // Panel 3 (Top-Right): Frenzy Climax -> Instant Flip to Wide-Eyed Derpy Spiky Balloon (`从愤怒变呆萌`!)
         ctx.saveGState()
-        ctx.translateBy(x: CGFloat(cellW) + 10, y: CGFloat(cellH) + 36)
-        let pPuff = CatPhysics()
-        pPuff.forceFishSimulation = true
-        pPuff.fishSwim.triggerPuffUp(duration: 3.0)
+        ctx.translateBy(x: CGFloat(cellW * 2) + 10, y: 36)
+        let pDerpy = CatPhysics()
+        pDerpy.forceFishSimulation = true
+        pDerpy.fishSwim.triggerPuffUp(duration: 3.0, fromFrenzy: true)
         for i in 0..<24 {
             let inp = ScriptedFrameInput(
                 now: now + Double(i) * 0.016, activeKeys: [], orderedKeys: [],
@@ -1563,9 +1567,68 @@ public enum SelfTestSuite {
                 leftMouseDown: false, rightMouseDown: false,
                 lastMouseMoveTime: 0, lastMouseClickTime: 0, lastKeyActivityTime: 0
             )
-            pPuff.step(dt: 0.016, windowFrameInScreen: CGRect(x: 0, y: 0, width: 360, height: 320), scripted: inp)
+            pDerpy.step(dt: 0.016, windowFrameInScreen: CGRect(x: 0, y: 0, width: 360, height: 320), scripted: inp)
         }
-        CatRenderer.draw(in: ctx, physics: pPuff, showPermissionPill: false, isPreview: true, customSkinOverride: sk)
+        CatRenderer.draw(in: ctx, physics: pDerpy, showPermissionPill: false, isPreview: true, customSkinOverride: sk)
+        ctx.restoreGState()
+
+        // Panel 4 (Bottom-Left): Idle Side-Profile Aquarium Swim Showcase (Facing Right, full fish profile!)
+        ctx.saveGState()
+        ctx.translateBy(x: 10, y: CGFloat(cellH) + 36)
+        let pSwimR = CatPhysics()
+        pSwimR.forceFishSimulation = true
+        pSwimR.fishSwim.triggerIdleShowcaseNow(direction: 1.0, forced: true)
+        for i in 0..<110 {
+            let inp = ScriptedFrameInput(
+                now: now + Double(i) * 0.016, activeKeys: [], orderedKeys: [],
+                mouseScreenPos: CGPoint(x: 180, y: 180), mouseVelocity: .zero,
+                leftMouseDown: false, rightMouseDown: false,
+                lastMouseMoveTime: 0, lastMouseClickTime: 0, lastKeyActivityTime: 0
+            )
+            pSwimR.step(dt: 0.016, windowFrameInScreen: CGRect(x: 0, y: 0, width: 360, height: 320), scripted: inp)
+        }
+        CatRenderer.draw(in: ctx, physics: pSwimR, showPermissionPill: false, isPreview: true, customSkinOverride: sk)
+        ctx.restoreGState()
+
+        // Panel 5 (Bottom-Mid): Idle Tail-Tap Keyboard Trick (`尾巴炫技触碰键盘` — tail kisses glowing keycap + ripple + droplets + badge!)
+        ctx.saveGState()
+        ctx.translateBy(x: CGFloat(cellW) + 10, y: CGFloat(cellH) + 36)
+        let pTailTap = CatPhysics()
+        pTailTap.forceFishSimulation = true
+        pTailTap.fishSwim.setShowcaseSnapshot(elapsed: 2.35, direction: 1.0, tapKey: .n)
+        for i in 0..<36 {
+            let inp = ScriptedFrameInput(
+                now: now + Double(i) * 0.016, activeKeys: [], orderedKeys: [],
+                mouseScreenPos: CGPoint(x: 180, y: 180), mouseVelocity: .zero,
+                leftMouseDown: false, rightMouseDown: false,
+                lastMouseMoveTime: 0, lastMouseClickTime: 0, lastKeyActivityTime: 0
+            )
+            pTailTap.step(dt: 0.016, windowFrameInScreen: CGRect(x: 0, y: 0, width: 360, height: 320), scripted: inp)
+        }
+        CatRenderer.draw(in: ctx, physics: pTailTap, showPermissionPill: false, isPreview: true, customSkinOverride: sk)
+        ctx.restoreGState()
+
+        // Panel 6 (Bottom-Right): Idle Side-Swim Turning & Cruising Opposite Direction (Facing Left + `🫧 红斑` Badge)
+        ctx.saveGState()
+        ctx.translateBy(x: CGFloat(cellW * 2) + 10, y: CGFloat(cellH) + 36)
+        let pSwimL = CatPhysics()
+        pSwimL.forceFishSimulation = true
+        pSwimL.fishSwim.triggerIdleShowcaseNow(direction: -1.0, forced: true)
+        for i in 0..<110 {
+            let inp = ScriptedFrameInput(
+                now: now + Double(i) * 0.016, activeKeys: [], orderedKeys: [],
+                mouseScreenPos: CGPoint(x: 180, y: 180), mouseVelocity: .zero,
+                leftMouseDown: false, rightMouseDown: false,
+                lastMouseMoveTime: 0, lastMouseClickTime: 0, lastKeyActivityTime: 0
+            )
+            pSwimL.step(dt: 0.016, windowFrameInScreen: CGRect(x: 0, y: 0, width: 360, height: 320), scripted: inp)
+        }
+        CatRenderer.draw(in: ctx, physics: pSwimL, showPermissionPill: false, isPreview: true, customSkinOverride: sk)
+        let hc = CatRenderer.headPosition(pSwimL, skin: sk)
+        CatCanvasView.drawCatNameBadgeStatic(
+            in: ctx, headCenterX: hc.x, headTopY: hc.y - 4.0, minX: 6, maxX: 354, minY: -28,
+            name: "红斑", mood: "🫧", accentColor: NSColor(srgbRed: 0.45, green: 0.85, blue: 1.0, alpha: 1.0), alpha: 1.0, phase: 0.4
+        )
         ctx.restoreGState()
 
         if let outImg = ctx.makeImage() {
