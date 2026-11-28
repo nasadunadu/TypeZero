@@ -464,58 +464,44 @@ enum CatRenderer {
             return
         }
 
-        // Shift Handover 4-Stage Choreography ("走入 -> 炸毛对峙吵架 -> 旧猫下班 -> 新猫落座接班")
-        if physics.handover.isActive && !isPreview {
-            switch physics.handover.phase {
-            case .entering:
-                // Outgoing cat stays seated staring sharply left at the newcomer, while incoming cat trots in behind the desk!
-                ShiftHandoverRenderer.drawEnteringIncomingCat(
-                    in: ctx,
-                    handover: physics.handover,
-                    whiteOutline: settings.whiteOutline
-                )
-                if physics.isTabletActive {
-                    drawTablet(in: ctx, physics: physics, theme: settings.keyboardTheme, eyeTheme: settings.eyeTheme)
-                    drawParkedStylus(in: ctx, theme: settings.keyboardTheme, eyeTheme: settings.eyeTheme)
-                } else {
-                    drawMouse(in: ctx, physics: physics, kbSkin: kbSkin)
-                }
-                drawKeyboard(in: ctx, physics: physics, kbSkin: kbSkin, eyeTheme: settings.eyeTheme, showLegends: settings.showKeyLegends, flipped: flipped, marquee: settings.keyboardMarquee)
-                drawStandardCatAndEffects(
-                    in: ctx,
-                    physics: physics,
-                    skin: physics.handover.outgoingSkin,
-                    eyeTheme: physics.handover.outgoingEye,
-                    keyboardTheme: settings.keyboardTheme,
-                    whiteOutline: settings.whiteOutline,
-                    flipped: flipped,
-                    overrideSkinIris: settings.overrideSkinIris
-                )
-                if hasCanvasTransform { ctx.restoreGState() }
-                ctx.restoreGState()
-                return
-
-            case .arguing, .exitingOld:
-                // Both cats in side-profile confrontation / handover behind the foreground keyboard & mouse!
-                ShiftHandoverRenderer.drawConfrontationOrExit(
-                    in: ctx,
-                    handover: physics.handover,
-                    whiteOutline: settings.whiteOutline
-                )
-                if physics.isTabletActive {
-                    drawTablet(in: ctx, physics: physics, theme: settings.keyboardTheme, eyeTheme: settings.eyeTheme)
-                    drawParkedStylus(in: ctx, theme: settings.keyboardTheme, eyeTheme: settings.eyeTheme)
-                } else {
-                    drawMouse(in: ctx, physics: physics, kbSkin: kbSkin)
-                }
-                drawKeyboard(in: ctx, physics: physics, kbSkin: kbSkin, eyeTheme: settings.eyeTheme, showLegends: settings.showKeyLegends, flipped: flipped, marquee: settings.keyboardMarquee)
-                if hasCanvasTransform { ctx.restoreGState() }
-                ctx.restoreGState()
-                return
-
-            case .settlingNew, .idle:
-                break
+        // 1:1 Authentic Clack-Clack 10.58s Forehead-Butting Shift Handover Behind KuroCat's Desk!
+        if let hf = physics.clackSim.currentHandoverFrame, !isPreview {
+            ClackRenderer.drawHandoverBackOnKuroDesk(
+                in: ctx,
+                frame: hf,
+                livePose: physics.clackSim.pose,
+                whiteOutline: settings.whiteOutline
+            )
+            if physics.isTabletActive {
+                drawTablet(in: ctx, physics: physics, theme: settings.keyboardTheme, eyeTheme: settings.eyeTheme)
+                drawParkedStylus(in: ctx, theme: settings.keyboardTheme, eyeTheme: settings.eyeTheme)
+            } else {
+                drawMouse(in: ctx, physics: physics, kbSkin: kbSkin)
             }
+            drawKeyboard(
+                in: ctx,
+                physics: physics,
+                kbSkin: kbSkin,
+                eyeTheme: settings.eyeTheme,
+                showLegends: settings.showKeyLegends,
+                flipped: flipped,
+                marquee: settings.keyboardMarquee
+            )
+            ClackRenderer.drawHandoverFrontOnKuroDesk(
+                in: ctx,
+                frame: hf,
+                livePose: physics.clackSim.pose,
+                whiteOutline: settings.whiteOutline
+            )
+            if hasCanvasTransform { ctx.restoreGState() }
+            if showEdit {
+                drawEditOverlay(in: ctx, isEnglish: settings.isEnglish, scale: settings.scale, rotationDeg: rotationDeg, flipped: flipped)
+            }
+            if showPermissionPill {
+                drawPermissionPill(in: ctx, text: permissionPillText)
+            }
+            ctx.restoreGState()
+            return
         }
 
         // 1. Mini White Mouse OR Graphics Tablet (when drawing tablet/stylus is connected!)
@@ -537,9 +523,6 @@ enum CatRenderer {
                                   flipped: flipped,
                                   overrideSkinIris: settings.overrideSkinIris)
 
-        if physics.handover.phase == .settlingNew && !isPreview {
-            ShiftHandoverRenderer.drawSettleRingBurst(in: ctx, handover: physics.handover)
-        }
         if physics.isDictationListening && !isPreview {
             ShiftHandoverRenderer.drawCloudVoiceAura(in: ctx, physics: physics, skin: skin)
         }
@@ -727,7 +710,7 @@ enum CatRenderer {
         }
     }
 
-    private static func drawEditOverlay(in ctx: CGContext, isEnglish: Bool, scale: CGFloat, rotationDeg: CGFloat = 0, flipped: Bool = false) {
+    static func drawEditOverlay(in ctx: CGContext, isEnglish: Bool, scale: CGFloat, rotationDeg: CGFloat = 0, flipped: Bool = false) {
         _ = isEnglish
         ctx.saveGState()
         let boxRect = CGRect(x: 10, y: 26, width: 340, height: 284)
@@ -1407,11 +1390,13 @@ enum CatRenderer {
             }
         }
 
-        // Signature soft chartreuse backlit glow halos on active keys!
-        for (key, glow) in physics.keyGlow where glow > 0.05 {
-            let center = KeyboardLayout.canvasPoint(for: key)
-            drawRadialGlow(in: ctx, center: center, radius: 17.0 + glow * 6.0,
-                           color: glowBaseColor.withAlphaComponent(0.36 * glow))
+        // Signature soft chartreuse backlit glow halos on active keys (gated by keyboardKeyGlow)!
+        if CatSettings.shared.keyboardKeyGlow {
+            for (key, glow) in physics.keyGlow where glow > 0.05 {
+                let center = KeyboardLayout.canvasPoint(for: key)
+                drawRadialGlow(in: ctx, center: center, radius: 17.0 + glow * 6.0,
+                               color: glowBaseColor.withAlphaComponent(0.36 * glow))
+            }
         }
     }
 
