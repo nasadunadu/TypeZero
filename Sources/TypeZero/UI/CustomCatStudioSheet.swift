@@ -265,6 +265,7 @@ struct CustomCatStudioSheet: View {
     @State private var isAnalyzingPhoto: Bool = false
     @State private var puffTriggerTick: Int = 0
     @State private var keyTriggerTick: Int = 0
+    @State private var autoRouteNotice: String = ""
     @State private var errorMessage: String = ""
     @State private var didBootstrap: Bool = false
 
@@ -307,12 +308,14 @@ struct CustomCatStudioSheet: View {
                 rightSimpleColumn
                     .frame(maxWidth: .infinity)
             }
-            .padding(18)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 16)
+            .frame(maxHeight: .infinity)
 
             Divider().overlay(TZTheme.cardBorder)
             footerBar
         }
-        .frame(width: 676, height: 452)
+        .frame(width: 716, height: 508)
         .background(TZTheme.canvasBg)
         .onAppear {
             bootstrapInitialStateIfNeeded()
@@ -323,44 +326,50 @@ struct CustomCatStudioSheet: View {
         .onChange(of: fishDNA) { _, _ in
             if selectedSpecies == "fish" { recompileDraftSkin() }
         }
-        .onChange(of: selectedSpecies) { _, _ in
-            recompileDraftSkin()
-            if !photoSlots.isEmpty {
-                rerunMultiPhotoAnalysis()
-            }
-        }
     }
 
-    // MARK: - Clean Header
+    // MARK: - Strict Single-Species Header (Cats & Fish Strictly Separated!)
 
     private var headerBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Image(systemName: selectedSpecies == "fish" ? "fish.fill" : "cat.fill")
                 .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(TZTheme.accent)
 
-            Text("定制我家宠物")
+            Text(selectedSpecies == "fish" ? "定制我家小鱼" : "定制我家猫咪")
                 .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(TZTheme.inkPrimary)
 
-            TZSegmentedBar(
-                items: [
-                    TZSegmentedBar.Item(title: "猫咪", isSelected: selectedSpecies == "cat", action: { selectedSpecies = "cat" }),
-                    TZSegmentedBar.Item(title: "小鱼", isSelected: selectedSpecies == "fish", action: { selectedSpecies = "fish" })
-                ],
-                compact: true
-            )
-            .frame(width: 112)
+            Text(selectedSpecies == "fish" ? "小鱼分类" : "猫咪分类")
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(TZTheme.accent)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2.5)
+                .background(TZTheme.accentSoft)
+                .clipShape(Capsule())
 
             Spacer()
 
             if isAnalyzingPhoto {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)
-                    Text("正在生成…")
+                    Text("识别并生成中…")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(TZTheme.accent)
                 }
+            } else if !autoRouteNotice.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(autoRouteNotice)
+                        .font(.system(size: 11, weight: .semibold))
+                        .lineLimit(1)
+                }
+                .foregroundStyle(TZTheme.accent)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 3.5)
+                .background(TZTheme.accentSoft)
+                .clipShape(Capsule())
             }
         }
         .padding(.horizontal, 18)
@@ -690,8 +699,8 @@ struct CustomCatStudioSheet: View {
                 .frame(width: 22, height: 22)
             }
 
-            // Row B: Eye color swatches
-            HStack(spacing: 10) {
+            // Row B: Eye color swatches (single-line fixedSize so ZERO `...` truncation!)
+            HStack(spacing: 6) {
                 Text("眼睛")
                     .font(.system(size: 11.5))
                     .foregroundStyle(TZTheme.inkSecondary)
@@ -710,21 +719,24 @@ struct CustomCatStudioSheet: View {
                                     Color(nsColor: CatCoatCompiler.swiftUIColor(eye.left))
                                     Color(nsColor: CatCoatCompiler.swiftUIColor(eye.right))
                                 }
-                                .frame(width: 16, height: 16)
+                                .frame(width: 14, height: 14)
                                 .clipShape(Circle())
                             } else {
                                 Circle()
                                     .fill(Color(nsColor: CatCoatCompiler.swiftUIColor(eye.left)))
-                                    .frame(width: 16, height: 16)
+                                    .frame(width: 14, height: 14)
                             }
                             Text(eye.label)
                                 .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
                                 .foregroundStyle(isSelected ? TZTheme.accent : TZTheme.inkPrimary)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
                         }
                         .padding(.horizontal, 7)
                         .padding(.vertical, 4)
                         .background(isSelected ? TZTheme.accentSoft : TZTheme.recessedWell)
                         .clipShape(Capsule())
+                        .fixedSize(horizontal: true, vertical: false)
                     }
                     .buttonStyle(.plain)
                 }
@@ -969,12 +981,15 @@ struct CustomCatStudioSheet: View {
                     .font(.system(size: 9.5, weight: .bold))
                 Text(title)
                     .font(.system(size: 11, weight: isOn ? .semibold : .medium))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
             .foregroundStyle(isOn ? TZTheme.accent : TZTheme.inkSecondary)
-            .padding(.horizontal, 9)
+            .padding(.horizontal, 8.5)
             .padding(.vertical, 4.5)
             .background(isOn ? TZTheme.accentSoft : TZTheme.recessedWell)
             .clipShape(Capsule())
+            .fixedSize(horizontal: true, vertical: false)
         }
         .buttonStyle(.plain)
     }
@@ -1010,6 +1025,7 @@ struct CustomCatStudioSheet: View {
             return
         }
 
+        selectedSpecies = (pet.pendingStudioSpecies == "fish") ? "fish" : "cat"
         recompileDraftSkin()
 
         if !pet.pendingStudioPhotoURLs.isEmpty {
@@ -1035,7 +1051,7 @@ struct CustomCatStudioSheet: View {
 
     private func pickPhotosViaOpenPanel() {
         let panel = NSOpenPanel()
-        panel.title = "选择猫咪照片（可多选 1–4 张）"
+        panel.title = selectedSpecies == "fish" ? "选择小鱼照片（可多选 1–4 张）" : "选择猫咪照片（可多选 1–4 张）"
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = true
@@ -1075,25 +1091,29 @@ struct CustomCatStudioSheet: View {
     }
 
     private func appendPhotosAndAnalyze(urls: [URL]) {
-        let remaining = max(0, PhotoCatAnalyzer.maxPhotoCount - photoSlots.count)
-        let targetURLs = remaining > 0 ? Array(urls.prefix(remaining)) : Array(urls.prefix(PhotoCatAnalyzer.maxPhotoCount))
-        var addedAny = false
-        if remaining == 0 {
-            photoSlots.removeAll()
-        }
-        for url in targetURLs {
+        var newSlots: [UploadedCatPhotoSlot] = []
+        for url in urls.prefix(PhotoCatAnalyzer.maxPhotoCount) {
             if let cg = PhotoCatAnalyzer.loadOrientedCGImage(from: url, maxPixelSize: 1024) {
                 let thumbData = PhotoCatAnalyzer.renderSquarePreviewPNG(from: cg, size: 140)
                 let thumb = NSImage(data: thumbData) ?? NSImage(cgImage: cg, size: NSSize(width: 70, height: 70))
-                photoSlots.append(UploadedCatPhotoSlot(cgImage: cg, thumbnail: thumb))
-                addedAny = true
+                newSlots.append(UploadedCatPhotoSlot(cgImage: cg, thumbnail: thumb))
             }
         }
-        if addedAny {
-            rerunMultiPhotoAnalysis()
-        } else {
+        guard !newSlots.isEmpty else {
             errorMessage = "无法读取该图片，请换一张照片试试"
+            return
         }
+
+        // Strict species isolation: if the newly uploaded photo(s) belong to the OTHER species, replace photoSlots cleanly so cat & fish photos NEVER mix!
+        let quickDetected = PhotoCatAnalyzer.detectLocalSpecies(from: newSlots.map(\.cgImage))
+        let speciesChangedLocally = (quickDetected != nil && quickDetected != selectedSpecies)
+        if speciesChangedLocally || photoSlots.count >= PhotoCatAnalyzer.maxPhotoCount {
+            photoSlots = newSlots
+        } else {
+            let space = max(0, PhotoCatAnalyzer.maxPhotoCount - photoSlots.count)
+            photoSlots.append(contentsOf: newSlots.prefix(space))
+        }
+        rerunMultiPhotoAnalysis(newlyUploadedSlots: newSlots)
     }
 
     private func removePhotoSlot(_ id: UUID) {
@@ -1103,51 +1123,56 @@ struct CustomCatStudioSheet: View {
         }
     }
 
-    private func rerunMultiPhotoAnalysis() {
+    private func rerunMultiPhotoAnalysis(newlyUploadedSlots: [UploadedCatPhotoSlot]? = nil) {
         let cgImages = photoSlots.map(\.cgImage)
         guard !cgImages.isEmpty else { return }
         errorMessage = ""
+        autoRouteNotice = ""
         isAnalyzingPhoto = true
 
-        let mode = selectedSpecies
+        let priorMode = selectedSpecies
         let cfg = appState.llmConfig
         let byokKey = appState.apiKeyInput
         let jwt = KeychainHelper.loadCloudJWT()
 
-        if mode == "fish" {
-            let trimmedCurrent = fishDNA.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            let keepCustomName = (trimmedCurrent != "红斑" && trimmedCurrent != "泡泡" && !trimmedCurrent.isEmpty) ? trimmedCurrent : ""
-            Task {
-                let res = await PhotoCatAnalyzer.analyzeFishCGImages(
-                    cgImages,
-                    preferredName: keepCustomName,
-                    llmConfig: cfg,
-                    byokAPIKey: byokKey,
-                    cloudJWT: jwt
-                )
-                await MainActor.run {
-                    self.previewPNGData = res.previewPNG
-                    self.fishDNA = res.dna
-                    self.isAnalyzingPhoto = false
-                    self.recompileDraftSkin()
-                }
+        let keepCustomName: String = {
+            if priorMode == "fish" {
+                let t = fishDNA.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                return (t != "红斑" && t != "泡泡" && !t.isEmpty) ? t : ""
+            } else {
+                let t = dna.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                return (t != "年糕" && t != "小咪" && !t.isEmpty) ? t : ""
             }
-            return
-        }
+        }()
 
-        let trimmedCurrent = dna.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let keepCustomName = (trimmedCurrent != "年糕" && trimmedCurrent != "小咪" && !trimmedCurrent.isEmpty) ? trimmedCurrent : ""
         Task {
-            let res = await PhotoCatAnalyzer.analyzeCGImages(
+            let res = await PhotoCatAnalyzer.detectSpeciesAndAnalyze(
                 cgImages,
+                preferredSpecies: priorMode,
                 preferredName: keepCustomName,
                 llmConfig: cfg,
                 byokAPIKey: byokKey,
                 cloudJWT: jwt
             )
             await MainActor.run {
+                let didSwitch = (res.species != priorMode)
+                if didSwitch {
+                    // Never allow cross-species editing overwrite or mixed photo slots!
+                    if let fresh = newlyUploadedSlots, !fresh.isEmpty {
+                        self.photoSlots = fresh
+                    }
+                    self.pet.editingStudioSkinID = nil
+                    self.selectedSpecies = res.species
+                    self.autoRouteNotice = res.species == "fish"
+                        ? "已识别为小鱼 · 自动跳转小鱼分类"
+                        : "已识别为猫咪 · 自动跳转猫咪分类"
+                }
                 self.previewPNGData = res.previewPNG
-                self.dna = res.dna
+                if res.species == "fish", let fDNA = res.fishDNA {
+                    self.fishDNA = fDNA
+                } else if let cDNA = res.catDNA {
+                    self.dna = cDNA
+                }
                 self.isAnalyzingPhoto = false
                 self.recompileDraftSkin()
             }

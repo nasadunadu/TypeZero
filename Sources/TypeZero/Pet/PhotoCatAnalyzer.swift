@@ -523,6 +523,249 @@ public enum PhotoCatAnalyzer {
         )
     }
 
+    // MARK: - Strict Auto-Species Routing (`cat` vs `fish` — NEVER cross-generates!)
+
+    /// Fast (~35ms) on-device Apple Vision species classifier (`VNRecognizeAnimalsRequest` + `VNClassifyImageRequest`).
+    /// Uses word-boundary token matching (never loose substrings like `"cat"` in `"location"`).
+    /// Returns `"cat"`, `"fish"`, or `nil` if ambiguous.
+    public static func detectLocalSpecies(from cgImages: [CGImage]) -> String? {
+        guard !cgImages.isEmpty else { return nil }
+        let catTokens: Set<String> = [
+            "cat", "cats", "feline", "kitten", "kittens", "tabby", "siamese", "persian", "felidae"
+        ]
+        let strongFishTokens: Set<String> = [
+            "fish", "fishes", "fishtank", "aquarium", "puffer", "blowfish", "goldfish", "koi",
+            "clownfish", "betta", "angelfish", "carp", "catfish", "guppy", "shark", "stingray",
+            "seahorse", "eel", "coral", "reef", "aquatic", "marine"
+        ]
+        let mediumAquaticTokens: Set<String> = [
+            "underwater", "sea", "ocean", "seafood", "tank"
+        ]
+
+        var catScore = 0.0
+        var fishScore = 0.0
+
+        for img in cgImages.prefix(maxPhotoCount) {
+            let handler = VNImageRequestHandler(cgImage: img, options: [:])
+            let animalReq = VNRecognizeAnimalsRequest()
+            let classifyReq = VNClassifyImageRequest()
+            try? handler.perform([animalReq, classifyReq])
+
+            if let obsList = animalReq.results {
+                for obs in obsList {
+                    for lbl in obs.labels {
+                        let id = lbl.identifier.lowercased()
+                        if id == "cat" && lbl.confidence >= 0.30 {
+                            catScore += Double(lbl.confidence) * 3.5
+                        }
+                    }
+                }
+            }
+
+            if let classObs = classifyReq.results {
+                for obs in classObs where obs.confidence >= 0.04 {
+                    let id = obs.identifier.lowercased()
+                    let parts = Set(id.split(separator: "_").map(String.init))
+                    if !parts.isDisjoint(with: catTokens) && !parts.contains("catfish") {
+                        catScore += Double(obs.confidence) * 1.8
+                    } else if !parts.isDisjoint(with: strongFishTokens) || id.contains("fish") || id.contains("aquarium") || id.contains("puffer") {
+                        fishScore += Double(obs.confidence) * 2.6
+                    } else if !parts.isDisjoint(with: mediumAquaticTokens) {
+                        fishScore += Double(obs.confidence) * 0.75
+                    }
+                }
+            }
+        }
+
+        if catScore >= 0.55 && catScore >= fishScore * 1.25 {
+            return "cat"
+        }
+        if fishScore >= 0.25 && fishScore > catScore * 1.15 {
+            return "fish"
+        }
+        return nil
+    }
+
+    /// Unified entry point for photo upload: automatically detects whether the uploaded photo(s) are a Cat or a Fish,
+    /// NEVER allowing a cat to be generated in the fish lane or a fish in the cat lane!
+    public static func detectSpeciesAndAnalyze(
+        _ cgImages: [CGImage],
+        preferredSpecies: String = "cat",
+        preferredName: String = "",
+        llmConfig: LLMConfig,
+        byokAPIKey: String,
+        cloudJWT: String
+    ) async -> PetPhotoAnalysisResult {
+        let bounded = Array(cgImages.prefix(maxPhotoCount))
+        guard !bounded.isEmpty else {
+            return PetPhotoAnalysisResult(
+                species: preferredSpecies == "fish" ? "fish" : "cat",
+                catDNA: preferredSpecies == "fish" ? nil : CatPhotoDNA(),
+                fishDNA: preferredSpecies == "fish" ? FishPhotoDNA.crossRiverPufferPreset : nil,
+                previewPNG: Data(),
+                usedVisionModel: false,
+                sourceSummary: ""
+            )
+        }
+
+        var resolvedSpecies = detectLocalSpecies(from: bounded)
+
+        // If on-device Apple Vision was uncertain, ask Cloud/BYOK multimodal model to classify species first!
+        if resolvedSpecies == nil {
+            let previewURLs: [String] = bounded.prefix(2).compactMap { img in
+                guard let jpg = encodeJPEG(img, maxDimension: 384, compression: 0.72) else { return nil }
+                return "data:image/jpeg;base64," + jpg.base64EncodedString()
+            }
+            let trimmedBYOK = byokAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedJWT = cloudJWT.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !previewURLs.isEmpty {
+                if !llmConfig.useOfficialCloudTrial && !trimmedBYOK.isEmpty {
+                    resolvedSpecies = await requestBYOKSpeciesDetect(dataURLs: previewURLs, config: llmConfig, apiKey: trimmedBYOK)
+                }
+                if resolvedSpecies == nil, !trimmedJWT.isEmpty {
+                    resolvedSpecies = await requestOfficialCloudSpeciesDetect(dataURLs: previewURLs, jwt: trimmedJWT)
+                }
+                if resolvedSpecies == nil, !trimmedBYOK.isEmpty {
+                    resolvedSpecies = await requestBYOKSpeciesDetect(dataURLs: previewURLs, config: llmConfig, apiKey: trimmedBYOK)
+                }
+            }
+        }
+
+        let finalSpecies = (resolvedSpecies ?? (preferredSpecies == "fish" ? "fish" : "cat"))
+        if finalSpecies == "fish" {
+            let fishRes = await analyzeFishCGImages(
+                bounded,
+                preferredName: preferredName,
+                llmConfig: llmConfig,
+                byokAPIKey: byokAPIKey,
+                cloudJWT: cloudJWT
+            )
+            return PetPhotoAnalysisResult(
+                species: "fish",
+                catDNA: nil,
+                fishDNA: fishRes.dna,
+                previewPNG: fishRes.previewPNG,
+                usedVisionModel: fishRes.usedVisionModel,
+                sourceSummary: fishRes.sourceSummary
+            )
+        } else {
+            let catRes = await analyzeCGImages(
+                bounded,
+                preferredName: preferredName,
+                llmConfig: llmConfig,
+                byokAPIKey: byokAPIKey,
+                cloudJWT: cloudJWT
+            )
+            return PetPhotoAnalysisResult(
+                species: "cat",
+                catDNA: catRes.dna,
+                fishDNA: nil,
+                previewPNG: catRes.previewPNG,
+                usedVisionModel: catRes.usedVisionModel,
+                sourceSummary: catRes.sourceSummary
+            )
+        }
+    }
+
+    private static func requestOfficialCloudSpeciesDetect(dataURLs: [String], jwt: String) async -> String? {
+        guard let first = dataURLs.first,
+              let url = URL(string: "\(CloudAuthClient.baseURL)/api/pet/analyze-photo") else { return nil }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 14.0
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
+        let body: [String: Any] = ["species": "auto", "imageDataUrl": first, "imageDataUrls": dataURLs]
+        guard let payload = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+        req.httpBody = payload
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
+              let wrapper = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        let sp = (wrapper["species"] as? String) ?? ((wrapper["dna"] as? [String: Any])?["species"] as? String)
+        if sp == "fish" || sp == "cat" { return sp }
+        return nil
+    }
+
+    private static func requestBYOKSpeciesDetect(dataURLs: [String], config: LLMConfig, apiKey: String) async -> String? {
+        guard !dataURLs.isEmpty else { return nil }
+        let base = config.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !base.isEmpty else { return nil }
+        let sys = "判断图片中的主体宠物是猫还是鱼，仅输出纯 JSON：{\"species\":\"cat\"} 或 {\"species\":\"fish\"}。"
+        let userTxt = "判断主体动物是 cat 还是 fish。"
+
+        if PolishEngine.isAnthropicEndpoint(base) {
+            let endpoint = PolishEngine.normalizeAnthropicMessagesEndpoint(base)
+            guard let url = URL(string: endpoint) else { return nil }
+            var blocks: [[String: Any]] = dataURLs.map { du in
+                let rawB64 = du.replacingOccurrences(of: "data:image/jpeg;base64,", with: "")
+                return ["type": "image", "source": ["type": "base64", "media_type": "image/jpeg", "data": rawB64]]
+            }
+            blocks.append(["type": "text", "text": userTxt])
+            let payload: [String: Any] = [
+                "model": config.modelName.isEmpty ? "claude-haiku-5-5" : config.modelName,
+                "max_tokens": 32,
+                "system": sys,
+                "messages": [["role": "user", "content": blocks]]
+            ]
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            req.timeoutInterval = 12.0
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+            req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+            req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+            guard let (data, resp) = try? await URLSession.shared.data(for: req),
+                  let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let content = root["content"] as? [[String: Any]],
+                  let text = content.first(where: { ($0["type"] as? String) == "text" })?["text"] as? String else { return nil }
+            let low = text.lowercased()
+            if low.contains("fish") { return "fish" }
+            if low.contains("cat") { return "cat" }
+            return nil
+        }
+
+        let endpoint = base.hasSuffix("/chat/completions") ? base : "\(base)/chat/completions"
+        guard let url = URL(string: endpoint) else { return nil }
+        var model = config.modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if config.selectedProvider == .dashscope && model == "qwen-flash" { model = "qwen-vl-max" }
+        var userBlocks: [[String: Any]] = [["type": "text", "text": userTxt]]
+        for du in dataURLs { userBlocks.append(["type": "image_url", "image_url": ["url": du]]) }
+        var payload: [String: Any] = [
+            "model": model.isEmpty ? "deepseek-flash" : model,
+            "stream": false,
+            "max_tokens": 32,
+            "messages": [
+                ["role": "system", "content": sys],
+                ["role": "user", "content": userBlocks]
+            ]
+        ]
+        if base.contains("deepseek.com") { payload["thinking"] = ["type": "disabled"] }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 12.0
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+
+        let sessionConfig = URLSessionConfiguration.ephemeral
+        if PolishEngine.shouldUseDirectConnection(for: base) { sessionConfig.connectionProxyDictionary = [:] }
+        let session = URLSession(configuration: sessionConfig)
+        defer { session.finishTasksAndInvalidate() }
+
+        guard let (data, resp) = try? await session.data(for: req),
+              let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = root["choices"] as? [[String: Any]],
+              let msg = choices.first?["message"] as? [String: Any],
+              let content = msg["content"] as? String else { return nil }
+        let low = content.lowercased()
+        if low.contains("fish") { return "fish" }
+        if low.contains("cat") { return "cat" }
+        return nil
+    }
+
     private struct LocalFishPrepOutput {
         let croppedFishImage: CGImage
         let previewPNG: Data

@@ -171,6 +171,7 @@ private struct PetInlinePreviewStage: NSViewRepresentable {
 
 private enum PetSettingsSubTab: String, CaseIterable, Identifiable {
     case cats       = "cats"
+    case fish       = "fish"
     case sound      = "sound"
     case appearance = "appearance"
 
@@ -179,6 +180,7 @@ private enum PetSettingsSubTab: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .cats:       return "猫咪"
+        case .fish:       return "小鱼"
         case .sound:      return "音效"
         case .appearance: return "外观与偏好"
         }
@@ -187,6 +189,7 @@ private enum PetSettingsSubTab: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .cats:       return "cat.fill"
+        case .fish:       return "fish.fill"
         case .sound:      return "speaker.wave.2.fill"
         case .appearance: return "slider.horizontal.3"
         }
@@ -200,6 +203,14 @@ struct PetCompanionView: View {
     @State private var selectedSubTab: PetSettingsSubTab = .cats
     @State private var showAdvancedOptions: Bool = false
 
+    private var customCatSkins: [SkinSpec] {
+        pet.importedSkins.filter { $0.species != "fish" }
+    }
+
+    private var customFishSkins: [SkinSpec] {
+        pet.importedSkins.filter { $0.species == "fish" && $0.author != PetCompanionController.builtInFishAuthor }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             headerSection
@@ -208,6 +219,8 @@ struct PetCompanionView: View {
             switch selectedSubTab {
             case .cats:
                 catsSection
+            case .fish:
+                fishSection
             case .sound:
                 soundSection
             case .appearance:
@@ -215,6 +228,14 @@ struct PetCompanionView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onAppear {
+            if pet.activePetSpecies == "fish" {
+                selectedSubTab = .fish
+            }
+        }
+        .onChange(of: pet.lastAdoptedTick) { _, _ in
+            selectedSubTab = (pet.lastAdoptedSpecies == "fish") ? .fish : .cats
+        }
         .sheet(isPresented: $pet.showCustomCatStudio) {
             CustomCatStudioSheet(appState: appState, pet: pet)
         }
@@ -296,7 +317,7 @@ struct PetCompanionView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .center, spacing: 8) {
-                    Text(CatSettings.shared.activeSkin.species == "fish" ? "桌面小鱼" : "桌面小猫")
+                    Text(pet.activePetSpecies == "fish" ? "桌面小鱼" : "桌面小猫")
                         .font(.system(size: 15.5, weight: .semibold))
                         .foregroundStyle(TZTheme.inkPrimary)
                         .lineLimit(1)
@@ -305,7 +326,7 @@ struct PetCompanionView: View {
                         pet.promptRenameActiveCat()
                     } label: {
                         HStack(spacing: 3.5) {
-                            Text("\(CatSettings.shared.activeSkin.species == "fish" ? "🫧" : "🐾") \(pet.activeCatDisplayName)")
+                            Text("\(pet.activePetSpecies == "fish" ? "🫧" : "🐾") \(pet.activeCatDisplayName)")
                                 .lineLimit(1)
                             Image(systemName: "pencil")
                                 .font(.system(size: 9, weight: .bold))
@@ -335,32 +356,45 @@ struct PetCompanionView: View {
                 HStack(spacing: 8) {
                     statPill(title: "语音代敲", value: "\(pet.todayVoiceKeys)", unit: "键", accent: TZTheme.accent)
                     statPill(title: "键盘陪打", value: "\(pet.todayPhysicalKeys)", unit: "键", accent: TZTheme.emerald)
-                    statPill(title: "摸头呼噜", value: "\(pet.petTouchCount)", unit: "次", accent: TZTheme.amber)
+                    statPill(title: pet.activePetSpecies == "fish" ? "戳肚互动" : "摸头呼噜", value: "\(pet.petTouchCount)", unit: "次", accent: TZTheme.amber)
                 }
 
                 // Single-Line Non-Wrapping Action Pills
                 HStack(spacing: 8) {
                     Button {
-                        pet.openCustomCatStudio()
+                        pet.openCustomCatStudio(species: selectedSubTab == .fish ? "fish" : "cat")
                     } label: {
                         HStack(spacing: 5) {
                             Image(systemName: "camera.fill")
                                 .font(.system(size: 11))
-                            Text("上传照片")
+                            Text(selectedSubTab == .fish ? "上传小鱼" : "上传猫咪")
                         }
                     }
                     .buttonStyle(TZAccentButtonStyle(compact: true, capsule: true))
 
-                    Button {
-                        pet.playShiftHandoverDemo()
-                    } label: {
-                        HStack(spacing: 4.5) {
-                            Image(systemName: "arrow.left.arrow.right")
-                                .font(.system(size: 10.5, weight: .semibold))
-                            Text(pet.isHandoverRunning ? "换班中" : "换班")
+                    if pet.activePetSpecies == "fish" {
+                        Button {
+                            pet.triggerFishPuffDemo()
+                        } label: {
+                            HStack(spacing: 4.5) {
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 10.5, weight: .semibold))
+                                Text("鼓成刺球")
+                            }
                         }
+                        .buttonStyle(TZSecondaryButtonStyle(compact: true, capsule: true))
+                    } else {
+                        Button {
+                            pet.playShiftHandoverDemo()
+                        } label: {
+                            HStack(spacing: 4.5) {
+                                Image(systemName: "arrow.left.arrow.right")
+                                    .font(.system(size: 10.5, weight: .semibold))
+                                Text(pet.isHandoverRunning ? "换班中" : "换班")
+                            }
+                        }
+                        .buttonStyle(TZSecondaryButtonStyle(compact: true, capsule: true))
                     }
-                    .buttonStyle(TZSecondaryButtonStyle(compact: true, capsule: true))
 
                     Button {
                         pet.playVoiceTypingDemo()
@@ -456,7 +490,7 @@ struct PetCompanionView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                         addCustomCatTile
-                        ForEach(pet.importedSkins, id: \.id) { skin in
+                        ForEach(customCatSkins, id: \.id) { skin in
                             customCatSelectionCard(for: skin)
                         }
                         ForEach(CatCoatTheme.allCases) { coat in
@@ -606,7 +640,7 @@ struct PetCompanionView: View {
 
     private var addCustomCatTile: some View {
         Button {
-            pet.openCustomCatStudio()
+            pet.openCustomCatStudio(species: "cat")
         } label: {
             HStack(spacing: 10) {
                 ZStack {
@@ -619,11 +653,11 @@ struct PetCompanionView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("上传自家宠物")
+                    Text("上传自家猫咪")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(TZTheme.accent)
                         .lineLimit(1)
-                    Text("猫咪 / 小鱼 · 支持多张")
+                    Text("支持 1–4 张照片")
                         .font(.system(size: 11))
                         .foregroundStyle(TZTheme.inkSecondary)
                         .lineLimit(1)
@@ -644,6 +678,206 @@ struct PetCompanionView: View {
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             handleDroppedPhotoProviders(providers)
         }
+    }
+
+    // MARK: - Tab 2: 小鱼（与猫咪彻底隔离）
+
+    private var fishSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            TZGroupedSection(title: "选择小鱼") {
+                Button("导入皮肤") {
+                    pet.importSkinViaOpenPanel()
+                }
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(TZTheme.accent)
+                .buttonStyle(.plain)
+            } content: {
+                VStack(alignment: .leading, spacing: 12) {
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                        addCustomFishTile
+                        ForEach(customFishSkins, id: \.id) { skin in
+                            customCatSelectionCard(for: skin)
+                        }
+                        builtInPufferFishCard
+                    }
+
+                    if !pet.statusNotice.isEmpty {
+                        Text(pet.statusNotice)
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(TZTheme.accent)
+                    }
+                }
+                .padding(14)
+            }
+
+            TZGroupedSection(title: "互动与名字") {
+                EmptyView()
+            } content: {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 10) {
+                        Text("头顶偶尔冒出名字")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(TZTheme.inkPrimary)
+                            .lineLimit(1)
+
+                        Button("试一下") {
+                            pet.triggerCatNameBubbleNow(mood: "🫧")
+                        }
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(TZTheme.accent)
+                        .buttonStyle(.plain)
+
+                        Spacer(minLength: 4)
+
+                        if pet.showOccasionalNameBubble {
+                            TZSegmentedBar(
+                                items: [(2, "2分"), (4, "4分"), (8, "8分")].map { mins, label in
+                                    TZSegmentedBar.Item(
+                                        title: label,
+                                        isSelected: pet.nameBubbleIntervalMinutes == mins,
+                                        action: { pet.setNameBubbleIntervalMinutes(mins) }
+                                    )
+                                },
+                                compact: true
+                            )
+                            .frame(width: 132)
+                        }
+
+                        Toggle("", isOn: Binding(
+                            get: { pet.showOccasionalNameBubble },
+                            set: { pet.setShowOccasionalNameBubble($0) }
+                        ))
+                        .toggleStyle(.switch)
+                        .tint(TZTheme.accent)
+                        .labelsHidden()
+                    }
+
+                    TZHairline()
+
+                    HStack(spacing: 10) {
+                        Text("戳肚鼓成刺球")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(TZTheme.inkPrimary)
+                            .lineLimit(1)
+                        Spacer()
+                        Button("试一下") {
+                            pet.triggerFishPuffDemo()
+                        }
+                        .buttonStyle(TZSecondaryButtonStyle(compact: true, capsule: true))
+                    }
+                }
+                .padding(14)
+            }
+        }
+    }
+
+    private var addCustomFishTile: some View {
+        Button {
+            pet.openCustomCatStudio(species: "fish")
+        } label: {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(TZTheme.accentSoft)
+                        .frame(width: 34, height: 34)
+                    Image(systemName: "plus")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(TZTheme.accent)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("上传自家小鱼")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(TZTheme.accent)
+                        .lineLimit(1)
+                    Text("支持 1–4 张照片")
+                        .font(.system(size: 11))
+                        .foregroundStyle(TZTheme.inkSecondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(TZTheme.accentSoft.opacity(0.28))
+            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .strokeBorder(TZTheme.accent.opacity(0.38), style: StrokeStyle(lineWidth: 1, dash: [5, 3]))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            handleDroppedPhotoProviders(providers)
+        }
+    }
+
+    private var builtInPufferFishCard: some View {
+        let isSelected = (pet.builtInFishSkinID != nil && pet.customSkinID == pet.builtInFishSkinID)
+
+        return Button {
+            pet.selectBuiltInFishPreset()
+        } label: {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(Color(red: 0.94, green: 0.89, blue: 0.77))
+                        .frame(width: 34, height: 34)
+                        .overlay(Circle().strokeBorder(Color.white.opacity(0.85), lineWidth: 1.4))
+                    HStack(spacing: 3.5) {
+                        Circle()
+                            .fill(Color(red: 0.87, green: 0.23, blue: 0.21))
+                            .frame(width: 7, height: 7)
+                            .overlay(Circle().strokeBorder(Color(red: 0.29, green: 0.16, blue: 0.14), lineWidth: 1.3))
+                        Circle()
+                            .fill(Color(red: 0.87, green: 0.23, blue: 0.21))
+                            .frame(width: 7, height: 7)
+                            .overlay(Circle().strokeBorder(Color(red: 0.29, green: 0.16, blue: 0.14), lineWidth: 1.3))
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 5) {
+                        Text("红斑")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(TZTheme.inkPrimary)
+                            .lineLimit(1)
+                        if isSelected {
+                            Text("值班")
+                                .font(.system(size: 9.5, weight: .bold))
+                                .foregroundStyle(TZTheme.accent)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(TZTheme.accentSoft)
+                                .clipShape(Capsule())
+                        }
+                    }
+                    Text("红斑狗头河豚")
+                        .font(.system(size: 11))
+                        .foregroundStyle(TZTheme.inkSecondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 4)
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(TZTheme.accent)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9.5)
+            .background(isSelected ? TZTheme.accentSoft.opacity(0.55) : TZTheme.recessedWell.opacity(0.65))
+            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .strokeBorder(isSelected ? TZTheme.accent.opacity(0.65) : TZTheme.cardBorder, lineWidth: isSelected ? 1.25 : 0.8)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Tab 2: 音效

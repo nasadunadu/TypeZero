@@ -1446,13 +1446,23 @@ public enum SelfTestSuite {
 
     private static func renderFishPhotoToRig4PanelSheet(photoPaths: [String], outPath: String) {
         let urls = photoPaths.map { URL(fileURLWithPath: $0) }
+        let cgs = urls.compactMap { PhotoCatAnalyzer.loadOrientedCGImage(from: $0, maxPixelSize: 1024) }
+        let localFishSpecies = PhotoCatAnalyzer.detectLocalSpecies(from: cgs)
+        print("  [AutoSpecies] fishPhotos -> detectLocalSpecies=\(localFishSpecies ?? "nil")")
+        if let catPath = ProcessInfo.processInfo.environment["TZ_TEST_CAT_PHOTO_IN"],
+           let catCG = PhotoCatAnalyzer.loadOrientedCGImage(from: URL(fileURLWithPath: catPath), maxPixelSize: 1024) {
+            let localCatSpecies = PhotoCatAnalyzer.detectLocalSpecies(from: [catCG])
+            print("  [AutoSpecies] catPhoto -> detectLocalSpecies=\(localCatSpecies ?? "nil")")
+        }
         let byok = KeychainHelper.loadAPIKey(for: LLMConfig.default.selectedProvider)
         let jwt = KeychainHelper.loadCloudJWT()
-        var analyzed: FishPhotoAnalysisResult? = nil
+        var analyzed: PetPhotoAnalysisResult? = nil
         let sem = DispatchSemaphore(value: 0)
         Task {
-            analyzed = try? await PhotoCatAnalyzer.analyzeFishImages(
-                at: urls,
+            // Deliberately pass preferredSpecies: "cat" to prove auto-species routing jumps fish photos -> "fish"!
+            analyzed = await PhotoCatAnalyzer.detectSpeciesAndAnalyze(
+                cgs,
+                preferredSpecies: "cat",
                 preferredName: "红斑",
                 llmConfig: .default,
                 byokAPIKey: byok,
@@ -1462,8 +1472,10 @@ public enum SelfTestSuite {
         }
         _ = sem.wait(timeout: .now() + 22.0)
         guard let res = analyzed,
-              let sk = try? FishCoatCompiler.compileSkinSpec(from: res.dna, previewPNG: res.previewPNG) else { return }
-        print("  [FishToRig] source=\(res.sourceSummary) | profile=\(res.dna.bodyProfile.rawValue) | pattern=\(res.dna.spotPattern.rawValue) | body=\(res.dna.primaryBodyHex) | belly=\(res.dna.bellyHex) | outer=\(res.dna.spotOuterHex) | inner=\(res.dna.spotInnerHex) | iris=\(res.dna.irisHex) | teeth=\(res.dna.hasBuckTeeth) | puff=\(res.dna.canPuffUp)")
+              res.species == "fish",
+              let fDNA = res.fishDNA,
+              let sk = try? FishCoatCompiler.compileSkinSpec(from: fDNA, previewPNG: res.previewPNG) else { return }
+        print("  [FishToRig] autoRoutedSpecies=\(res.species) | source=\(res.sourceSummary) | profile=\(fDNA.bodyProfile.rawValue) | pattern=\(fDNA.spotPattern.rawValue) | body=\(fDNA.primaryBodyHex) | belly=\(fDNA.bellyHex) | outer=\(fDNA.spotOuterHex) | inner=\(fDNA.spotInnerHex) | iris=\(fDNA.irisHex) | teeth=\(fDNA.hasBuckTeeth) | puff=\(fDNA.canPuffUp)")
 
         let cellW = 380, cellH = 360
         let totalW = cellW * 2, totalH = cellH * 2
@@ -1502,16 +1514,16 @@ public enum SelfTestSuite {
         )
         ctx.restoreGState()
 
-        // Panel 2 (Top-Right): Active Swoop-Typing + Pectoral Fin Key-Slap + Splash Droplets
+        // Panel 2 (Top-Right): Steady Body + Both Elongated Pectoral Fins Typing `D` (left) & `J` (right)!
         ctx.saveGState()
         ctx.translateBy(x: CGFloat(cellW) + 10, y: 36)
         let pType = CatPhysics()
         pType.forceFishSimulation = true
-        pType.triggerVoiceKeyDown(.j, at: now)
         for i in 0..<18 {
-            if i == 14 { pType.triggerVoiceKeyDown(.j, at: now + Double(i) * 0.016) }
+            if i == 11 { pType.triggerVoiceKeyDown(.d, at: now + Double(i) * 0.016) }
+            if i == 13 { pType.triggerVoiceKeyDown(.j, at: now + Double(i) * 0.016) }
             let inp = ScriptedFrameInput(
-                now: now + Double(i) * 0.016, activeKeys: [.j], orderedKeys: [.j],
+                now: now + Double(i) * 0.016, activeKeys: i >= 11 ? [.d, .j] : [], orderedKeys: i >= 11 ? [.d, .j] : [],
                 mouseScreenPos: CGPoint(x: 210, y: 260), mouseVelocity: .zero,
                 leftMouseDown: false, rightMouseDown: false,
                 lastMouseMoveTime: 0, lastMouseClickTime: 0, lastKeyActivityTime: now + Double(i) * 0.016

@@ -1334,8 +1334,17 @@ async function createApp(customDbPath, options = {}) {
       return res.status(503).json({ error: { code: "ENGINE_UNAVAILABLE", message: "云端视觉模型未就绪" } });
     }
 
-    const speciesMode = String(req.body?.species || "cat").trim().toLowerCase() === "fish" ? "fish" : "cat";
-    const activeSystemPrompt = speciesMode === "fish" ? FISH_PHOTO_SYSTEM_PROMPT : PET_PHOTO_SYSTEM_PROMPT;
+    const rawSpeciesMode = String(req.body?.species || "cat").trim().toLowerCase();
+    const speciesMode = (rawSpeciesMode === "fish" || rawSpeciesMode === "auto") ? rawSpeciesMode : "cat";
+    const AUTO_PET_PHOTO_SYSTEM_PROMPT = [
+      "请先判断图片主体宠物是猫(cat)还是观赏鱼(fish)，严禁混淆！仅输出一个纯 JSON 对象：",
+      '- 如果是观赏鱼，输出 {"species":"fish","breedBadge":"...","bodyProfile":"puffer_torpedo|goldfish_round|betta_flow|koi_stream|angelfish_disc|clownfish_oval","spotPattern":"ringed_ocelli|spotted|striped_vertical|calico_blotch|solid_gradient|saddle_back","primaryBodyHex":"#EFE4C4","bellyHex":"#F7F3E7","dorsalHex":"#A86C52","spotOuterHex":"#4A2A24","spotInnerHex":"#DF3B36","finHex":"#C5B268","irisHex":"#E24E24","hasBuckTeeth":true,"canPuffUp":true,"finLength":1.0,"plumpness":1.12}',
+      '- 如果是猫咪，输出 {"species":"cat","breedBadge":"...","patternFamily":"solid|tuxedo_bicolor|tabby|tabby_bicolor|calico|tortoiseshell|colorpoint|ragdoll_bicolor|shaded|van","faceBlaze":"none|nose_bridge_blaze|inverted_v|skew_left|skew_right|helmet_cap|split_half|eye_patch_left|eye_patch_right|white_muzzle|seal_mask","blazeWidth":0.45,"foreheadM":false,"cheekStripes":false,"chinSpot":false,"chestBib":"none|locket|triangle_collar|full_bib","frontLeftSock":"none|mitten|high_sock","frontRightSock":"none|mitten|high_sock","hindSocks":false,"tailRings":false,"tailTipDip":false,"heterochromia":false,"primaryFurHex":"#RRGGBB","secondaryFurHex":"#RRGGBB","tertiaryFurHex":"#RRGGBB","irisLeftHex":"#RRGGBB","irisRightHex":"#RRGGBB","noseHex":"#RRGGBB","earInnerHex":"#RRGGBB","isSleekBuild":false,"cheekFullness":1.06,"earSize":1.0}'
+    ].join("\n");
+
+    const activeSystemPrompt = speciesMode === "fish"
+      ? FISH_PHOTO_SYSTEM_PROMPT
+      : (speciesMode === "auto" ? AUTO_PET_PHOTO_SYSTEM_PROMPT : PET_PHOTO_SYSTEM_PROMPT);
     const userBlocks = [
       {
         type: "text",
@@ -1343,9 +1352,11 @@ async function createApp(customDbPath, options = {}) {
           ? (imageDataUrls.length > 1
             ? `以上 ${imageDataUrls.length} 张照片是同一条观赏鱼的不同角度或不同灯光，请剥离紫粉/蓝水族灯色偏并忽略配鱼，综合还原唯一鱼类特征 JSON。`
             : "请剥离鱼缸灯光色偏并忽略配鱼，分析画面主角鱼的品种、体色、斑纹与五官 JSON。")
-          : (imageDataUrls.length > 1
-            ? `以上 ${imageDataUrls.length} 张照片是同一只猫咪的不同角度，请综合所有照片互补观察，输出最完整准确的唯一 JSON。`
-            : "请分析这张猫咪照片的花色、开脸、五官与毛色 JSON。"),
+          : (speciesMode === "auto"
+            ? "请先识别照片主体是猫咪(cat)还是观赏鱼(fish)，再输出对应物种的精准特征 JSON。"
+            : (imageDataUrls.length > 1
+              ? `以上 ${imageDataUrls.length} 张照片是同一只猫咪的不同角度，请综合所有照片互补观察，输出最完整准确的唯一 JSON。`
+              : "请分析这张猫咪照片的花色、开脸、五官与毛色 JSON。")),
       },
       ...imageDataUrls.map((url) => ({ type: "image_url", image_url: { url } })),
     ];
@@ -1379,6 +1390,7 @@ async function createApp(customDbPath, options = {}) {
         return res.status(502).json({ error: { code: "PARSE_ERROR", message: "视觉特征解析失败" } });
       }
       const dna = JSON.parse(content.slice(firstBrace, lastBrace + 1));
+      const detectedSpecies = String(dna?.species || (speciesMode === "fish" ? "fish" : "cat")).toLowerCase() === "fish" ? "fish" : "cat";
       const totalToks = Number(json?.usage?.total_tokens || 850);
       const costMicro = Math.max(LLM_MIN_MICRO_CNY_PER_REQ, Math.round(totalToks * 0.06));
       db.deductUsage({
@@ -1390,7 +1402,7 @@ async function createApp(customDbPath, options = {}) {
         costMicroCny: costMicro,
       });
       checkAndDispatchBudgetAlerts();
-      return res.json({ ok: true, dna });
+      return res.json({ ok: true, species: detectedSpecies, dna });
     } catch (_err) {
       return res.status(502).json({ error: { code: "RELAY_ERROR", message: "云端视觉连接异常" } });
     }

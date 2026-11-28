@@ -110,7 +110,13 @@ public final class PetCompanionController: ObservableObject {
     @Published public var statusNotice: String = ""
     @Published public var showCustomCatStudio: Bool = false
     @Published public var pendingStudioPhotoURLs: [URL] = []
+    @Published public var pendingStudioSpecies: String = "cat"
     @Published public var editingStudioSkinID: String? = nil
+    @Published public private(set) var activePetSpecies: String = "cat"
+    @Published public private(set) var lastAdoptedSpecies: String = "cat"
+    @Published public private(set) var lastAdoptedTick: Int = 0
+
+    public static let builtInFishAuthor = "TypeZero 内置小鱼"
 
     public var onOpenPetSettingsTab: (() -> Void)?
 
@@ -202,6 +208,7 @@ public final class PetCompanionController: ObservableObject {
         KeyboardSkinLibrary.shared.reload()
         self.importedSkins = SkinLibrary.shared.skins
         self.importedKeyboardSkins = KeyboardSkinLibrary.shared.skins
+        self.activePetSpecies = CatSettings.shared.activeSkin.species == "fish" ? "fish" : "cat"
         Self.sharedIfInitialized = self
 
         PetVoiceBridge.shared.onVoiceStatsUpdated = { [weak self] count in
@@ -246,7 +253,8 @@ public final class PetCompanionController: ObservableObject {
             activateOverlay()
             refreshActiveCatDisplayName()
             scheduleNextAmbientNameBubble(initialSoon: true)
-            overlayWindow?.catView.showToast(text: "🐱 \(activeCatDisplayName) 已上岗陪打！")
+            let icon = activePetSpecies == "fish" ? "🫧" : "🐱"
+            overlayWindow?.catView.showToast(text: "\(icon) \(activeCatDisplayName) 已上岗陪打！")
         } else {
             deactivateOverlay()
         }
@@ -417,8 +425,10 @@ public final class PetCompanionController: ObservableObject {
     func selectBuiltInCoat(_ target: CatCoatTheme) {
         let currentIsSame = (customSkinID.isEmpty && coatTheme == target)
         if currentIsSame && !(physics?.isHandoverActive ?? false) { return }
+        let currentIsFish = (CatSettings.shared.activeSkin.species == "fish")
 
-        if isEnabled && enableHandoverAnimation, let p = physics {
+        // Only play the 10.58s 2-cat Clack handover when switching Cat -> Cat; switching Fish -> Cat switches immediately!
+        if isEnabled && enableHandoverAnimation && !currentIsFish, let p = physics {
             let nowMs = CACurrentMediaTime() * 1000.0
             let curSkin = customSkinID.isEmpty ? nil : CatSettings.shared.activeSkin
             p.clackSim.handover.startHandover(
@@ -448,7 +458,7 @@ public final class PetCompanionController: ObservableObject {
             if showOccasionalNameBubble {
                 overlayWindow?.catView.showNameBubble(name: activeCatDisplayName, mood: "🐾")
             }
-            overlayWindow?.catView.needsDisplay = true
+            wakeToActive(immediateRedraw: true)
         }
     }
 
@@ -461,7 +471,11 @@ public final class PetCompanionController: ObservableObject {
             CatSettings.shared.overrideSkinIris = false
         }
 
-        if isEnabled && enableHandoverAnimation, let p = physics {
+        let targetIsFish = (spec.species == "fish")
+        let currentIsFish = (CatSettings.shared.activeSkin.species == "fish")
+
+        // NEVER run the 10.58s 2-cat Clack handover when switching to or from a Fish! Switch immediately.
+        if isEnabled && enableHandoverAnimation && !targetIsFish && !currentIsFish, let p = physics {
             let nowMs = CACurrentMediaTime() * 1000.0
             let curSkin = customSkinID.isEmpty ? nil : CatSettings.shared.activeSkin
             p.clackSim.handover.startHandover(
@@ -482,10 +496,40 @@ public final class PetCompanionController: ObservableObject {
             isHandoverRunning = false
             refreshActiveCatDisplayName()
             if showOccasionalNameBubble {
-                overlayWindow?.catView.showNameBubble(name: activeCatDisplayName, mood: "✨")
+                overlayWindow?.catView.showNameBubble(name: activeCatDisplayName, mood: targetIsFish ? "🫧" : "✨")
             }
-            overlayWindow?.catView.needsDisplay = true
+            wakeToActive(immediateRedraw: true)
         }
+    }
+
+    public var builtInFishSkinID: String? {
+        importedSkins.first(where: { $0.species == "fish" && $0.author == Self.builtInFishAuthor })?.id
+    }
+
+    public func selectBuiltInFishPreset() {
+        if !isEnabled { setEnabled(true) }
+        if let existingID = builtInFishSkinID {
+            selectCustomSkin(id: existingID)
+            return
+        }
+        do {
+            let jsonData = try FishCoatCompiler.compileJSONData(
+                from: FishPhotoDNA.crossRiverPufferPreset,
+                previewPNG: nil,
+                author: Self.builtInFishAuthor
+            )
+            let newID = try SkinLibrary.shared.saveCompiledData(jsonData, replacingId: nil)
+            importedSkins = SkinLibrary.shared.skins
+            selectCustomSkin(id: newID)
+        } catch {
+            statusNotice = "⚠️ \(error.localizedDescription)"
+        }
+    }
+
+    public func triggerFishPuffDemo() {
+        if !isEnabled { setEnabled(true) }
+        physics?.fishSwim.triggerPuffUp(duration: 2.2)
+        wakeToActive(immediateRedraw: true)
     }
 
     private var p: CatPhysics? { physics }
@@ -775,6 +819,7 @@ public final class PetCompanionController: ObservableObject {
 
     public func refreshActiveCatDisplayName() {
         activeCatDisplayName = CatSettings.shared.activeCatDisplayName
+        activePetSpecies = CatSettings.shared.activeSkin.species == "fish" ? "fish" : "cat"
     }
 
     public func triggerCatNameBubbleNow(mood: String? = nil) {
@@ -782,7 +827,8 @@ public final class PetCompanionController: ObservableObject {
             setEnabled(true)
         }
         refreshActiveCatDisplayName()
-        overlayWindow?.catView.showNameBubble(name: activeCatDisplayName, mood: mood)
+        let effectiveMood = mood ?? (activePetSpecies == "fish" ? "🫧" : "🐾")
+        overlayWindow?.catView.showNameBubble(name: activeCatDisplayName, mood: effectiveMood)
         scheduleNextAmbientNameBubble()
         wakeToActive(immediateRedraw: true)
     }
@@ -795,13 +841,20 @@ public final class PetCompanionController: ObservableObject {
         nextAmbientNameBubbleTime = CACurrentMediaTime() + baseSec * jitter
     }
 
-    public func openCustomCatStudio(initialPhotoURL: URL? = nil, editingSkinID: String? = nil) {
-        openCustomCatStudio(initialPhotoURLs: initialPhotoURL.map { [$0] } ?? [], editingSkinID: editingSkinID)
+    public func openCustomCatStudio(initialPhotoURL: URL? = nil, editingSkinID: String? = nil, species: String? = nil) {
+        openCustomCatStudio(initialPhotoURLs: initialPhotoURL.map { [$0] } ?? [], editingSkinID: editingSkinID, species: species)
     }
 
-    public func openCustomCatStudio(initialPhotoURLs: [URL], editingSkinID: String? = nil) {
+    public func openCustomCatStudio(initialPhotoURLs: [URL], editingSkinID: String? = nil, species: String? = nil) {
         pendingStudioPhotoURLs = Array(initialPhotoURLs.prefix(PhotoCatAnalyzer.maxPhotoCount))
         editingStudioSkinID = editingSkinID
+        if let explicit = species {
+            pendingStudioSpecies = (explicit == "fish") ? "fish" : "cat"
+        } else if let editID = editingSkinID, let sp = SkinLibrary.shared.skin(id: editID) {
+            pendingStudioSpecies = (sp.species == "fish") ? "fish" : "cat"
+        } else {
+            pendingStudioSpecies = activePetSpecies
+        }
         showCustomCatStudio = true
     }
 
@@ -814,28 +867,33 @@ public final class PetCompanionController: ObservableObject {
             showOccasionalNameBubble = enableNameBubble
             CatSettings.shared.showOccasionalNameBubble = enableNameBubble
         }
+        let adoptedSpec = SkinLibrary.shared.skin(id: newID)
+        let isFish = (adoptedSpec?.species == "fish")
         let wasAlreadyActiveSame = (customSkinID == newID)
         if !isEnabled {
             CatSettings.shared.customSkin = newID
             customSkinID = newID
             refreshActiveCatDisplayName()
             setEnabled(true)
-            overlayWindow?.catView.showNameBubble(name: activeCatDisplayName, mood: "✨")
-        } else if wasAlreadyActiveSame || replacingSkinID == customSkinID {
-            if let spec = SkinLibrary.shared.skin(id: newID) {
+            overlayWindow?.catView.showNameBubble(name: activeCatDisplayName, mood: isFish ? "🫧" : "✨")
+        } else if wasAlreadyActiveSame || replacingSkinID == customSkinID || isFish {
+            if let spec = adoptedSpec {
                 physics?.clackSim.handover.syncInstant(coat: coatTheme, customSkinID: newID, skin: spec)
             }
             CatSettings.shared.customSkin = newID
             customSkinID = newID
+            isHandoverRunning = false
             refreshActiveCatDisplayName()
-            overlayWindow?.catView.showNameBubble(name: activeCatDisplayName, mood: "✨")
+            overlayWindow?.catView.showNameBubble(name: activeCatDisplayName, mood: isFish ? "🫧" : "✨")
             wakeToActive(immediateRedraw: true)
         } else {
             selectCustomSkin(id: newID)
         }
+        lastAdoptedSpecies = isFish ? "fish" : "cat"
+        lastAdoptedTick += 1
         scheduleNextAmbientNameBubble()
-        if let sp = SkinLibrary.shared.skin(id: newID) {
-            statusNotice = "🐾 「\(sp.name)」已定制完成并上岗！"
+        if let sp = adoptedSpec {
+            statusNotice = isFish ? "🫧 「\(sp.name)」已放到桌面！" : "🐾 「\(sp.name)」已放到桌面！"
         }
     }
 
@@ -1543,8 +1601,14 @@ public final class PetCompanionController: ObservableObject {
         let isAsleep = visualStyle == .clackOriginal ? physics.clackSim.pose.sleeping : (physics.sleepiness >= 0.95)
         let hasActiveSparkles = physics.sparkles.contains { !$0.isSleepZ }
         let clackActive = visualStyle == .clackOriginal && (physics.clackSim.pose.active || !physics.clackSim.pose.bubbles.isEmpty)
+        let fishActiveMotion = activePetSpecies == "fish" && (
+            physics.fishSwim.puff.value > 0.02
+            || !physics.fishSwim.droplets.isEmpty
+            || physics.fishSwim.recentKeyTimer > 0.01
+        )
         let hasMotion = physics.isHandoverActive
             || clackActive
+            || fishActiveMotion
             || physics.isDictationListening
             || !physics.virtualActiveKeys.isEmpty
             || hasActiveSparkles || !physics.floatingKeycaps.isEmpty
