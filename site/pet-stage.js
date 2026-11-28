@@ -2460,22 +2460,22 @@
           const label = bubbleLabelForCode(b.code);
           ctx.save();
           ctx.globalAlpha = alpha;
-          ctx.font = "700 14px -apple-system, BlinkMacSystemFont, sans-serif";
+          ctx.font = "700 13.5px -apple-system, BlinkMacSystemFont, sans-serif";
           const bw = Math.max(30, ctx.measureText(label).width + 18);
           const bx = b.x + Math.sin(b.id * 2.4) * age * 9;
           const by = b.y - age * 62;
           ctx.beginPath();
-          ctx.roundRect(bx - bw / 2, by + 3, bw, 26, 8);
-          ctx.fillStyle = "#3c3533";
+          ctx.roundRect(bx - bw / 2, by + 2.5, bw, 26, 7.5);
+          ctx.fillStyle = "rgba(15, 23, 42, 0.16)";
           ctx.fill();
           ctx.beginPath();
-          ctx.roundRect(bx - bw / 2, by, bw, 26, 8);
-          ctx.fillStyle = "#fffdf7";
+          ctx.roundRect(bx - bw / 2, by, bw, 26, 7.5);
+          ctx.fillStyle = "#ffffff";
           ctx.fill();
-          ctx.strokeStyle = "#3c3533";
-          ctx.lineWidth = 2;
+          ctx.strokeStyle = "#334155";
+          ctx.lineWidth = 1.7;
           ctx.stroke();
-          ctx.fillStyle = "#2a211c";
+          ctx.fillStyle = "#0f172a";
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           ctx.fillText(label, bx, by + 13);
@@ -2487,7 +2487,7 @@
         ctx.save();
         ctx.globalAlpha = Math.min(1, pose.petting * 1.2);
         ctx.font = "700 16px -apple-system, sans-serif";
-        ctx.fillStyle = "#f26b7a";
+        ctx.fillStyle = "#f43f5e";
         ctx.fillText("♥", 268, 76 - Math.sin(pose.time * 6) * 4);
         ctx.restore();
       }
@@ -2497,46 +2497,46 @@
   }
 
   // =========================================================================
-  // 3-Act Panoramic SVG + Cat Director Timeline Scripts
+  // 3-Act Panoramic SVG + Cat Director Timeline Scripts (Clean Tech + Cute)
   // =========================================================================
   const CINEMA_ACTS = [
     {
       id: "act1",
       durationMs: 6000,
-      appBadge: "💬 聊天窗口 · 秒回消息",
+      appBadge: "💬 飞书 / 微信 · 极速回消息",
       latencyText: "118 ms",
       segments: [
         { text: "呃那个", bug: true },
-        { text: "琳琳不好意思呀，我刚下地铁拎着东西没法打字，", bug: false },
+        { text: "林哥，新版安装包我已经传好了，", bug: false },
         { text: "周三不对", bug: true },
-        { text: "改成周四晚七点那家云南菜哈", bug: false }
+        { text: "改成周四下午三点我们过一下上线细节哈", bug: false }
       ],
-      badges: ["✂️ 秒删口头禅", "🎯 捉住改口：周三→周四", "✨ 语气自然润色"],
-      polished: "琳琳不好意思呀，我刚下地铁手里拎着东西不方便打字。周四晚上七点那家云南菜我订好啦，不见不散！",
+      badges: ["✂️ 自动滤除口癖", "🎯 语义纠偏：周三→周四", "⚡ 118ms 光标直出"],
+      polished: "林哥，新版安装包我已经上传好了，周四下午三点我们一起核对一下上线细节。",
       keys: [
-        "KeyL", "KeyI", "KeyN", "Space", "KeyD", "KeyI", "KeyT", "KeyI", "KeyE", "Space",
-        "KeyZ", "KeyH", "KeyO", "KeyU", "Digit4", "Space", "KeyQ", "KeyI", "KeyD", "KeyI", "KeyA", "KeyN",
-        "Space", "KeyY", "KeyU", "KeyN", "KeyN", "KeyA", "KeyN", "Enter"
+        "KeyL", "KeyI", "KeyN", "Space", "KeyA", "KeyN", "KeyZ", "KeyH", "KeyU", "KeyA", "KeyN", "KeyG",
+        "Space", "KeyZ", "KeyH", "KeyO", "KeyU", "Digit4", "Space", "KeyS", "KeyA", "KeyN", "KeyD", "KeyI",
+        "KeyA", "KeyN", "Space", "KeyS", "KeyH", "KeyA", "KeyN", "KeyG", "Enter"
       ]
     },
     {
       id: "act2",
       durationMs: 6200,
-      appBadge: "📕 小红书 / 备忘录 · 碎碎念成稿",
-      latencyText: "132 ms",
+      appBadge: "📝 Notion / 备忘录 · 结构化列点",
+      latencyText: "129 ms",
       segments: [
-        { text: "记一下周五探店拍摄", bug: false },
+        { text: "记一下本周推进重点", bug: false },
         { text: "呃怎么说呢", bug: true },
-        { text: "三件事哈，第一带奶油色针织开衫，第二提前订靠窗位，第三", bug: false },
+        { text: "三件事，第一上线桌面小黑猫搭子，第二优化弱网离线无缝切换，第三", bug: false },
         { text: "那个啥", bug: true },
-        { text: "把两块相机电池充满", bug: false }
+        { text: "更新多语言官网页面", bug: false }
       ],
-      badges: ["✂️ 滤除碎碎念废话", "📑 自动分点 1·2·3", "⚡ 零乱码直出光标"],
-      polished: "周五探店拍摄清单：\n1. 穿搭准备：带上奶油色针织开衫；\n2. 场地预约：提前锁定靠窗拍照座位；\n3. 设备检查：把两块备用相机电池充满。",
+      badges: ["✂️ 剔除冗余停顿词", "📑 智能识别 1·2·3 分段", "✨ 零多余符号污染"],
+      polished: "本周推进重点：\n1. 上线桌面小黑猫陪打搭子与双猫换班动画；\n2. 优化弱网与断网场景下的本机离线无缝切换；\n3. 完成多语言官网动态演示升级。",
       keys: [
-        "Digit1", "KeyK", "KeyA", "KeyI", "KeyS", "KeyH", "KeyA", "KeyN", "Enter",
-        "Digit2", "KeyK", "KeyA", "KeyO", "KeyC", "KeyH", "KeyU", "KeyA", "KeyN", "KeyG", "Enter",
-        "Digit3", "KeyX", "KeyI", "KeyA", "KeyN", "KeyG", "KeyJ", "KeyI", "Enter"
+        "Digit1", "KeyZ", "KeyH", "KeyU", "KeyO", "KeyC", "KeyH", "KeyO", "KeyN", "KeyG", "Enter",
+        "Digit2", "KeyL", "KeyI", "KeyX", "KeyI", "KeyA", "KeyN", "Enter",
+        "Digit3", "KeyG", "KeyU", "KeyA", "KeyN", "KeyW", "KeyA", "KeyN", "KeyG", "Enter"
       ]
     },
     {
@@ -2544,7 +2544,7 @@
       durationMs: 10800,
       isDuelAct: true,
       appBadge: "🐾 桌面搭子 · 换猫交接仪式",
-      latencyText: "名场面"
+      latencyText: "10.5s 实况"
     }
   ];
 
