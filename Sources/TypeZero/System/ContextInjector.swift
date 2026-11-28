@@ -729,6 +729,7 @@ public final class LiveInputSession: @unchecked Sendable {
         }
 
         if alreadyEmitted.isEmpty {
+            PetVoiceBridge.shared.enqueueTypedText(finalText)
             ContextInjector.pasteViaClipboardPreservingSnapshot(
                 finalText,
                 prePasteDelayUs: prePasteUs,
@@ -832,6 +833,7 @@ public final class LiveInputSession: @unchecked Sendable {
             let diff = Self.computeAtomicReplacementDiff(emitted: alreadyEmitted, finalText: finalText)
             if diff.replaceCount == 0 {
                 if !diff.replacementSuffix.isEmpty {
+                    PetVoiceBridge.shared.enqueueTypedText(diff.replacementSuffix)
                     ContextInjector.pasteViaClipboardPreservingSnapshot(
                         diff.replacementSuffix,
                         prePasteDelayUs: prePasteUs,
@@ -1376,6 +1378,7 @@ public enum ContextInjector {
     /// so held Fn/Option keys NEVER turn Backspace into Forward-Delete or Word-Delete!
     public static func sendCleanBackspaces(count: Int) {
         guard count > 0, AXIsProcessTrusted() else { return }
+        PetVoiceBridge.shared.enqueueBackspaces(count)
         let source = CGEventSource(stateID: .privateState)
         let deleteKey = CGKeyCode(kVK_Delete)
         for i in 0..<count {
@@ -1574,6 +1577,7 @@ public enum ContextInjector {
 
     public static func typeCleanUnicode(_ text: String) {
         guard !text.isEmpty, AXIsProcessTrusted() else { return }
+        PetVoiceBridge.shared.enqueueTypedText(text)
         let lines = text.components(separatedBy: "\n")
         for (lineIdx, line) in lines.enumerated() {
             if !line.isEmpty {
@@ -1793,6 +1797,7 @@ public enum ContextInjector {
     }
 
     public static func injectTextAtCursor(_ text: String, in context: ActiveScreenContext? = nil) {
+        PetVoiceBridge.shared.enqueueTypedText(text)
         let isRichSlow = context?.prefersAtomicPolishReplacement ?? false
         pasteViaClipboardPreservingSnapshot(
             text,

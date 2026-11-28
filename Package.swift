@@ -31,6 +31,8 @@ let package = Package(
                 ]),
                 .linkedFramework("AppKit"),
                 .linkedFramework("SwiftUI"),
+                .linkedFramework("QuartzCore"),
+                .linkedFramework("CoreGraphics"),
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("CoreAudio"),
                 .linkedFramework("AudioToolbox"),
