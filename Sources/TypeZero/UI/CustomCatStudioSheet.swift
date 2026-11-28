@@ -10,7 +10,12 @@ private final class StudioCatPreviewNSView: NSView {
     var draftSkin: SkinSpec? = nil
     var catName: String = "小咪"
     var showNameBubble: Bool = true
+    var puffTriggerTick: Int = 0
+    var keyTriggerTick: Int = 0
     var onDropPhotos: (([URL]) -> Void)?
+
+    private var lastPuffTick: Int = 0
+    private var lastKeyTick: Int = 0
 
     private var animTimer: Timer?
     private var lastTick: CFTimeInterval = CACurrentMediaTime()
@@ -105,15 +110,17 @@ private final class StudioCatPreviewNSView: NSView {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         ctx.clear(bounds)
         let activeSpec = draftSkin ?? CatSettings.shared.activeSkin
+        let isFish = (activeSpec.species == "fish")
         let trimmedName = catName.trimmingCharacters(in: .whitespacesAndNewlines)
         let accent: NSColor = {
+            if isFish { return NSColor(srgbRed: 0.45, green: 0.85, blue: 1.0, alpha: 1.0) }
             if let iris = activeSpec.palette.irisLeft ?? activeSpec.palette.iris {
                 return NSColor(srgbRed: iris.r, green: iris.g, blue: iris.b, alpha: 1.0)
             }
             return NSColor.systemYellow
         }()
 
-        if previewStyle == .clackOriginal {
+        if previewStyle == .clackOriginal && !isFish {
             let stageW: CGFloat = 420
             let stageH: CGFloat = 365
             let sc = min(bounds.width / stageW, bounds.height / stageH)
@@ -170,15 +177,16 @@ private final class StudioCatPreviewNSView: NSView {
             )
             if showNameBubble, !trimmedName.isEmpty {
                 let hc = CatRenderer.headPosition(physics, skin: activeSpec)
+                let topLift: CGFloat = isFish ? 4.0 : (38.0 * activeSpec.shape.headScale)
                 CatCanvasView.drawCatNameBadgeStatic(
                     in: ctx,
                     headCenterX: hc.x,
-                    headTopY: hc.y - 38.0 * activeSpec.shape.headScale,
+                    headTopY: hc.y - topLift,
                     minX: 8,
                     maxX: stageW - 8,
                     minY: -36,
                     name: trimmedName,
-                    mood: "🐾",
+                    mood: isFish ? "🫧" : "🐾",
                     accentColor: accent,
                     alpha: 1.0,
                     phase: bubblePhase
@@ -195,6 +203,8 @@ private struct StudioCatPreviewStage: NSViewRepresentable {
     let revision: Int
     let catName: String
     let showNameBubble: Bool
+    let puffTriggerTick: Int
+    let keyTriggerTick: Int
     let onDropPhotos: ([URL]) -> Void
 
     func makeNSView(context: Context) -> StudioCatPreviewNSView {
@@ -207,9 +217,20 @@ private struct StudioCatPreviewStage: NSViewRepresentable {
         _ = revision
         nsView.previewStyle = previewStyle
         nsView.draftSkin = draftSkin
+        nsView.physics.forceFishSimulation = (draftSkin?.species == "fish")
         nsView.catName = catName
         nsView.showNameBubble = showNameBubble
         nsView.onDropPhotos = onDropPhotos
+        if puffTriggerTick != nsView.puffTriggerTick {
+            nsView.puffTriggerTick = puffTriggerTick
+            nsView.physics.fishSwim.triggerPuffUp(duration: 2.2)
+        }
+        if keyTriggerTick != nsView.keyTriggerTick {
+            nsView.keyTriggerTick = keyTriggerTick
+            let keys: [PhysicalKey] = [.f, .i, .s, .h, .j, .k, .d]
+            let pick = keys.randomElement() ?? .j
+            nsView.physics.triggerVoiceKeyDown(pick)
+        }
         nsView.needsDisplay = true
     }
 }
@@ -232,7 +253,9 @@ struct CustomCatStudioSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
 
+    @State private var selectedSpecies: String = "cat" // "cat" | "fish"
     @State private var dna: CatPhotoDNA = CatPhotoDNA()
+    @State private var fishDNA: FishPhotoDNA = FishPhotoDNA.crossRiverPufferPreset
     @State private var photoSlots: [UploadedCatPhotoSlot] = []
     @State private var previewPNGData: Data? = nil
     @State private var draftSkin: SkinSpec? = nil
@@ -240,8 +263,19 @@ struct CustomCatStudioSheet: View {
     @State private var previewStyle: PetVisualStyle = .kuroSticker
     @State private var enableHeadNameBubble: Bool = true
     @State private var isAnalyzingPhoto: Bool = false
+    @State private var puffTriggerTick: Int = 0
+    @State private var keyTriggerTick: Int = 0
     @State private var errorMessage: String = ""
     @State private var didBootstrap: Bool = false
+
+    private let fishSwatches: [(label: String, body: String, belly: String, outer: String, inner: String, fin: String, iris: String, profile: FishBodyProfile, pattern: FishSpotPattern)] = [
+        ("红斑河豚", "#EFE4C4", "#F7F3E7", "#4A2A24", "#DF3B36", "#C5B268", "#E24E24", .pufferTorpedo, .ringedOcelli),
+        ("红金鱼", "#E84B35", "#FCECE2", "#A82A1E", "#F57C42", "#F48A62", "#28282C", .goldfishRound, .solidGradient),
+        ("蓝斗鱼", "#2B66CC", "#54A4F5", "#163168", "#4BC2FF", "#3A86E8", "#E5B43B", .bettaFlow, .solidGradient),
+        ("红白锦鲤", "#F7F4EC", "#FFFFFF", "#2A2726", "#E24234", "#F3EDE2", "#3A322C", .koiStream, .calicoBlotch),
+        ("小丑鱼", "#F27926", "#FFF8F0", "#221D1A", "#F27926", "#F0983A", "#221D1A", .clownfishOval, .stripedVertical),
+        ("黄金斑", "#E8C04C", "#FAF3D8", "#6B4A24", "#D87C2E", "#D6AF46", "#D96A22", .pufferTorpedo, .spotted)
+    ]
 
     private let furSwatches: [(label: String, primary: String, stripe: String?)] = [
         ("纯黑", "#19191E", nil),
@@ -284,21 +318,39 @@ struct CustomCatStudioSheet: View {
             bootstrapInitialStateIfNeeded()
         }
         .onChange(of: dna) { _, _ in
+            if selectedSpecies == "cat" { recompileDraftSkin() }
+        }
+        .onChange(of: fishDNA) { _, _ in
+            if selectedSpecies == "fish" { recompileDraftSkin() }
+        }
+        .onChange(of: selectedSpecies) { _, _ in
             recompileDraftSkin()
+            if !photoSlots.isEmpty {
+                rerunMultiPhotoAnalysis()
+            }
         }
     }
 
     // MARK: - Clean Header
 
     private var headerBar: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "cat.fill")
+        HStack(spacing: 12) {
+            Image(systemName: selectedSpecies == "fish" ? "fish.fill" : "cat.fill")
                 .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(TZTheme.accent)
 
-            Text("定制我家猫咪")
+            Text("定制我家宠物")
                 .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(TZTheme.inkPrimary)
+
+            TZSegmentedBar(
+                items: [
+                    TZSegmentedBar.Item(title: "猫咪", isSelected: selectedSpecies == "cat", action: { selectedSpecies = "cat" }),
+                    TZSegmentedBar.Item(title: "小鱼", isSelected: selectedSpecies == "fish", action: { selectedSpecies = "fish" })
+                ],
+                compact: true
+            )
+            .frame(width: 112)
 
             Spacer()
 
@@ -339,8 +391,10 @@ struct CustomCatStudioSheet: View {
                     previewStyle: previewStyle,
                     draftSkin: draftSkin,
                     revision: draftRevision,
-                    catName: dna.name,
+                    catName: selectedSpecies == "fish" ? fishDNA.name : dna.name,
                     showNameBubble: enableHeadNameBubble,
+                    puffTriggerTick: puffTriggerTick,
+                    keyTriggerTick: keyTriggerTick,
                     onDropPhotos: { urls in
                         appendPhotosAndAnalyze(urls: urls)
                     }
@@ -348,7 +402,7 @@ struct CustomCatStudioSheet: View {
                 .padding(6)
 
                 HStack(spacing: 6) {
-                    Text(dna.breedBadge)
+                    Text(selectedSpecies == "fish" ? fishDNA.breedBadge : dna.breedBadge)
                         .font(.system(size: 10.5, weight: .semibold))
                         .foregroundStyle(TZTheme.accent)
                         .padding(.horizontal, 8)
@@ -356,7 +410,7 @@ struct CustomCatStudioSheet: View {
                         .background(TZTheme.accentSoft)
                         .clipShape(Capsule())
 
-                    Text("点小猫试敲")
+                    Text(selectedSpecies == "fish" ? "点小鱼试拍键" : "点小猫试敲")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(TZTheme.inkMuted)
                         .padding(.horizontal, 7)
@@ -368,21 +422,47 @@ struct CustomCatStudioSheet: View {
             }
             .frame(maxHeight: .infinity)
 
-            TZSegmentedBar(
-                items: [
-                    TZSegmentedBar.Item(
-                        title: "贴纸风",
-                        isSelected: previewStyle == .kuroSticker,
-                        action: { previewStyle = .kuroSticker }
-                    ),
-                    TZSegmentedBar.Item(
-                        title: "立体风",
-                        isSelected: previewStyle == .clackOriginal,
-                        action: { previewStyle = .clackOriginal }
-                    )
-                ],
-                compact: true
-            )
+            if selectedSpecies == "fish" {
+                HStack(spacing: 8) {
+                    Button {
+                        keyTriggerTick += 1
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "keyboard.fill").font(.system(size: 10.5))
+                            Text("试拍键")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(TZSecondaryButtonStyle(compact: true, capsule: true))
+
+                    Button {
+                        puffTriggerTick += 1
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "sparkles").font(.system(size: 10.5))
+                            Text("戳肚鼓球")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(TZSecondaryButtonStyle(compact: true, capsule: true))
+                }
+            } else {
+                TZSegmentedBar(
+                    items: [
+                        TZSegmentedBar.Item(
+                            title: "贴纸风",
+                            isSelected: previewStyle == .kuroSticker,
+                            action: { previewStyle = .kuroSticker }
+                        ),
+                        TZSegmentedBar.Item(
+                            title: "立体风",
+                            isSelected: previewStyle == .clackOriginal,
+                            action: { previewStyle = .clackOriginal }
+                        )
+                    ],
+                    compact: true
+                )
+            }
         }
     }
 
@@ -392,7 +472,11 @@ struct CustomCatStudioSheet: View {
         VStack(spacing: 11) {
             photoStripCard
             nameCard
-            lightTweaksCard
+            if selectedSpecies == "fish" {
+                fishLightTweaksCard
+            } else {
+                lightTweaksCard
+            }
             Spacer(minLength: 0)
         }
     }
@@ -401,7 +485,7 @@ struct CustomCatStudioSheet: View {
     private var photoStripCard: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack {
-                Text("猫咪照片")
+                Text(selectedSpecies == "fish" ? "小鱼照片" : "猫咪照片")
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(TZTheme.inkPrimary)
 
@@ -444,7 +528,7 @@ struct CustomCatStudioSheet: View {
                                 .foregroundStyle(TZTheme.accent)
                         }
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("上传猫咪照片")
+                            Text(selectedSpecies == "fish" ? "上传小鱼照片" : "上传猫咪照片")
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundStyle(TZTheme.inkPrimary)
                             Text("可传 1–4 张不同角度，细节更准")
@@ -533,7 +617,7 @@ struct CustomCatStudioSheet: View {
                 .font(.system(size: 12.5, weight: .semibold))
                 .foregroundStyle(TZTheme.inkPrimary)
 
-            TextField("给猫咪起个名字", text: $dna.name)
+            TextField(selectedSpecies == "fish" ? "给小鱼起个名字" : "给猫咪起个名字", text: selectedSpecies == "fish" ? $fishDNA.name : $dna.name)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 13, weight: .medium))
 
@@ -682,6 +766,121 @@ struct CustomCatStudioSheet: View {
         )
     }
 
+    // 3b. Minimal 3-Row Fish Appearance Card
+    private var fishLightTweaksCard: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            Text("微调外观")
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(TZTheme.inkPrimary)
+
+            // Row A: Fish body preset swatches
+            HStack(spacing: 8) {
+                Text("体色")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(TZTheme.inkSecondary)
+                    .frame(width: 30, alignment: .leading)
+
+                ForEach(fishSwatches, id: \.label) { item in
+                    let isSelected = fishDNA.primaryBodyHex.caseInsensitiveCompare(item.body) == .orderedSame
+                        && fishDNA.spotPattern == item.pattern
+                    Button {
+                        fishDNA.breedBadge = item.label
+                        fishDNA.primaryBodyHex = item.body
+                        fishDNA.bellyHex = item.belly
+                        fishDNA.spotOuterHex = item.outer
+                        fishDNA.spotInnerHex = item.inner
+                        fishDNA.finHex = item.fin
+                        fishDNA.irisHex = item.iris
+                        fishDNA.bodyProfile = item.profile
+                        fishDNA.spotPattern = item.pattern
+                        fishDNA.canPuffUp = (item.profile == .pufferTorpedo)
+                        fishDNA.hasBuckTeeth = (item.profile == .pufferTorpedo)
+                        fishDNA.finLength = (item.profile == .bettaFlow ? 1.48 : (item.profile == .goldfishRound ? 1.24 : 1.0))
+                    } label: {
+                        VStack(spacing: 3) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color(nsColor: CatCoatCompiler.swiftUIColor(item.body)))
+                                    .frame(width: 22, height: 22)
+                                if item.pattern == .ringedOcelli {
+                                    Circle()
+                                        .fill(Color(nsColor: CatCoatCompiler.swiftUIColor(item.inner)))
+                                        .frame(width: 8, height: 8)
+                                        .overlay(Circle().strokeBorder(Color(nsColor: CatCoatCompiler.swiftUIColor(item.outer)), lineWidth: 1.6))
+                                }
+                            }
+                            .overlay(
+                                Circle()
+                                    .strokeBorder(isSelected ? TZTheme.accent : Color.primary.opacity(0.18), lineWidth: isSelected ? 2.2 : 1)
+                            )
+                            Text(item.label)
+                                .font(.system(size: 9.5, weight: isSelected ? .semibold : .regular))
+                                .foregroundStyle(isSelected ? TZTheme.accent : TZTheme.inkSecondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Spacer(minLength: 2)
+
+                ColorPicker("", selection: Binding(
+                    get: { Color(nsColor: CatCoatCompiler.swiftUIColor(fishDNA.primaryBodyHex)) },
+                    set: { fishDNA.primaryBodyHex = CatCoatCompiler.hexString(from: NSColor($0)) }
+                ), supportsOpacity: false)
+                .labelsHidden()
+                .frame(width: 22, height: 22)
+            }
+
+            // Row B: Spot pattern pills
+            HStack(spacing: 7) {
+                Text("斑纹")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(TZTheme.inkSecondary)
+                    .frame(width: 30, alignment: .leading)
+
+                ForEach([
+                    (FishSpotPattern.ringedOcelli, "红芯环斑"),
+                    (FishSpotPattern.spotted, "波点"),
+                    (FishSpotPattern.stripedVertical, "竖条纹"),
+                    (FishSpotPattern.solidGradient, "纯色")
+                ], id: \.0) { pat, label in
+                    let isOn = (fishDNA.spotPattern == pat)
+                    simplePill(title: label, isOn: isOn) {
+                        fishDNA.spotPattern = pat
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+
+            // Row C: Signature fish traits
+            HStack(spacing: 7) {
+                Text("特征")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(TZTheme.inkSecondary)
+                    .frame(width: 30, alignment: .leading)
+
+                simplePill(title: "小板牙", isOn: fishDNA.hasBuckTeeth) {
+                    fishDNA.hasBuckTeeth.toggle()
+                }
+                simplePill(title: "鼓成刺球", isOn: fishDNA.canPuffUp) {
+                    fishDNA.canPuffUp.toggle()
+                    if fishDNA.canPuffUp { puffTriggerTick += 1 }
+                }
+                simplePill(title: "飘逸长鳍", isOn: fishDNA.finLength > 1.25) {
+                    fishDNA.finLength = fishDNA.finLength > 1.25 ? 1.0 : 1.45
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(12)
+        .background(TZTheme.cardBg)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(TZTheme.cardBorder, lineWidth: 1)
+        )
+    }
+
     // MARK: - Clean Footer
 
     private var footerBar: some View {
@@ -790,9 +989,14 @@ struct CustomCatStudioSheet: View {
 
         if let editID = pet.editingStudioSkinID,
            let existing = SkinLibrary.shared.skin(id: editID) {
-            if let existingDNA = existing.photoDNA {
+            if existing.species == "fish", let existingFish = existing.fishDNA {
+                selectedSpecies = "fish"
+                fishDNA = existingFish
+            } else if let existingDNA = existing.photoDNA {
+                selectedSpecies = "cat"
                 dna = existingDNA
             } else {
+                selectedSpecies = "cat"
                 dna.name = existing.name
                 dna.primaryFurHex = CatCoatCompiler.hexString(from: existing.palette.body.srgbNS)
             }
@@ -816,9 +1020,16 @@ struct CustomCatStudioSheet: View {
     }
 
     private func recompileDraftSkin() {
-        if let compiled = try? CatCoatCompiler.compileSkinSpec(from: dna, previewPNG: previewPNGData) {
-            draftSkin = compiled
-            draftRevision += 1
+        if selectedSpecies == "fish" {
+            if let compiled = try? FishCoatCompiler.compileSkinSpec(from: fishDNA, previewPNG: previewPNGData) {
+                draftSkin = compiled
+                draftRevision += 1
+            }
+        } else {
+            if let compiled = try? CatCoatCompiler.compileSkinSpec(from: dna, previewPNG: previewPNGData) {
+                draftSkin = compiled
+                draftRevision += 1
+            }
         }
     }
 
@@ -898,12 +1109,34 @@ struct CustomCatStudioSheet: View {
         errorMessage = ""
         isAnalyzingPhoto = true
 
-        let trimmedCurrent = dna.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let keepCustomName = (trimmedCurrent != "年糕" && trimmedCurrent != "小咪" && !trimmedCurrent.isEmpty) ? trimmedCurrent : ""
+        let mode = selectedSpecies
         let cfg = appState.llmConfig
         let byokKey = appState.apiKeyInput
         let jwt = KeychainHelper.loadCloudJWT()
 
+        if mode == "fish" {
+            let trimmedCurrent = fishDNA.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let keepCustomName = (trimmedCurrent != "红斑" && trimmedCurrent != "泡泡" && !trimmedCurrent.isEmpty) ? trimmedCurrent : ""
+            Task {
+                let res = await PhotoCatAnalyzer.analyzeFishCGImages(
+                    cgImages,
+                    preferredName: keepCustomName,
+                    llmConfig: cfg,
+                    byokAPIKey: byokKey,
+                    cloudJWT: jwt
+                )
+                await MainActor.run {
+                    self.previewPNGData = res.previewPNG
+                    self.fishDNA = res.dna
+                    self.isAnalyzingPhoto = false
+                    self.recompileDraftSkin()
+                }
+            }
+            return
+        }
+
+        let trimmedCurrent = dna.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let keepCustomName = (trimmedCurrent != "年糕" && trimmedCurrent != "小咪" && !trimmedCurrent.isEmpty) ? trimmedCurrent : ""
         Task {
             let res = await PhotoCatAnalyzer.analyzeCGImages(
                 cgImages,
@@ -924,9 +1157,14 @@ struct CustomCatStudioSheet: View {
     private func adoptAndActivateCat() {
         errorMessage = ""
         do {
-            let jsonData = try CatCoatCompiler.compileJSONData(from: dna, previewPNG: previewPNGData)
-            if previewStyle != pet.visualStyle {
-                pet.setVisualStyle(previewStyle)
+            let jsonData: Data
+            if selectedSpecies == "fish" {
+                jsonData = try FishCoatCompiler.compileJSONData(from: fishDNA, previewPNG: previewPNGData)
+            } else {
+                jsonData = try CatCoatCompiler.compileJSONData(from: dna, previewPNG: previewPNGData)
+                if previewStyle != pet.visualStyle {
+                    pet.setVisualStyle(previewStyle)
+                }
             }
             try pet.adoptCompiledCatSkin(
                 jsonData: jsonData,

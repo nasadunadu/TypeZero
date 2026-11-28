@@ -73,6 +73,9 @@ private final class PetInlinePreviewNSView: NSView {
         let sampleKeys: [PhysicalKey] = [.t, .y, .p, .e, .z, .e, .r, .o, .space]
         let pick = sampleKeys.randomElement() ?? .j
         physics.triggerVoiceKeyDown(pick)
+        if CatSettings.shared.activeSkin.species == "fish" {
+            physics.fishSwim.triggerPuffUp(duration: 1.6)
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
             self?.physics.clackSim.triggerKeyUp(code: pick.clackCode)
         }
@@ -99,7 +102,7 @@ private final class PetInlinePreviewNSView: NSView {
         ctx.clear(bounds)
         let sSettings = CatSettings.shared
 
-        if sSettings.visualStyle == .clackOriginal {
+        if sSettings.visualStyle == .clackOriginal && sSettings.activeSkin.species != "fish" {
             let stageW: CGFloat = 420
             let stageH: CGFloat = 350
             let sc = min(bounds.width / stageW, bounds.height / stageH)
@@ -293,7 +296,7 @@ struct PetCompanionView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .center, spacing: 8) {
-                    Text("桌面小猫")
+                    Text(CatSettings.shared.activeSkin.species == "fish" ? "桌面小鱼" : "桌面小猫")
                         .font(.system(size: 15.5, weight: .semibold))
                         .foregroundStyle(TZTheme.inkPrimary)
                         .lineLimit(1)
@@ -302,7 +305,7 @@ struct PetCompanionView: View {
                         pet.promptRenameActiveCat()
                     } label: {
                         HStack(spacing: 3.5) {
-                            Text("🐾 \(pet.activeCatDisplayName)")
+                            Text("\(CatSettings.shared.activeSkin.species == "fish" ? "🫧" : "🐾") \(pet.activeCatDisplayName)")
                                 .lineLimit(1)
                             Image(systemName: "pencil")
                                 .font(.system(size: 9, weight: .bold))
@@ -616,11 +619,11 @@ struct PetCompanionView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("上传自家猫咪")
+                    Text("上传自家宠物")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(TZTheme.accent)
                         .lineLimit(1)
-                    Text("支持多张照片")
+                    Text("猫咪 / 小鱼 · 支持多张")
                         .font(.system(size: 11))
                         .foregroundStyle(TZTheme.inkSecondary)
                         .lineLimit(1)
@@ -1311,7 +1314,7 @@ struct PetCompanionView: View {
                                     .clipShape(Capsule())
                             }
                         }
-                        Text(skin.photoDNA?.breedBadge ?? "我家猫咪")
+                        Text(skin.fishDNA?.breedBadge ?? skin.photoDNA?.breedBadge ?? (skin.species == "fish" ? "我家小鱼" : "我家猫咪"))
                             .font(.system(size: 11))
                             .foregroundStyle(TZTheme.inkSecondary)
                             .lineLimit(1)

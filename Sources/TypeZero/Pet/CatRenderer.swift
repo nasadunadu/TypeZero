@@ -218,6 +218,9 @@ enum CatRenderer {
         }
 
         let skin = CatSettings.shared.activeSkin
+        if skin.species == "fish" {
+            return FishRenderer.hitTestFish(point: p, physics: physics) ? .body : .none
+        }
         if skin.renderStyle == .douni || skin.renderStyle == .beagle {
             let loaf = max(0, min(1, physics.douniLoafBlend.value))
             let loafS = loaf * loaf * (3.0 - 2.0 * loaf)
@@ -406,6 +409,38 @@ enum CatRenderer {
         let lie = max(0, min(1, physics.lieIntensity.value))
         let dizzy = max(0, min(1, physics.dizzyIntensity.value))
         let kbSkin = settings.activeKeyboardSkin
+
+        if skin.species == "fish", let fishDNA = skin.fishDNA {
+            drawMouse(in: ctx, physics: physics, kbSkin: kbSkin)
+            drawKeyboard(
+                in: ctx,
+                physics: physics,
+                kbSkin: kbSkin,
+                eyeTheme: settings.eyeTheme,
+                showLegends: settings.showKeyLegends,
+                flipped: flipped,
+                marquee: settings.keyboardMarquee
+            )
+            FishRenderer.draw(
+                in: ctx,
+                physics: physics,
+                dna: fishDNA,
+                whiteOutline: settings.whiteOutline,
+                isPreview: isPreview
+            )
+            if !physics.floatingKeycaps.isEmpty {
+                drawFloatingKeycaps(in: ctx, physics: physics, flipped: flipped)
+            }
+            if hasCanvasTransform { ctx.restoreGState() }
+            if showEdit {
+                drawEditOverlay(in: ctx, isEnglish: settings.isEnglish, scale: settings.scale, rotationDeg: rotationDeg, flipped: flipped)
+            }
+            if !isPreview && showPermissionPill {
+                drawPermissionPill(in: ctx, text: permissionPillText)
+            }
+            ctx.restoreGState()
+            return
+        }
 
         if skin.renderStyle == .beagle {
             drawBeagleScene(
@@ -805,6 +840,9 @@ enum CatRenderer {
     }
 
     static func headPosition(_ physics: CatPhysics, skin: SkinSpec) -> CGPoint {
+        if skin.species == "fish", let fishDNA = skin.fishDNA {
+            return FishRenderer.headPosition(physics, dna: fishDNA)
+        }
         let headLift: CGFloat = build(skin).headLift
         let scruff = max(0, min(1, physics.scruffDrag.value))
         return CGPoint(

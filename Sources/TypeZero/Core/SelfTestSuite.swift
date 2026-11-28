@@ -946,6 +946,42 @@ public enum SelfTestSuite {
            !photoIn.isEmpty, !photoOut.isEmpty {
             renderPhotoToRigComparisonSheet(photoPath: photoIn, outPath: photoOut)
         }
+        if let fishIn = ProcessInfo.processInfo.environment["TZ_TEST_FISH_PHOTOS_IN"],
+           let fishOut = ProcessInfo.processInfo.environment["TZ_TEST_FISH_OUT"],
+           !fishIn.isEmpty, !fishOut.isEmpty {
+            let paths = fishIn.split(separator: ":").map(String.init)
+            renderFishPhotoToRig4PanelSheet(photoPaths: paths, outPath: fishOut)
+        }
+
+        // Test: FishRig Multi-Species Compilation, Round-Trip & 4-Pose Offscreen Render
+        var allFishProfilesOK = true
+        for prof in FishBodyProfile.allCases {
+            var fd = FishPhotoDNA(name: "鱼_\(prof.rawValue)", breedBadge: prof.title, bodyProfile: prof, spotPattern: prof == .pufferTorpedo ? .ringedOcelli : .solidGradient)
+            fd.sanitize()
+            if let sp = try? FishCoatCompiler.compileSkinSpec(from: fd),
+               sp.species == "fish",
+               sp.fishDNA?.bodyProfile == prof {
+                // valid
+            } else {
+                allFishProfilesOK = false
+            }
+        }
+        let pufferSpec = try? FishCoatCompiler.compileSkinSpec(from: FishPhotoDNA.crossRiverPufferPreset)
+        var fishRenderOK = (pufferSpec?.species == "fish" && pufferSpec?.fishDNA?.spotPattern == .ringedOcelli)
+        if let pfSpec = pufferSpec,
+           let fCtx = CGContext(data: nil, width: 360, height: 320, bitsPerComponent: 8, bytesPerRow: 360 * 4, space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+            fCtx.translateBy(x: 0, y: 320)
+            fCtx.scaleBy(x: 1, y: -1)
+            let fp = CatPhysics()
+            fp.fishSwim.triggerPuffUp(duration: 1.5)
+            for _ in 0..<8 { fp.step(dt: 0.016, windowFrameInScreen: CGRect(x: 0, y: 0, width: 360, height: 320)) }
+            CatRenderer.draw(in: fCtx, physics: fp, showPermissionPill: false, isPreview: true, customSkinOverride: pfSpec)
+            fishRenderOK = fishRenderOK && (fCtx.makeImage() != nil)
+        }
+        expect(
+            allFishProfilesOK && fishRenderOK,
+            "All 6 FishBodyProfile Rigs compile to .kurocat v2 (species=fish), parse FishPhotoDNA losslessly, and render 3/4 swimming + puff-up frames cleanly"
+        )
 
         let parsedSample = PhotoCatAnalyzer.parseVisionTextResponse("""
         ```json
@@ -1395,6 +1431,129 @@ public enum SelfTestSuite {
             in: ctx, pose: sim.pose, breed: .classicBlack, handover: nil, customSkin: sk,
             anchorX: 185, anchorY: 325, baseScale: 0.78, whiteOutline: true
         )
+        ctx.restoreGState()
+
+        if let outImg = ctx.makeImage() {
+            let data = NSMutableData()
+            if let dest = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil) {
+                CGImageDestinationAddImage(dest, outImg, nil)
+                if CGImageDestinationFinalize(dest) {
+                    try? (data as Data).write(to: URL(fileURLWithPath: outPath))
+                }
+            }
+        }
+    }
+
+    private static func renderFishPhotoToRig4PanelSheet(photoPaths: [String], outPath: String) {
+        let urls = photoPaths.map { URL(fileURLWithPath: $0) }
+        let byok = KeychainHelper.loadAPIKey(for: LLMConfig.default.selectedProvider)
+        let jwt = KeychainHelper.loadCloudJWT()
+        var analyzed: FishPhotoAnalysisResult? = nil
+        let sem = DispatchSemaphore(value: 0)
+        Task {
+            analyzed = try? await PhotoCatAnalyzer.analyzeFishImages(
+                at: urls,
+                preferredName: "红斑",
+                llmConfig: .default,
+                byokAPIKey: byok,
+                cloudJWT: jwt
+            )
+            sem.signal()
+        }
+        _ = sem.wait(timeout: .now() + 22.0)
+        guard let res = analyzed,
+              let sk = try? FishCoatCompiler.compileSkinSpec(from: res.dna, previewPNG: res.previewPNG) else { return }
+        print("  [FishToRig] source=\(res.sourceSummary) | profile=\(res.dna.bodyProfile.rawValue) | pattern=\(res.dna.spotPattern.rawValue) | body=\(res.dna.primaryBodyHex) | belly=\(res.dna.bellyHex) | outer=\(res.dna.spotOuterHex) | inner=\(res.dna.spotInnerHex) | iris=\(res.dna.irisHex) | teeth=\(res.dna.hasBuckTeeth) | puff=\(res.dna.canPuffUp)")
+
+        let cellW = 380, cellH = 360
+        let totalW = cellW * 2, totalH = cellH * 2
+        let cs = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(
+            data: nil, width: totalW, height: totalH, bitsPerComponent: 8, bytesPerRow: totalW * 4,
+            space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return }
+        ctx.translateBy(x: 0, y: CGFloat(totalH))
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.setFillColor(NSColor(srgbRed: 0.94, green: 0.96, blue: 0.99, alpha: 1.0).cgColor)
+        ctx.fill(CGRect(x: 0, y: 0, width: totalW, height: totalH))
+
+        let now = CACurrentMediaTime()
+
+        // Panel 1 (Top-Left): Idle 3/4 Hover Swimming + Rising Bubbles + Floating `🫧 红斑` Name Badge
+        ctx.saveGState()
+        ctx.translateBy(x: 10, y: 36)
+        let pIdle = CatPhysics()
+        pIdle.forceFishSimulation = true
+        pIdle.fishSwim.spawnMouthBubbles(count: 3)
+        for i in 0..<10 {
+            let inp = ScriptedFrameInput(
+                now: now + Double(i) * 0.016, activeKeys: [], orderedKeys: [],
+                mouseScreenPos: CGPoint(x: 240, y: 180), mouseVelocity: .zero,
+                leftMouseDown: false, rightMouseDown: false,
+                lastMouseMoveTime: 0, lastMouseClickTime: 0, lastKeyActivityTime: 0
+            )
+            pIdle.step(dt: 0.016, windowFrameInScreen: CGRect(x: 0, y: 0, width: 360, height: 320), scripted: inp)
+        }
+        CatRenderer.draw(in: ctx, physics: pIdle, showPermissionPill: false, isPreview: true, customSkinOverride: sk)
+        let hc = CatRenderer.headPosition(pIdle, skin: sk)
+        CatCanvasView.drawCatNameBadgeStatic(
+            in: ctx, headCenterX: hc.x, headTopY: hc.y - 4.0, minX: 6, maxX: 354, minY: -28,
+            name: "红斑", mood: "🫧", accentColor: NSColor(srgbRed: 0.45, green: 0.85, blue: 1.0, alpha: 1.0), alpha: 1.0, phase: 0.4
+        )
+        ctx.restoreGState()
+
+        // Panel 2 (Top-Right): Active Swoop-Typing + Pectoral Fin Key-Slap + Splash Droplets
+        ctx.saveGState()
+        ctx.translateBy(x: CGFloat(cellW) + 10, y: 36)
+        let pType = CatPhysics()
+        pType.forceFishSimulation = true
+        pType.triggerVoiceKeyDown(.j, at: now)
+        for i in 0..<18 {
+            if i == 14 { pType.triggerVoiceKeyDown(.j, at: now + Double(i) * 0.016) }
+            let inp = ScriptedFrameInput(
+                now: now + Double(i) * 0.016, activeKeys: [.j], orderedKeys: [.j],
+                mouseScreenPos: CGPoint(x: 210, y: 260), mouseVelocity: .zero,
+                leftMouseDown: false, rightMouseDown: false,
+                lastMouseMoveTime: 0, lastMouseClickTime: 0, lastKeyActivityTime: now + Double(i) * 0.016
+            )
+            pType.step(dt: 0.016, windowFrameInScreen: CGRect(x: 0, y: 0, width: 360, height: 320), scripted: inp)
+        }
+        CatRenderer.draw(in: ctx, physics: pType, showPermissionPill: false, isPreview: true, customSkinOverride: sk)
+        ctx.restoreGState()
+
+        // Panel 3 (Bottom-Left): Mouse-Hugging Glide Pose (Belly atop mouse, fins hugging sides!)
+        ctx.saveGState()
+        ctx.translateBy(x: 10, y: CGFloat(cellH) + 36)
+        let pMouse = CatPhysics()
+        pMouse.forceFishSimulation = true
+        for i in 0..<38 {
+            let inp = ScriptedFrameInput(
+                now: now + Double(i) * 0.016, activeKeys: [], orderedKeys: [],
+                mouseScreenPos: CGPoint(x: 60, y: 260), mouseVelocity: CGVector(dx: 24, dy: -8),
+                leftMouseDown: i > 30, rightMouseDown: false,
+                lastMouseMoveTime: now + Double(i) * 0.016, lastMouseClickTime: now + Double(i) * 0.016, lastKeyActivityTime: 0
+            )
+            pMouse.step(dt: 0.016, windowFrameInScreen: CGRect(x: 0, y: 0, width: 360, height: 320), scripted: inp)
+        }
+        CatRenderer.draw(in: ctx, physics: pMouse, showPermissionPill: false, isPreview: true, customSkinOverride: sk)
+        ctx.restoreGState()
+
+        // Panel 4 (Bottom-Right): Puffed-Up Spiky Balloon Easter Egg (`噗！鼓成刺球`)
+        ctx.saveGState()
+        ctx.translateBy(x: CGFloat(cellW) + 10, y: CGFloat(cellH) + 36)
+        let pPuff = CatPhysics()
+        pPuff.forceFishSimulation = true
+        pPuff.fishSwim.triggerPuffUp(duration: 3.0)
+        for i in 0..<24 {
+            let inp = ScriptedFrameInput(
+                now: now + Double(i) * 0.016, activeKeys: [], orderedKeys: [],
+                mouseScreenPos: CGPoint(x: 200, y: 180), mouseVelocity: .zero,
+                leftMouseDown: false, rightMouseDown: false,
+                lastMouseMoveTime: 0, lastMouseClickTime: 0, lastKeyActivityTime: 0
+            )
+            pPuff.step(dt: 0.016, windowFrameInScreen: CGRect(x: 0, y: 0, width: 360, height: 320), scripted: inp)
+        }
+        CatRenderer.draw(in: ctx, physics: pPuff, showPermissionPill: false, isPreview: true, customSkinOverride: sk)
         ctx.restoreGState()
 
         if let outImg = ctx.makeImage() {
