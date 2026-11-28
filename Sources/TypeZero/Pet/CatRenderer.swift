@@ -411,6 +411,13 @@ enum CatRenderer {
         let kbSkin = settings.activeKeyboardSkin
 
         if skin.species == "fish", let fishDNA = skin.fishDNA {
+            // 3-layer KuroCat desk sandwich: (1) Steady front-facing fish body + tail behind desk -> (2) Mouse + Keyboard -> (3) Elongated left/right typing fins + bubbles!
+            FishRenderer.drawBodyBehindDesk(
+                in: ctx,
+                physics: physics,
+                dna: fishDNA,
+                whiteOutline: settings.whiteOutline
+            )
             drawMouse(in: ctx, physics: physics, kbSkin: kbSkin)
             drawKeyboard(
                 in: ctx,
@@ -421,12 +428,11 @@ enum CatRenderer {
                 flipped: flipped,
                 marquee: settings.keyboardMarquee
             )
-            FishRenderer.draw(
+            FishRenderer.drawFinsAndEffectsInFront(
                 in: ctx,
                 physics: physics,
                 dna: fishDNA,
-                whiteOutline: settings.whiteOutline,
-                isPreview: isPreview
+                whiteOutline: settings.whiteOutline
             )
             if !physics.floatingKeycaps.isEmpty {
                 drawFloatingKeycaps(in: ctx, physics: physics, flipped: flipped)
