@@ -93,13 +93,14 @@ cmd_create() {
     shift
     local slug
     slug="$(normalize_slug "$raw_slug")"
-    local owner="${ANTIGRAVITY_CONVERSATION_ID:-}"
+    local owner=""
+    local explicit_owner=false
     local title=""
     local base_ref="main"
 
     while [ $# -gt 0 ]; do
         case "$1" in
-            --owner) owner="${2:-}"; shift 2 ;;
+            --owner) owner="${2:-}"; explicit_owner=true; shift 2 ;;
             --title) title="${2:-}"; shift 2 ;;
             --from)  base_ref="${2:-main}"; shift 2 ;;
             *) echo "Unknown flag: $1" >&2; exit 1 ;;
@@ -124,10 +125,10 @@ cmd_create() {
     link_shared_assets "$wt_dir"
 
     local owner_file="$wt_dir/.lane-owner.json"
-    if [ ! -f "$owner_file" ] || [ -n "$owner" ]; then
-        python3 - "$owner_file" "$slug" "$branch" "$owner" "$title" <<'PY'
+    local default_env_owner="${ANTIGRAVITY_CONVERSATION_ID:-}"
+    python3 - "$owner_file" "$slug" "$branch" "$owner" "$explicit_owner" "$default_env_owner" "$title" <<'PY'
 import json, os, sys
-path, slug, branch, owner, title = sys.argv[1:6]
+path, slug, branch, owner, explicit_owner, default_env_owner, title = sys.argv[1:8]
 existing = {}
 if os.path.exists(path):
     try:
@@ -135,16 +136,20 @@ if os.path.exists(path):
             existing = json.load(f)
     except Exception:
         existing = {}
+prev_owner = existing.get("ownerConversationId", "")
+if explicit_owner == "true":
+    resolved_owner = owner
+else:
+    resolved_owner = prev_owner or default_env_owner
 data = {
     "slug": slug,
     "branch": branch,
-    "ownerConversationId": owner or existing.get("ownerConversationId", ""),
+    "ownerConversationId": resolved_owner,
     "title": title or existing.get("title", ""),
 }
 with open(path, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
 PY
-    fi
 
     echo "==> Ready! Isolated Parallel Lane:"
     echo "    Slug   : $slug"
