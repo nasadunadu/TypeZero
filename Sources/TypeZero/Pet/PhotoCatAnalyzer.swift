@@ -228,6 +228,22 @@ public struct CatPhotoAnalysisResult: Sendable {
     public let sourceSummary: String
 }
 
+public struct FishPhotoAnalysisResult: Sendable {
+    public let dna: FishPhotoDNA
+    public let previewPNG: Data
+    public let usedVisionModel: Bool
+    public let sourceSummary: String
+}
+
+public struct PetPhotoAnalysisResult: Sendable {
+    public let species: String // "cat" | "fish"
+    public let catDNA: CatPhotoDNA?
+    public let fishDNA: FishPhotoDNA?
+    public let previewPNG: Data
+    public let usedVisionModel: Bool
+    public let sourceSummary: String
+}
+
 // MARK: - Dual-Engine Photo Analyzer (Cloud/BYOK Vision VLM + Native macOS Vision Foreground Fallback)
 
 public enum PhotoCatAnalyzer {
@@ -270,6 +286,32 @@ public enum PhotoCatAnalyzer {
        - 只有从脖子一直到大肚子整面全白时才选 "full_bib"。
     5. 前腿与前爪严禁臆测白手套：仔细看两条前腿下半截和前脚趾！如果整条前腿都是深色带黑色手镯横纹一直到深色脚掌（前爪没有明显白手套），frontLeftSock 和 frontRightSock 必须填 "none"！只有前脚掌真有一截纯白手套才填 "mitten"。
     6. 耳内与鼻头与瞳色：狸花猫耳内是棕灰耳毛（earInnerHex 填 #76604E，勿填假粉红）；粉鼻头填柔和樱花粉 #F0A6AE，砖红鼻填 #B86B5E；绿瞳填通透翡翠绿 #589154。
+    """
+
+    private static let fishVisionSystemPrompt = """
+    你是顶级观赏鱼分类学家、水族摄影白平衡专家与 2D 矢量角色美术总监。请极其仔细地观察用户上传的观赏鱼照片（可能是 1–4 张同条鱼的不同角度），剥离水族箱紫粉灯/蓝灯/暖黄灯色偏，忽略缸底的其他配鱼（如异形鱼、清道夫、底栖鱼），只提取画面主体的那条鱼的真实特征，输出严格符合以下字段的纯 JSON 对象（不要输出 Markdown 代码块）：
+    {
+      "species": "fish",
+      "breedBadge": "精准简短品种名，如 红斑狗头河豚 / 斑马狗头 / 泰狮金鱼 / 半月斗鱼 / 红白锦鲤 / 小丑鱼 / 神仙鱼",
+      "bodyProfile": "puffer_torpedo | goldfish_round | betta_flow | koi_stream | angelfish_disc | clownfish_oval",
+      "spotPattern": "ringed_ocelli | spotted | striped_vertical | calico_blotch | solid_gradient | saddle_back",
+      "primaryBodyHex": "#RRGGBB",
+      "bellyHex": "#RRGGBB",
+      "dorsalHex": "#RRGGBB",
+      "spotOuterHex": "#RRGGBB",
+      "spotInnerHex": "#RRGGBB",
+      "finHex": "#RRGGBB",
+      "irisHex": "#RRGGBB",
+      "hasBuckTeeth": false,
+      "canPuffUp": false,
+      "finLength": 1.00,
+      "plumpness": 1.10
+    }
+    【关键写实铁律】：
+    1. 河豚 / 狗头识别（红斑狗头 / 血钻狗头 / 斑马狗头等）：凡是方头圆肚、高凸圆眼、宽扇形条纹尾鳍、厚唇露小板牙的淡水河豚，bodyProfile 必须填 "puffer_torpedo"，hasBuckTeeth=true，canPuffUp=true！
+    2. 双层靶心斑（ringed_ocelli）：若体侧分布着【深褐黑外环 + 鲜朱红内芯】的双层圆斑（红斑狗头/血钻狗头的灵魂特征！），spotPattern 必须填 "ringed_ocelli"，spotOuterHex 填深褐黑（#4A2A24），spotInnerHex 填鲜朱红（#DF3B36）！
+    3. 严禁把水族紫灯/蓝灯色偏当真鱼色：如果鱼缸开着紫粉灯/蓝灯把白肚皮照成紫色或粉紫色，必须白平衡还原回鱼的真实体色（例如红斑狗头真实底色是奶油香槟黄 #EFE4C4、象牙白肚皮 #F7F3E7、金橄榄扇形尾鳍 #C5B268、琥珀红凸眼 #E24E24）！
+    4. 多鱼去噪：若照片缸底有黄金达摩异形、清道夫或其他配鱼，彻底忽略配鱼，只描述画面中心主角大鱼。
     """
 
     public static let maxPhotoCount = 4
@@ -391,6 +433,365 @@ public enum PhotoCatAnalyzer {
             usedVisionModel: false,
             sourceSummary: mergedPrep.dna.breedBadge
         )
+    }
+
+    // MARK: - Multi-Photo Fish Vision & Anti-Actinic Photometry Pipeline
+
+    public static func analyzeFishImages(
+        at urls: [URL],
+        preferredName: String = "",
+        llmConfig: LLMConfig,
+        byokAPIKey: String,
+        cloudJWT: String
+    ) async throws -> FishPhotoAnalysisResult {
+        let images = urls.prefix(maxPhotoCount).compactMap { loadOrientedCGImage(from: $0, maxPixelSize: 1024) }
+        guard !images.isEmpty else {
+            throw NSError(domain: "PhotoCatAnalyzer", code: 2, userInfo: [NSLocalizedDescriptionKey: "无法读取所选小鱼照片"])
+        }
+        return await analyzeFishCGImages(
+            images,
+            preferredName: preferredName,
+            llmConfig: llmConfig,
+            byokAPIKey: byokAPIKey,
+            cloudJWT: cloudJWT
+        )
+    }
+
+    public static func analyzeFishCGImages(
+        _ cgImages: [CGImage],
+        preferredName: String = "",
+        llmConfig: LLMConfig,
+        byokAPIKey: String,
+        cloudJWT: String
+    ) async -> FishPhotoAnalysisResult {
+        let bounded = Array(cgImages.prefix(maxPhotoCount))
+        guard let first = bounded.first else {
+            return FishPhotoAnalysisResult(dna: FishPhotoDNA(), previewPNG: Data(), usedVisionModel: false, sourceSummary: "")
+        }
+
+        let fishPreps = bounded.map { prepareLocalFishVisionFeatures(from: $0, preferredName: preferredName) }
+        let primary = fishPreps.first ?? prepareLocalFishVisionFeatures(from: first, preferredName: preferredName)
+        let maxDim = bounded.count > 1 ? 560 : 640
+        let dataURLs: [String] = fishPreps.compactMap { p in
+            guard let jpeg = encodeJPEG(p.croppedFishImage, maxDimension: maxDim, compression: 0.78) else { return nil }
+            return "data:image/jpeg;base64," + jpeg.base64EncodedString()
+        }
+
+        if !dataURLs.isEmpty {
+            let trimmedBYOK = byokAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedJWT = cloudJWT.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            func finalizeFish(_ raw: FishPhotoDNA) -> FishPhotoAnalysisResult {
+                var calibrated = calibrateFishWithPhotometry(raw, preps: fishPreps)
+                let cleanName = preferredName.trimmingCharacters(in: .whitespacesAndNewlines)
+                calibrated.name = cleanName.isEmpty ? primary.dna.name : cleanName
+                calibrated.sanitize()
+                return FishPhotoAnalysisResult(
+                    dna: calibrated,
+                    previewPNG: primary.previewPNG,
+                    usedVisionModel: true,
+                    sourceSummary: "✨ 多模态鱼类视觉 + 抗紫光校准 · \(calibrated.breedBadge)"
+                )
+            }
+
+            if !llmConfig.useOfficialCloudTrial && !trimmedBYOK.isEmpty {
+                if let remote = await requestBYOKFishVisionDNA(dataURLs: dataURLs, config: llmConfig, apiKey: trimmedBYOK) {
+                    return finalizeFish(remote)
+                }
+            }
+            if !trimmedJWT.isEmpty {
+                if let cloud = await requestOfficialCloudFishVisionDNA(dataURLs: dataURLs, jwt: trimmedJWT) {
+                    return finalizeFish(cloud)
+                }
+            }
+            if !trimmedBYOK.isEmpty {
+                if let remote = await requestBYOKFishVisionDNA(dataURLs: dataURLs, config: llmConfig, apiKey: trimmedBYOK) {
+                    return finalizeFish(remote)
+                }
+            }
+        }
+
+        var localDNA = primary.dna
+        let cleanName = preferredName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanName.isEmpty { localDNA.name = cleanName }
+        localDNA.sanitize()
+        return FishPhotoAnalysisResult(
+            dna: localDNA,
+            previewPNG: primary.previewPNG,
+            usedVisionModel: false,
+            sourceSummary: localDNA.breedBadge
+        )
+    }
+
+    private struct LocalFishPrepOutput {
+        let croppedFishImage: CGImage
+        let previewPNG: Data
+        let dna: FishPhotoDNA
+        let hasPurpleActinicCast: Bool
+        let crimsonSpotScore: Double
+    }
+
+    private static func prepareLocalFishVisionFeatures(from sourceImage: CGImage, preferredName: String) -> LocalFishPrepOutput {
+        // Isolate primary foreground fish via Apple Vision instance mask so bottom tankmates (plecos) are excluded!
+        var cropped = sourceImage
+        let fgReq = VNGenerateForegroundInstanceMaskRequest()
+        let handler = VNImageRequestHandler(cgImage: sourceImage, options: [:])
+        let grid = 80
+        var fgMask = [Bool](repeating: false, count: grid * grid)
+        var maskOK = false
+
+        if (try? handler.perform([fgReq])) != nil,
+           let result = fgReq.results?.first,
+           let maskBuf = try? result.generateScaledMaskForImage(forInstances: result.allInstances, from: handler) {
+            CVPixelBufferLockBaseAddress(maskBuf, .readOnly)
+            defer { CVPixelBufferUnlockBaseAddress(maskBuf, .readOnly) }
+            let mw = CVPixelBufferGetWidth(maskBuf)
+            let mh = CVPixelBufferGetHeight(maskBuf)
+            let bpr = CVPixelBufferGetBytesPerRow(maskBuf)
+            if let base = CVPixelBufferGetBaseAddress(maskBuf)?.assumingMemoryBound(to: UInt8.self), mw > 0, mh > 0 {
+                var minX = mw, maxX = 0, minY = mh, maxY = 0
+                var count = 0
+                for gy in 0..<grid {
+                    let my = min(mh - 1, gy * mh / grid)
+                    for gx in 0..<grid {
+                        let mx = min(mw - 1, gx * mw / grid)
+                        let v = base[my * bpr + mx]
+                        // Favor central-upper main swimmer; ignore thin bottom substrate strip unless full frame
+                        if v > 128 {
+                            fgMask[gy * grid + gx] = true
+                            count += 1
+                            if mx < minX { minX = mx }
+                            if mx > maxX { maxX = mx }
+                            if my < minY { minY = my }
+                            if my > maxY { maxY = my }
+                        }
+                    }
+                }
+                if count > 240 && maxX > minX + 16 && maxY > minY + 16 {
+                    maskOK = true
+                    let scaleX = CGFloat(sourceImage.width) / CGFloat(mw)
+                    let scaleY = CGFloat(sourceImage.height) / CGFloat(mh)
+                    let padX = CGFloat(maxX - minX) * scaleX * 0.12
+                    let padY = CGFloat(maxY - minY) * scaleY * 0.16
+                    let rx = max(0, CGFloat(minX) * scaleX - padX)
+                    let ry = max(0, CGFloat(minY) * scaleY - padY)
+                    let rw = min(CGFloat(sourceImage.width) - rx, CGFloat(maxX - minX) * scaleX + padX * 2)
+                    let rh = min(CGFloat(sourceImage.height) - ry, CGFloat(maxY - minY) * scaleY + padY * 2)
+                    if let sub = sourceImage.cropping(to: CGRect(x: rx, y: ry, width: rw, height: rh)) {
+                        cropped = sub
+                    }
+                }
+            }
+        }
+
+        let previewPNG = renderSquarePreviewPNG(from: cropped, size: 160)
+
+        let cs = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        var rgba = [UInt8](repeating: 0, count: grid * grid * 4)
+        if let ctx = CGContext(data: &rgba, width: grid, height: grid, bitsPerComponent: 8, bytesPerRow: grid * 4, space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+            ctx.draw(cropped, in: CGRect(x: 0, y: 0, width: grid, height: grid))
+        }
+
+        var purplePixels = 0.0, crimsonPixels = 0.0, creamPixels = 0.0, totalPixels = 0.0
+        for gy in 10..<(grid - 10) {
+            for gx in 8..<(grid - 8) {
+                let idx = gy * grid + gx
+                if maskOK && !fgMask[idx] { continue }
+                let r = Double(rgba[idx * 4]) / 255.0
+                let g = Double(rgba[idx * 4 + 1]) / 255.0
+                let b = Double(rgba[idx * 4 + 2]) / 255.0
+                totalPixels += 1
+                if (r > g + 0.06 && b > g + 0.08) || (b > g + 0.14 && b > 0.45) {
+                    purplePixels += 1
+                }
+                if r > 0.48 && (r - g) > 0.16 && (r - b) > 0.10 {
+                    crimsonPixels += 1
+                }
+                if r > 0.62 && g > 0.56 && b > 0.42 && abs(r - g) < 0.16 {
+                    creamPixels += 1
+                }
+            }
+        }
+        let denom = max(1.0, totalPixels)
+        let hasPurpleCast = (purplePixels / denom) > 0.14
+        let crimsonScore = crimsonPixels / denom
+
+        var dna = FishPhotoDNA.crossRiverPufferPreset
+        dna.name = preferredName.isEmpty ? "红斑" : preferredName
+        if crimsonScore < 0.015 && (creamPixels / denom) < 0.12 {
+            dna.breedBadge = "观赏小鱼"
+            dna.spotPattern = .solidGradient
+            dna.hasBuckTeeth = false
+        }
+        dna.sanitize()
+        return LocalFishPrepOutput(
+            croppedFishImage: cropped,
+            previewPNG: previewPNG,
+            dna: dna,
+            hasPurpleActinicCast: hasPurpleCast,
+            crimsonSpotScore: crimsonScore
+        )
+    }
+
+    private static func calibrateFishWithPhotometry(_ raw: FishPhotoDNA, preps: [LocalFishPrepOutput]) -> FishPhotoDNA {
+        var dna = raw
+        let anyPurpleCast = preps.contains(where: \.hasPurpleActinicCast)
+        // Strip purple/magenta actinic aquarium LED cast from cream-ivory bellies & bodies!
+        if anyPurpleCast {
+            let bc = CatCoatCompiler.rgbComponents(dna.bellyHex)
+            if bc.b > bc.g + 0.04 || bc.r > bc.g + 0.06 {
+                dna.bellyHex = "#F7F3E7"
+            }
+            let pc = CatCoatCompiler.rgbComponents(dna.primaryBodyHex)
+            if pc.b > pc.g + 0.05 && dna.bodyProfile == .pufferTorpedo {
+                dna.primaryBodyHex = "#EFE4C4"
+            }
+        }
+        if dna.bodyProfile == .pufferTorpedo {
+            dna.canPuffUp = true
+            dna.hasBuckTeeth = true
+            if dna.spotPattern == .ringedOcelli {
+                let sc = CatCoatCompiler.rgbComponents(dna.spotInnerHex)
+                if sc.r < 0.65 { dna.spotInnerHex = "#DF3B36" }
+            }
+        }
+        return dna
+    }
+
+    static func parseFishVisionTextResponse(_ raw: String) -> FishPhotoDNA? {
+        var cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let first = cleaned.firstIndex(of: "{"), let last = cleaned.lastIndex(of: "}") {
+            cleaned = String(cleaned[first...last])
+        }
+        guard let data = cleaned.data(using: .utf8),
+              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return parseFishVisionJSONDict(dict)
+    }
+
+    static func parseFishVisionJSONDict(_ dict: [String: Any]) -> FishPhotoDNA? {
+        var dna = FishPhotoDNA()
+        if let b = dict["breedBadge"] as? String, !b.isEmpty { dna.breedBadge = b }
+        if let bp = dict["bodyProfile"] as? String, let prof = FishBodyProfile(rawValue: bp) { dna.bodyProfile = prof }
+        if let sp = dict["spotPattern"] as? String, let pat = FishSpotPattern(rawValue: sp) { dna.spotPattern = pat }
+        if let v = dict["primaryBodyHex"] as? String { dna.primaryBodyHex = v }
+        if let v = dict["bellyHex"] as? String { dna.bellyHex = v }
+        if let v = dict["dorsalHex"] as? String { dna.dorsalHex = v }
+        if let v = dict["spotOuterHex"] as? String { dna.spotOuterHex = v }
+        if let v = dict["spotInnerHex"] as? String { dna.spotInnerHex = v }
+        if let v = dict["finHex"] as? String { dna.finHex = v }
+        if let v = dict["irisHex"] as? String { dna.irisHex = v }
+        if let bt = dict["hasBuckTeeth"] as? Bool { dna.hasBuckTeeth = bt }
+        if let pu = dict["canPuffUp"] as? Bool { dna.canPuffUp = pu }
+        if let fl = (dict["finLength"] as? NSNumber)?.doubleValue { dna.finLength = fl }
+        if let pl = (dict["plumpness"] as? NSNumber)?.doubleValue { dna.plumpness = pl }
+        dna.sanitize()
+        return dna
+    }
+
+    private static func requestOfficialCloudFishVisionDNA(dataURLs: [String], jwt: String) async -> FishPhotoDNA? {
+        guard let first = dataURLs.first,
+              let url = URL(string: "\(CloudAuthClient.baseURL)/api/pet/analyze-photo") else { return nil }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 18.0
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
+        let body: [String: Any] = ["species": "fish", "imageDataUrl": first, "imageDataUrls": dataURLs]
+        guard let payload = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+        req.httpBody = payload
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                  let wrapper = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+            if let dnaDict = wrapper["dna"] as? [String: Any] { return parseFishVisionJSONDict(dnaDict) }
+            if let rawText = wrapper["content"] as? String { return parseFishVisionTextResponse(rawText) }
+        } catch {
+            return nil
+        }
+        return nil
+    }
+
+    private static func requestBYOKFishVisionDNA(dataURLs: [String], config: LLMConfig, apiKey: String) async -> FishPhotoDNA? {
+        guard !dataURLs.isEmpty else { return nil }
+        let base = config.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !base.isEmpty else { return nil }
+        let userInstruction = dataURLs.count > 1
+            ? "以上 \(dataURLs.count) 张照片是同一条观赏鱼的不同角度或不同鱼缸灯光。请自动剥离紫粉/蓝水族灯色偏并忽略缸底配鱼，综合还原最准确的唯一鱼类特征 JSON。"
+            : "请剥离鱼缸灯光色偏并忽略配鱼，提取画面主角鱼的品种、体色、斑纹与五官 JSON。"
+
+        if PolishEngine.isAnthropicEndpoint(base) {
+            let endpoint = PolishEngine.normalizeAnthropicMessagesEndpoint(base)
+            guard let url = URL(string: endpoint) else { return nil }
+            var blocks: [[String: Any]] = dataURLs.map { du in
+                let rawB64 = du.replacingOccurrences(of: "data:image/jpeg;base64,", with: "")
+                return ["type": "image", "source": ["type": "base64", "media_type": "image/jpeg", "data": rawB64]]
+            }
+            blocks.append(["type": "text", "text": userInstruction])
+            let payload: [String: Any] = [
+                "model": config.modelName.isEmpty ? "claude-haiku-5-5" : config.modelName,
+                "max_tokens": 520,
+                "system": fishVisionSystemPrompt,
+                "messages": [["role": "user", "content": blocks]]
+            ]
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            req.timeoutInterval = 18.0
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+            req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+            req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+            guard let (data, resp) = try? await URLSession.shared.data(for: req),
+                  let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let content = root["content"] as? [[String: Any]],
+                  let text = content.first(where: { ($0["type"] as? String) == "text" })?["text"] as? String else {
+                return nil
+            }
+            return parseFishVisionTextResponse(text)
+        }
+
+        let endpoint = base.hasSuffix("/chat/completions") ? base : "\(base)/chat/completions"
+        guard let url = URL(string: endpoint) else { return nil }
+        var model = config.modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if config.selectedProvider == .dashscope && model == "qwen-flash" { model = "qwen-vl-max" }
+        var userBlocks: [[String: Any]] = [["type": "text", "text": userInstruction]]
+        for du in dataURLs {
+            userBlocks.append(["type": "image_url", "image_url": ["url": du]])
+        }
+        var payload: [String: Any] = [
+            "model": model.isEmpty ? "deepseek-flash" : model,
+            "stream": false,
+            "max_tokens": 520,
+            "messages": [
+                ["role": "system", "content": fishVisionSystemPrompt],
+                ["role": "user", "content": userBlocks]
+            ]
+        ]
+        if base.contains("deepseek.com") { payload["thinking"] = ["type": "disabled"] }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 18.0
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+
+        let sessionConfig = URLSessionConfiguration.ephemeral
+        if PolishEngine.shouldUseDirectConnection(for: base) { sessionConfig.connectionProxyDictionary = [:] }
+        let session = URLSession(configuration: sessionConfig)
+        defer { session.finishTasksAndInvalidate() }
+
+        guard let (data, resp) = try? await session.data(for: req),
+              let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = root["choices"] as? [[String: Any]],
+              let msg = choices.first?["message"] as? [String: Any],
+              let content = msg["content"] as? String else {
+            return nil
+        }
+        return parseFishVisionTextResponse(content)
     }
 
     // MARK: - Orientation-Safe Image Loading & Encoding

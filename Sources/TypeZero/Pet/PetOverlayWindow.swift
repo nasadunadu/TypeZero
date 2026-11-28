@@ -361,8 +361,8 @@ final class CatCanvasView: NSView {
         let showPill = status.needsAttention && !AXIsProcessTrusted()
         let pillText = status.permissionPillText
 
-        // Mode B: 1:1 Original Chingyim/Clack-Clack Stage Renderer
-        if settings.visualStyle == .clackOriginal {
+        // Mode B: 1:1 Original Chingyim/Clack-Clack Stage Renderer (Cat skins only; Fish skins use 3/4 FishRig!)
+        if settings.visualStyle == .clackOriginal && settings.activeSkin.species != "fish" {
             ctx.saveGState()
             ctx.scaleBy(x: scaleX, y: scaleY)
             if settings.flipHorizontal || abs(settings.rotationDeg) > 0.05 {
@@ -441,6 +441,7 @@ final class CatCanvasView: NSView {
         )
 
         if physics.sleepiness >= 0.95,
+           skin.species != "fish",
            !physics.isHandoverActive,
            !physics.isDictationListening,
            settings.obsCaptureMode != 2,
@@ -511,7 +512,7 @@ final class CatCanvasView: NSView {
     }
 
     func poseNeedsDisplay() -> Bool {
-        if physics.isHandoverActive || physics.isDictationListening || CatSettings.shared.visualStyle == .clackOriginal {
+        if physics.isHandoverActive || physics.isDictationListening || CatSettings.shared.visualStyle == .clackOriginal || CatSettings.shared.activeSkin.species == "fish" {
             return true
         }
         guard let previous = lastDrawnPose else { return true }
@@ -735,6 +736,10 @@ final class CatCanvasView: NSView {
             if zone == .permissionPill {
                 onRequestPermission?()
                 return
+            }
+            if settings.activeSkin.species == "fish" && zone == .body {
+                physics.fishSwim.registerBellyPoke(now: CACurrentMediaTime())
+                needsDisplay = true
             }
 
             let clackHit = (settings.visualStyle == .clackOriginal)
@@ -1048,12 +1053,15 @@ final class CatCanvasView: NSView {
 
     private func drawFloatingCatName(in ctx: CGContext, name: String, mood: String, alpha: CGFloat, phase: CGFloat) {
         let skin = CatSettings.shared.activeSkin
-        let isClack = (CatSettings.shared.visualStyle == .clackOriginal)
+        let isFish = (skin.species == "fish")
+        let isClack = (CatSettings.shared.visualStyle == .clackOriginal) && !isFish
         let headCenter: CGPoint = isClack
             ? CGPoint(x: 180 + physics.clackSim.pose.headLean.x * 0.78, y: 78 + physics.clackSim.pose.headLean.y * 0.78)
             : CatRenderer.headPosition(physics, skin: skin)
-        let headTopY = headCenter.y - (isClack ? 36.0 : (38.0 * skin.shape.headScale))
+        let headTopY = headCenter.y - (isFish ? 4.0 : (isClack ? 36.0 : (38.0 * skin.shape.headScale)))
+        let effectiveMood = isFish ? "🫧" : mood
         let accent: NSColor = {
+            if isFish { return NSColor(srgbRed: 0.45, green: 0.85, blue: 1.0, alpha: 1.0) }
             if let iris = skin.palette.irisLeft ?? skin.palette.iris {
                 return NSColor(srgbRed: iris.r, green: iris.g, blue: iris.b, alpha: 1.0)
             }
@@ -1067,7 +1075,7 @@ final class CatCanvasView: NSView {
             maxX: CatPhysics.canvasSize.width + Self.stagePadX - 10,
             minY: -Self.contentTopInset + 6,
             name: name,
-            mood: mood,
+            mood: effectiveMood,
             accentColor: accent,
             alpha: alpha,
             phase: phase
@@ -1151,10 +1159,25 @@ final class CatCanvasView: NSView {
 
         let pawCX = rect.minX + padX + iconW * 0.5
         let pawCY = rect.midY + 1.4
-        ctx.setFillColor(accentColor.cgColor)
-        ctx.fillEllipse(in: CGRect(x: pawCX - 3.3, y: pawCY - 2.2, width: 6.6, height: 4.8))
-        for (tx, ty) in [(-3.6, -4.2), (0.0, -5.2), (3.6, -4.2)] as [(CGFloat, CGFloat)] {
-            ctx.fillEllipse(in: CGRect(x: pawCX + tx - 1.45, y: pawCY + ty - 1.55, width: 2.9, height: 3.1))
+        if mood == "🫧" {
+            // Crisp dual translucent water-bubble vector icon for Fish pets!
+            let b1 = CGRect(x: pawCX - 4.2, y: rect.midY - 3.6, width: 7.4, height: 7.4)
+            ctx.setFillColor(NSColor(srgbRed: 0.55, green: 0.88, blue: 1.0, alpha: 0.34).cgColor)
+            ctx.fillEllipse(in: b1)
+            ctx.setStrokeColor(NSColor(srgbRed: 0.62, green: 0.92, blue: 1.0, alpha: 0.95).cgColor)
+            ctx.setLineWidth(1.1)
+            ctx.strokeEllipse(in: b1)
+            ctx.setFillColor(NSColor.white.withAlphaComponent(0.95).cgColor)
+            ctx.fillEllipse(in: CGRect(x: pawCX - 2.6, y: rect.midY - 2.2, width: 2.0, height: 1.8))
+            let b2 = CGRect(x: pawCX + 2.2, y: rect.midY - 5.2, width: 3.4, height: 3.4)
+            ctx.setFillColor(NSColor(srgbRed: 0.68, green: 0.94, blue: 1.0, alpha: 0.52).cgColor)
+            ctx.fillEllipse(in: b2)
+        } else {
+            ctx.setFillColor(accentColor.cgColor)
+            ctx.fillEllipse(in: CGRect(x: pawCX - 3.3, y: pawCY - 2.2, width: 6.6, height: 4.8))
+            for (tx, ty) in [(-3.6, -4.2), (0.0, -5.2), (3.6, -4.2)] as [(CGFloat, CGFloat)] {
+                ctx.fillEllipse(in: CGRect(x: pawCX + tx - 1.45, y: pawCY + ty - 1.55, width: 2.9, height: 3.1))
+            }
         }
 
         NSGraphicsContext.saveGraphicsState()

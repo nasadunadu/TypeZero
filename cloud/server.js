@@ -1288,6 +1288,12 @@ async function createApp(customDbPath, options = {}) {
     "关键铁律：1.只要额头有M纹或身上/腿上有条纹，哪怕带白胸也必须选 tabby 或 tabby_bicolor(foreheadM=true,cheekStripes=true,tailRings=true,tailTipDip=false)，严禁选成无条纹的 tuxedo_bicolor；2.偏黑的深色狸花猫 primaryFurHex 必须填深炭黑褐色(#38312B~#443B33)，tertiaryFurHex 填纯墨黑(#141314)，绝不能填成浅灰；3.两眼四周都是深色虎斑、白色仅顺鼻梁中间窄窄向下包住嘴套时必须选 nose_bridge_blaze；4.白毛只到脖子下方倒三角白领巾、往下胸膛仍是虎斑横纹时必须选 triangle_collar；5.前腿虎斑纹一直延伸到深色脚掌无白袜时 frontLeftSock/frontRightSock 必须填 none。"
   ].join("\n");
 
+  const FISH_PHOTO_SYSTEM_PROMPT = [
+    "你是顶级观赏鱼分类学家、水族摄影白平衡专家与 2D 矢量角色美术总监。请自动剥离紫粉/蓝水族灯色偏并忽略缸底配鱼，只提取画面主角鱼的真实特征，仅输出一个纯 JSON 对象：",
+    '{"species":"fish","breedBadge":"如 红斑狗头河豚/泰狮金鱼/半月斗鱼/红白锦鲤/小丑鱼","bodyProfile":"puffer_torpedo|goldfish_round|betta_flow|koi_stream|angelfish_disc|clownfish_oval","spotPattern":"ringed_ocelli|spotted|striped_vertical|calico_blotch|solid_gradient|saddle_back","primaryBodyHex":"#EFE4C4","bellyHex":"#F7F3E7","dorsalHex":"#A86C52","spotOuterHex":"#4A2A24","spotInnerHex":"#DF3B36","finHex":"#C5B268","irisHex":"#E24E24","hasBuckTeeth":true,"canPuffUp":true,"finLength":1.0,"plumpness":1.12}',
+    "关键铁律：1.河豚/狗头必须填 puffer_torpedo、hasBuckTeeth=true、canPuffUp=true；2.体侧深褐黑环+鲜红芯圆斑填 ringed_ocelli；3.剥离紫粉/蓝鱼缸灯色偏，还原真实奶油香槟底色与白肚皮；4.忽略缸底异形鱼等配鱼。"
+  ].join("\n");
+
   app.post("/api/pet/analyze-photo", requireUser, async (req, res) => {
     const budget = db.getBudgetSnapshot();
     if (!budget.withinBudget) {
@@ -1328,12 +1334,18 @@ async function createApp(customDbPath, options = {}) {
       return res.status(503).json({ error: { code: "ENGINE_UNAVAILABLE", message: "云端视觉模型未就绪" } });
     }
 
+    const speciesMode = String(req.body?.species || "cat").trim().toLowerCase() === "fish" ? "fish" : "cat";
+    const activeSystemPrompt = speciesMode === "fish" ? FISH_PHOTO_SYSTEM_PROMPT : PET_PHOTO_SYSTEM_PROMPT;
     const userBlocks = [
       {
         type: "text",
-        text: imageDataUrls.length > 1
-          ? `以上 ${imageDataUrls.length} 张照片是同一只猫咪的不同角度，请综合所有照片互补观察，输出最完整准确的唯一 JSON。`
-          : "请分析这张猫咪照片的花色、开脸、五官与毛色 JSON。",
+        text: speciesMode === "fish"
+          ? (imageDataUrls.length > 1
+            ? `以上 ${imageDataUrls.length} 张照片是同一条观赏鱼的不同角度或不同灯光，请剥离紫粉/蓝水族灯色偏并忽略配鱼，综合还原唯一鱼类特征 JSON。`
+            : "请剥离鱼缸灯光色偏并忽略配鱼，分析画面主角鱼的品种、体色、斑纹与五官 JSON。")
+          : (imageDataUrls.length > 1
+            ? `以上 ${imageDataUrls.length} 张照片是同一只猫咪的不同角度，请综合所有照片互补观察，输出最完整准确的唯一 JSON。`
+            : "请分析这张猫咪照片的花色、开脸、五官与毛色 JSON。"),
       },
       ...imageDataUrls.map((url) => ({ type: "image_url", image_url: { url } })),
     ];
@@ -1351,7 +1363,7 @@ async function createApp(customDbPath, options = {}) {
           max_tokens: 520,
           thinking: { type: "disabled" },
           messages: [
-            { role: "system", content: PET_PHOTO_SYSTEM_PROMPT },
+            { role: "system", content: activeSystemPrompt },
             { role: "user", content: userBlocks },
           ],
         }),

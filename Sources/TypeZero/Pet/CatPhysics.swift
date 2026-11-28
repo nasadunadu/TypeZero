@@ -769,6 +769,10 @@ final class CatPhysics {
     private var hasYawnedThisIdle = false
     private var sleepZCooldown: CGFloat = 0
 
+    // Phase-2 Multi-Species Fish Rig 60fps aquatic physics (Scheme A: 3/4 floating hover, key-swoop fin slap, mouse hug & puffer puff-up!)
+    let fishSwim = FishSwimPhysics()
+    var forceFishSimulation: Bool = false
+
     // Recent key memory so fast single taps linger visibly (~140ms)
     private var recentLeftKey: (key: PhysicalKey, time: CFTimeInterval)?
     private var recentRightKey: (key: PhysicalKey, time: CFTimeInterval)?
@@ -833,6 +837,7 @@ final class CatPhysics {
         let vk = effectiveKey.visualKey
         let pt = KeyboardLayout.canvasPoint(for: vk)
         lastTypedPoint = pt
+        fishSwim.triggerKeySwoop(at: pt, isLeftSide: effectiveKey.prefersLeftPaw, now: now)
 
         let active = InputEngine.shared.activeKeys
         let leftHeld = active.contains { $0.prefersLeftPaw }
@@ -968,6 +973,7 @@ final class CatPhysics {
         let vk = effectiveKey.visualKey
         let pt = KeyboardLayout.canvasPoint(for: vk)
         lastTypedPoint = pt
+        fishSwim.triggerKeySwoop(at: pt, isLeftSide: effectiveKey.prefersLeftPaw, now: now)
 
         if effectiveKey.prefersLeftPaw {
             recentLeftKey = (vk, now)
@@ -1748,6 +1754,25 @@ final class CatPhysics {
             hindFootActive.target = 0.0
         }
 
+        if activeSkin.species == "fish" || forceFishSimulation || fishSwim.puff.value > 0.01 || fishSwim.recentKeyTimer > 0 || !fishSwim.bubbles.isEmpty || !fishSwim.droplets.isEmpty {
+            let liveMouseForFish = CGPoint(x: 56 + mouseOffset.point.x, y: 264 + mouseOffset.point.y)
+            let canPuff = activeSkin.fishDNA?.canPuffUp ?? true
+            fishSwim.step(
+                dt: dt,
+                now: now,
+                time: time,
+                mouseActive: (mouseActivelyUsed || (scripted != nil && curLastMouseMove > 0 && now - curLastMouseMove < 0.8)) && activeKeys.isEmpty,
+                mouseCenter: liveMouseForFish,
+                mouseClickLeft: curLeftMouse,
+                mouseClickRight: curRightMouse,
+                isDragging: isScruffDragging,
+                anger: angerIntensity.value,
+                petIntensity: max(petHeadIntensity, petBodyIntensity),
+                canPuffUp: canPuff,
+                reducedMotion: s.reducedMotion
+            )
+        }
+
         // Held physical keys determine the mode; repeats and mouse buttons do not count.
         // When both foot & tail are enabled: 3rd key -> hind foot, 4th key -> tail.
         // When tail-only mode is selected (!footEasterEgg && tailEasterEgg): 3+ keys (or 2+ keys while mouse is active) -> tail!
@@ -2108,6 +2133,7 @@ struct SkinSpec {
     var preview: Data?
     var species: String = "cat"
     var photoDNA: CatPhotoDNA? = nil
+    var fishDNA: FishPhotoDNA? = nil
 
     static let maxFileBytes = 2 * 1024 * 1024
     // formatVersion 2 = same fields as 1, written by the workshop when the skin needs an app newer than 1.5.2
@@ -2496,6 +2522,14 @@ struct SkinSpec {
                 parsedDNA.patchSeed = seedNum
             }
             spec.photoDNA = parsedDNA
+        }
+        if let fishDict = root["typezeroFishDNA"] as? [String: Any],
+           let fishData = try? JSONSerialization.data(withJSONObject: fishDict),
+           var parsedFish = try? JSONDecoder().decode(FishPhotoDNA.self, from: fishData) {
+            parsedFish.name = spec.name
+            parsedFish.sanitize()
+            spec.species = "fish"
+            spec.fishDNA = parsedFish
         }
 
         spec.id = contentId(data)
