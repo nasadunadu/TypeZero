@@ -827,50 +827,63 @@ public enum SelfTestSuite {
             "Personal style 5,000-char clamp, KV-cacheable System Prompt tail mounting, cache signature invalidation, and short-phrase bypass override all pass"
         )
 
-        // Test: Desktop Pet Voice-to-Keystroke Pinyin Decomposition & 4-Stage Shift Handover State Machine
+        // Test: Desktop Pet Voice-to-Keystroke Pinyin Decomposition, 10.58s Original Clack-Clack Forehead-Butting Handover & Mechanical Switch Audio Bank
         let petSteps = PetVoiceBridge.decomposeToKeystrokes("今天3点Hi!")
         let petKeys = petSteps.map(\.key)
-        var testHandover = ShiftHandoverState()
-        let testPhysics = CatPhysics()
+        let testDirector = ClackHandoverDirector(initialBreed: .classicBlack)
+        var duelAudioTriggered = false
         var committedCoat: CatCoatTheme? = nil
-        testHandover.onCommitSkin = { coat, _, _, _ in
+        testDirector.onDuelStart = {
+            duelAudioTriggered = true
+        }
+        testDirector.onHandoverCompleted = { coat, _, _ in
             committedCoat = coat
         }
-        testHandover.start(
-            outgoingSkin: SkinSpec.builtIn(.classicBlack),
-            outgoingEye: .neonChartreuse,
-            incomingSkin: SkinSpec.builtIn(.siamese),
-            incomingEye: .siameseBlue,
-            targetCoat: .siamese,
-            targetCustomSkinID: ""
+        testDirector.startHandover(
+            fromCoat: .classicBlack,
+            toCoat: .siamese,
+            nowMs: 1000.0
         )
-        let phaseAtStart = testHandover.phase
-        let prevSoundSetting = CatSettings.shared.enableHandoverSound
-        CatSettings.shared.enableHandoverSound = false
-        testHandover.step(dt: 1.50, physics: testPhysics) // -> .arguing
-        let phaseMidArgue = testHandover.phase
-        testHandover.step(dt: 2.80, physics: testPhysics) // -> .exitingOld (elapsed = 4.30)
-        let phaseExiting = testHandover.phase
-        testHandover.step(dt: 1.00, physics: testPhysics) // -> .settlingNew (elapsed = 5.30)
-        let phaseSettling = testHandover.phase
-        testHandover.step(dt: 0.80, physics: testPhysics) // -> .idle (elapsed = 6.10)
-        let phaseDone = testHandover.phase
-        CatSettings.shared.enableHandoverSound = prevSoundSetting
+        let frameAtApproach = testDirector.evaluateFrame(nowMs: 1800.0, scale: 1.0) // +800ms: incoming walks in, resident seated looking left
+        let frameAtDuel = testDirector.evaluateFrame(nowMs: 4500.0, scale: 1.0)     // +3500ms: forehead-to-forehead arched-back 3-spike duel + "老吴！！"
+        let duelTriggeredMid = duelAudioTriggered
+        let frameAtResidentGone = testDirector.evaluateFrame(nowMs: 9500.0, scale: 1.0) // +8500ms: resident walked off right, visitor walking to seat
+        let frameAfterDone = testDirector.evaluateFrame(nowMs: 11650.0, scale: 1.0)     // +10650ms (>10580ms): completed & committed!
+
+        let prevMarquee = CatSettings.shared.keyboardMarquee
+        let prevGlow = CatSettings.shared.keyboardKeyGlow
+        CatSettings.shared.keyboardMarquee = false
+        CatSettings.shared.keyboardKeyGlow = false
+        let flashOffCheck = (!CatSettings.shared.keyboardMarquee && !CatSettings.shared.keyboardKeyGlow)
+        CatSettings.shared.keyboardMarquee = prevMarquee
+        CatSettings.shared.keyboardKeyGlow = prevGlow
+
+        if let renderSheetOut = ProcessInfo.processInfo.environment["TZ_RENDER_CLACK_SHEET"], !renderSheetOut.isEmpty {
+            _ = ClackRenderer.renderVerificationContactSheet(to: renderSheetOut)
+        }
 
         expect(
             petKeys.starts(with: [.j, .i, .n, .t, .i, .a, .n])
                 && petKeys.contains(.k3)
                 && petKeys.contains(.h)
                 && petSteps.contains(where: { $0.spokenCharLabel == "今" })
-                && phaseAtStart == .entering
-                && phaseMidArgue == .arguing
-                && phaseExiting == .exitingOld
-                && phaseSettling == .settlingNew
-                && phaseDone == .idle
+                && frameAtApproach?.resident?.stand == 0
+                && frameAtApproach?.visitor.stand == 1.0
+                && (frameAtDuel?.resident?.tension ?? 0) > 0.9
+                && (frameAtDuel?.visitor.tension ?? 0) > 0.9
+                && (frameAtDuel?.resident?.lean ?? 0) > 1.0
+                && duelTriggeredMid == true
+                && frameAtResidentGone?.resident == nil
+                && (frameAtResidentGone?.visitor.stand ?? 0) > 0.9
+                && frameAfterDone == nil
                 && committedCoat == .siamese
-                && PetAudioBank.shared.availableClipCount >= 1
+                && ClackKeyboardMap.byCode["KeyJ"] != nil
+                && ClackKeyboardMap.byCode["Space"] != nil
+                && flashOffCheck
+                && PetAudioBank.shared.hasAllSwitchSamples
+                && PetAudioBank.shared.availableClipCount >= 5
                 && SidebarTab.allCases.contains(.pet),
-            "Desktop Pet Pinyin keystroke decomposition, 4-stage shift handover state machine, real Douyin audio bank, and SidebarTab.pet all pass"
+            "Desktop Pet Pinyin keystroke decomposition, 10.58s Clack-Clack forehead-butting handover, MX Clear/Blue + G502/Crisp + LaoWu audio bank, independent flash toggles, and SidebarTab.pet all pass"
         )
 
         print("==> Summary: \(passed) passed, \(failed) failed.")

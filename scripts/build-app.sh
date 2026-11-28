@@ -42,16 +42,11 @@ if [ -d "$ROOT_DIR/Resources/UIKitAssets" ]; then
     cp -f "$ROOT_DIR/Resources/UIKitAssets/"*.png "$RESOURCES_DIR/UIKitAssets/" 2>/dev/null || true
 fi
 
-# Embed real dual-cat bickering audio clips for Desktop Pet Shift Handover inside Contents/Resources/PetAudio
+# Embed Desktop Pet audio assets (Clack-Clack mechanical switch WAVs + duel/bicker M4As)
 if [ -d "$ROOT_DIR/Resources/PetAudio" ]; then
     mkdir -p "$RESOURCES_DIR/PetAudio"
     cp -f "$ROOT_DIR/Resources/PetAudio/"*.m4a "$RESOURCES_DIR/PetAudio/" 2>/dev/null || true
-fi
-
-# Embed real dual-cat bickering audio clips for Desktop Pet Shift Handover inside Contents/Resources/PetAudio
-if [ -d "$ROOT_DIR/Resources/PetAudio" ]; then
-    mkdir -p "$RESOURCES_DIR/PetAudio"
-    cp -f "$ROOT_DIR/Resources/PetAudio/"*.m4a "$RESOURCES_DIR/PetAudio/" 2>/dev/null || true
+    cp -f "$ROOT_DIR/Resources/PetAudio/"*.wav "$RESOURCES_DIR/PetAudio/" 2>/dev/null || true
 fi
 
 ICONSET_TMP="$(mktemp -d -t typezero_iconset).iconset"

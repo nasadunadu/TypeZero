@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 import AppKit
+import Carbon
 
 // MARK: - Themes & Settings
 
@@ -77,6 +78,69 @@ public enum PetVoiceBadgeMode: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+public enum PetVisualStyle: String, CaseIterable, Identifiable, Sendable {
+    case kuroSticker = "kuroSticker"
+    case clackOriginal = "clackOriginal"
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .kuroSticker: return "KuroCat 贴纸风"
+        case .clackOriginal: return "Clack-Clack 原版风"
+        }
+    }
+
+    public var subtitle: String {
+        switch self {
+        case .kuroSticker: return "经典白描边 2.5D · 多彩蛋（换班走原版顶额头对峙）"
+        case .clackOriginal: return "1:1 原版复刻《黑猫换班》原作者渐变画风与灰白键盘"
+        }
+    }
+}
+
+public enum PetKeyboardTone: String, CaseIterable, Identifiable, Sendable {
+    case mxClear = "mx-clear"
+    case mxBlue = "mx-blue"
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .mxClear: return "MX Clear · 段落轴"
+        case .mxBlue: return "MX Blue · 青轴"
+        }
+    }
+}
+
+public enum PetMouseTone: String, CaseIterable, Identifiable, Sendable {
+    case crisp = "crisp"
+    case g502 = "g502"
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .crisp: return "清脆点击"
+        case .g502: return "罗技 G502"
+        }
+    }
+}
+
+public enum PetDuelVoiceStyle: String, CaseIterable, Identifiable, Sendable {
+    case clackLaoWu = "clackLaoWu"
+    case douyinBicker = "douyinBicker"
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .clackLaoWu: return "原版「老吴！！」"
+        case .douyinBicker: return "真猫斗嘴轮播"
+        }
+    }
+}
+
 enum EyeColorTheme: String, CaseIterable {
     case neonChartreuse = "经典荧光黄绿 (原版)"
     case siameseBlue = "暹罗宝石蓝 (暹罗标配)"
@@ -129,6 +193,56 @@ final class CatSettings {
     }
     var enableHandoverSound: Bool {
         didSet { UserDefaults.standard.set(enableHandoverSound, forKey: "TypeZero.Pet.EnableHandoverSound") }
+    }
+    var visualStyle: PetVisualStyle {
+        didSet { UserDefaults.standard.set(visualStyle.rawValue, forKey: "TypeZero.Pet.VisualStyle") }
+    }
+    var duelVoiceStyle: PetDuelVoiceStyle {
+        didSet { UserDefaults.standard.set(duelVoiceStyle.rawValue, forKey: "TypeZero.Pet.DuelVoiceStyle") }
+    }
+    var duelVolume: Int {
+        didSet { UserDefaults.standard.set(duelVolume, forKey: "TypeZero.Pet.DuelVolume") }
+    }
+    var keyboardSound: Bool {
+        didSet { UserDefaults.standard.set(keyboardSound, forKey: "TypeZero.Pet.KeyboardSound") }
+    }
+    var voiceTypingSound: Bool {
+        didSet { UserDefaults.standard.set(voiceTypingSound, forKey: "TypeZero.Pet.VoiceTypingSound") }
+    }
+    var keyboardTone: PetKeyboardTone {
+        didSet { UserDefaults.standard.set(keyboardTone.rawValue, forKey: "TypeZero.Pet.KeyboardTone") }
+    }
+    var keyboardVolume: Int {
+        didSet { UserDefaults.standard.set(keyboardVolume, forKey: "TypeZero.Pet.KeyboardVolume") }
+    }
+    var mouseSound: Bool {
+        didSet { UserDefaults.standard.set(mouseSound, forKey: "TypeZero.Pet.MouseSound") }
+    }
+    var mouseTone: PetMouseTone {
+        didSet { UserDefaults.standard.set(mouseTone.rawValue, forKey: "TypeZero.Pet.MouseTone") }
+    }
+    var mouseVolume: Int {
+        didSet { UserDefaults.standard.set(mouseVolume, forKey: "TypeZero.Pet.MouseVolume") }
+    }
+    var keyboardKeyGlow: Bool {
+        didSet { UserDefaults.standard.set(keyboardKeyGlow, forKey: "TypeZero.Pet.KeyboardKeyGlow") }
+    }
+    var pauseInputSync: Bool {
+        didSet { UserDefaults.standard.set(pauseInputSync, forKey: "TypeZero.Pet.PauseInputSync") }
+    }
+    var privacyMode: Bool {
+        didSet { UserDefaults.standard.set(privacyMode, forKey: "TypeZero.Pet.PrivacyMode") }
+    }
+    var reducedMotion: Bool {
+        didSet { UserDefaults.standard.set(reducedMotion, forKey: "TypeZero.Pet.ReducedMotion") }
+    }
+
+    var isSystemSecureInputActive: Bool {
+        IsSecureEventInputEnabled()
+    }
+
+    var isEffectivePrivacyActive: Bool {
+        privacyMode || IsSecureEventInputEnabled()
     }
 
     var showKeyBadges: Bool {
@@ -289,6 +403,20 @@ final class CatSettings {
         voiceBadgeMode = PetVoiceBadgeMode(rawValue: d.string(forKey: "TypeZero.Pet.VoiceBadgeMode") ?? "") ?? .mechanicalKey
         enableHandoverAnimation = d.object(forKey: "TypeZero.Pet.EnableHandoverAnimation") as? Bool ?? true
         enableHandoverSound = d.object(forKey: "TypeZero.Pet.EnableHandoverSound") as? Bool ?? true
+        visualStyle = PetVisualStyle(rawValue: d.string(forKey: "TypeZero.Pet.VisualStyle") ?? "") ?? .kuroSticker
+        duelVoiceStyle = PetDuelVoiceStyle(rawValue: d.string(forKey: "TypeZero.Pet.DuelVoiceStyle") ?? "") ?? .clackLaoWu
+        duelVolume = d.object(forKey: "TypeZero.Pet.DuelVolume") as? Int ?? 75
+        keyboardSound = d.object(forKey: "TypeZero.Pet.KeyboardSound") as? Bool ?? false
+        voiceTypingSound = d.object(forKey: "TypeZero.Pet.VoiceTypingSound") as? Bool ?? true
+        keyboardTone = PetKeyboardTone(rawValue: d.string(forKey: "TypeZero.Pet.KeyboardTone") ?? "") ?? .mxClear
+        keyboardVolume = d.object(forKey: "TypeZero.Pet.KeyboardVolume") as? Int ?? 55
+        mouseSound = d.object(forKey: "TypeZero.Pet.MouseSound") as? Bool ?? false
+        mouseTone = PetMouseTone(rawValue: d.string(forKey: "TypeZero.Pet.MouseTone") ?? "") ?? .crisp
+        mouseVolume = d.object(forKey: "TypeZero.Pet.MouseVolume") as? Int ?? 55
+        keyboardKeyGlow = d.object(forKey: "TypeZero.Pet.KeyboardKeyGlow") as? Bool ?? true
+        pauseInputSync = d.object(forKey: "TypeZero.Pet.PauseInputSync") as? Bool ?? false
+        privacyMode = d.object(forKey: "TypeZero.Pet.PrivacyMode") as? Bool ?? false
+        reducedMotion = d.object(forKey: "TypeZero.Pet.ReducedMotion") as? Bool ?? false
 
         showKeyBadges = d.object(forKey: "TypeZero.Pet.ShowKeyBadges") as? Bool ?? true
         showMouseBadges = d.object(forKey: "TypeZero.Pet.ShowMouseBadges") as? Bool ?? true
@@ -570,9 +698,23 @@ final class CatPhysics {
                 sleepiness = 0
                 isYawning = false
             }
+            clackSim.isDictationListening = isDictationListening
         }
     }
-    var handover = ShiftHandoverState()
+    lazy var clackSim: ClackSimulation = {
+        let s = CatSettings.shared
+        return ClackSimulation(
+            initialBreed: s.coatTheme,
+            initialCustomSkinID: s.customSkin,
+            initialSkin: s.customSkin.isEmpty ? nil : s.activeSkin
+        )
+    }()
+    var clackHoverStagePoint: CGPoint? = nil
+    private var privacyFlipLeft: Bool = false
+
+    var isHandoverActive: Bool {
+        clackSim.handover.isPlaying || clackSim.currentHandoverFrame != nil
+    }
     private var petStrokeAccumulator: CGFloat = 0
     private var lastPetTime: CFTimeInterval = 0
     private var isCurrentlyPetting = false
@@ -635,19 +777,31 @@ final class CatPhysics {
     // MARK: - Input Hooks
 
     func triggerKeyDown(_ key: PhysicalKey, at timestamp: CFTimeInterval? = nil) {
+        let s = CatSettings.shared
+        guard !s.pauseInputSync else { return }
         let now = timestamp ?? CACurrentMediaTime()
-        let vk = key.visualKey
-        keyGlow[vk] = 1.0
+        let priv = s.isEffectivePrivacyActive
+        let effectiveKey: PhysicalKey
+        if priv {
+            privacyFlipLeft.toggle()
+            effectiveKey = privacyFlipLeft ? .f : .j
+            keyGlow.removeAll()
+        } else {
+            effectiveKey = key
+            if s.keyboardKeyGlow {
+                keyGlow[key.visualKey] = 1.0
+            }
+        }
 
+        let vk = effectiveKey.visualKey
         let pt = KeyboardLayout.canvasPoint(for: vk)
         lastTypedPoint = pt
 
-        // Snap memory to the appropriate paw with lively bounce velocity
         let active = InputEngine.shared.activeKeys
         let leftHeld = active.contains { $0.prefersLeftPaw }
         let rightHeld = active.contains { !$0.prefersLeftPaw }
 
-        if key.prefersLeftPaw {
+        if effectiveKey.prefersLeftPaw {
             recentLeftKey = (vk, now)
             leftPaw.y.velocity -= 180
         } else if !rightHeld || !leftHeld {
@@ -658,8 +812,8 @@ final class CatPhysics {
             rightPaw.y.velocity -= 180
         }
 
-        // Expressive micro-reactions
-        if CatSettings.shared.activeSkin.typingStyle == .douni {
+        let motionMul: CGFloat = s.reducedMotion ? 0.25 : 1.0
+        if s.activeSkin.typingStyle == .douni {
             let keyPt = KeyboardLayout.v2KeyCellCenter(for: vk)
             let useLeft = vk.prefersLeftPaw
             douniSlapSide = useLeft ? 0 : 1
@@ -674,8 +828,6 @@ final class CatPhysics {
                 let chordOther = (now - douniLastRightKeyTime) < 0.035
                 douniLastLeftKeyTime = now
                 douniLeftKeyTarget.target = keyPt
-                // Independent signed spring (-1 = slam on keycap, +1 = flung high):
-                // On rapid same-side repeat, visibly pop up (+0.50) then whip down so EVERY keystroke re-slaps cleanly!
                 if douniLeftRaise.value < -0.15 {
                     douniLeftRaise.value = 0.50
                     douniLeftRaise.velocity = -15.5 * angerBoost
@@ -705,30 +857,35 @@ final class CatPhysics {
                 }
                 rightPaw.y.velocity += 220
             }
-            // Disney Squash & Stretch + Impact Recoil + Secondary Action on keyboard, cord & ears!
-            kbImpactY.velocity += 24.0 * angerBoost
-            kbImpactTilt.velocity += (useLeft ? -10.5 : 10.5) * angerBoost
-            kbSparkTimer = 0.14
-            kbSparkKey = vk
-            bodySquash.velocity -= 2.2
-            headOffsetY.velocity += 44
-            earTwitch.velocity += (useLeft ? -6.5 : 6.5)
-            headTilt.velocity += (useLeft ? -2.8 : 2.8)
+            kbImpactY.velocity += 24.0 * angerBoost * motionMul
+            kbImpactTilt.velocity += (useLeft ? -10.5 : 10.5) * angerBoost * motionMul
+            if s.keyboardKeyGlow && !priv {
+                kbSparkTimer = 0.14
+                kbSparkKey = vk
+            }
+            bodySquash.velocity -= 2.2 * motionMul
+            headOffsetY.velocity += 44 * motionMul
+            earTwitch.velocity += (useLeft ? -6.5 : 6.5) * motionMul
+            headTilt.velocity += (useLeft ? -2.8 : 2.8) * motionMul
             pupilScale.target = 1.24
         } else {
-            bodySquash.velocity -= 1.3
-            earTwitch.velocity += (key.prefersLeftPaw ? -3.8 : 3.8)
-            headTilt.velocity += (key.prefersLeftPaw ? -1.4 : 1.4)
+            bodySquash.velocity -= 1.3 * motionMul
+            earTwitch.velocity += (effectiveKey.prefersLeftPaw ? -3.8 : 3.8) * motionMul
+            headTilt.velocity += (effectiveKey.prefersLeftPaw ? -1.4 : 1.4) * motionMul
             pupilScale.target = 1.16
         }
 
-        // Wake up immediately
         sleepiness = 0
 
-        // Spawn floating keycap badge
-        if CatSettings.shared.showKeyBadges {
+        if !priv && s.showKeyBadges {
             spawnFloatingKeycap(label: key.badgeLabel, near: pt, now: now)
         }
+        clackSim.triggerKeyDown(code: key.clackCode, showBubble: s.showKeyBadges && !priv, privacy: priv)
+        PetAudioBank.shared.playKeyboardClick(isVoice: false)
+    }
+
+    func triggerKeyUp(_ key: PhysicalKey) {
+        clackSim.triggerKeyUp(code: key.clackCode)
     }
 
     func setVirtualKeyState(_ key: PhysicalKey, isDown: Bool, customBadgeLabel: String? = nil, suppressBadge: Bool = false) {
@@ -745,22 +902,37 @@ final class CatPhysics {
         } else {
             virtualActiveKeys.remove(key)
             virtualOrderedKeys.removeAll { $0 == key }
+            clackSim.triggerKeyUp(code: key.clackCode)
         }
     }
 
     func clearVirtualKeys() {
+        for k in virtualActiveKeys {
+            clackSim.triggerKeyUp(code: k.clackCode)
+        }
         virtualActiveKeys.removeAll()
         virtualOrderedKeys.removeAll()
     }
 
     func triggerVoiceKeyDown(_ key: PhysicalKey, at timestamp: CFTimeInterval? = nil, customBadgeLabel: String? = nil, suppressBadge: Bool = false) {
+        let s = CatSettings.shared
         let now = timestamp ?? CACurrentMediaTime()
-        let vk = key.visualKey
-        keyGlow[vk] = 1.0
+        let priv = s.isEffectivePrivacyActive
+        let effectiveKey: PhysicalKey
+        if priv {
+            privacyFlipLeft.toggle()
+            effectiveKey = privacyFlipLeft ? .f : .j
+        } else {
+            effectiveKey = key
+            if s.keyboardKeyGlow {
+                keyGlow[key.visualKey] = 1.0
+            }
+        }
+        let vk = effectiveKey.visualKey
         let pt = KeyboardLayout.canvasPoint(for: vk)
         lastTypedPoint = pt
 
-        if key.prefersLeftPaw {
+        if effectiveKey.prefersLeftPaw {
             recentLeftKey = (vk, now)
             leftPaw.y.velocity -= 185
         } else {
@@ -768,33 +940,49 @@ final class CatPhysics {
             rightPaw.y.velocity -= 185
         }
 
-        bodySquash.velocity -= 1.35
-        earTwitch.velocity += (key.prefersLeftPaw ? -4.0 : 4.0)
-        headTilt.velocity += (key.prefersLeftPaw ? -1.5 : 1.5)
+        let motionMul: CGFloat = s.reducedMotion ? 0.25 : 1.0
+        bodySquash.velocity -= 1.35 * motionMul
+        earTwitch.velocity += (effectiveKey.prefersLeftPaw ? -4.0 : 4.0) * motionMul
+        headTilt.velocity += (effectiveKey.prefersLeftPaw ? -1.5 : 1.5) * motionMul
         pupilScale.target = 1.18
         marqueeBoost.velocity += 2.2
         sleepiness = 0
 
-        let mode = CatSettings.shared.voiceBadgeMode
-        if !suppressBadge && CatSettings.shared.showKeyBadges && mode != .off {
+        let mode = s.voiceBadgeMode
+        let shouldShowBubble = !priv && !suppressBadge && s.showKeyBadges && mode != .off
+        if shouldShowBubble {
             let textLabel = customBadgeLabel ?? key.badgeLabel
             if !textLabel.isEmpty {
                 spawnFloatingKeycap(label: textLabel, near: pt, now: now)
             }
         }
+        clackSim.triggerKeyDown(
+            code: key.clackCode,
+            showBubble: shouldShowBubble,
+            customBubbleLabel: customBadgeLabel,
+            privacy: priv
+        )
+        PetAudioBank.shared.playKeyboardClick(isVoice: true)
     }
 
     func spawnCustomBadge(_ label: String, near key: PhysicalKey = .space) {
-        guard CatSettings.shared.showKeyBadges, CatSettings.shared.voiceBadgeMode != .off, !label.isEmpty else { return }
+        let s = CatSettings.shared
+        guard !s.isEffectivePrivacyActive, s.showKeyBadges, s.voiceBadgeMode != .off, !label.isEmpty else { return }
         let pt = KeyboardLayout.canvasPoint(for: key.visualKey)
         spawnFloatingKeycap(label: label, near: pt, now: CACurrentMediaTime())
     }
 
     func triggerMouseClick(button: Int, isDown: Bool) {
+        let s = CatSettings.shared
+        guard !s.pauseInputSync else { return }
+        let priv = s.isEffectivePrivacyActive
         sleepiness = 0
+        let clackCode = button == 0 ? "MouseLeft" : (button == 1 ? "MouseRight" : "MouseMiddle")
+        clackSim.triggerMouseButton(code: clackCode, isDown: isDown, showBubble: s.showMouseBadges && !priv, privacy: priv)
         if isDown {
+            PetAudioBank.shared.playMouseClick()
             let now = CACurrentMediaTime()
-            if CatSettings.shared.activeSkin.renderStyle == .douni || CatSettings.shared.activeSkin.renderStyle == .beagle {
+            if s.activeSkin.renderStyle == .douni || s.activeSkin.renderStyle == .beagle {
                 douniSlapTimer = 0
                 douniLeftRaise.target = 0
                 douniRightRaise.target = 0
@@ -816,8 +1004,8 @@ final class CatPhysics {
             }
             pupilScale.target = 1.12
             earTwitch.velocity -= 2.2
-            if CatSettings.shared.showMouseBadges {
-                let en = CatSettings.shared.isEnglish
+            if !priv && s.showMouseBadges {
+                let en = s.isEnglish
                 let label = button == 0 ? (en ? "LMB" : "左键") : (button == 1 ? (en ? "RMB" : "右键") : (en ? "MMB" : "中键"))
                 let pt = CGPoint(
                     x: CatPhysics.mouseBaseCenter.x + mouseOffset.point.x,
@@ -1008,17 +1196,32 @@ final class CatPhysics {
     private func stepSingle(dt: CGFloat, now: CFTimeInterval, windowFrameInScreen: CGRect, scripted: ScriptedFrameInput?) {
         time += dt
 
+        let s = CatSettings.shared
+        let paused = s.pauseInputSync
+        let priv = s.isEffectivePrivacyActive
+        if !s.keyboardKeyGlow && !keyGlow.isEmpty {
+            keyGlow.removeAll()
+            kbSparkTimer = 0
+        }
+        if priv && !floatingKeycaps.isEmpty {
+            floatingKeycaps.removeAll()
+        }
+
         let engine = InputEngine.shared
-        let voiceRecentBoost: CGFloat = (now - lastVirtualKeyTime < 0.45) ? 210.0 : 0.0
-        let kpm = max(CGFloat(engine.currentKPM), voiceRecentBoost)
-        let activeSkin = CatSettings.shared.activeSkin
-        let activeKeys: Set<PhysicalKey> = {
-            if let s = scripted { return s.activeKeys }
+        let voiceRecentBoost: CGFloat = (!paused && now - lastVirtualKeyTime < 0.45) ? 210.0 : 0.0
+        let kpm = paused ? 0 : max(CGFloat(engine.currentKPM), voiceRecentBoost)
+        let activeSkin = s.activeSkin
+        let rawActiveKeys: Set<PhysicalKey> = {
+            if paused { return [] }
+            if let sc = scripted { return sc.activeKeys }
             if virtualActiveKeys.isEmpty { return engine.activeKeys }
             return engine.activeKeys.union(virtualActiveKeys)
         }()
+        let activeKeys: Set<PhysicalKey> = priv ? (rawActiveKeys.isEmpty ? [] : [privacyFlipLeft ? .f : .j]) : rawActiveKeys
         let orderedKeys: [PhysicalKey] = {
-            if let s = scripted { return s.orderedKeys }
+            if paused { return [] }
+            if priv { return rawActiveKeys.isEmpty ? [] : [privacyFlipLeft ? .f : .j] }
+            if let sc = scripted { return sc.orderedKeys }
             if virtualOrderedKeys.isEmpty { return engine.pressedOrder }
             var merged = engine.pressedOrder
             for vk in virtualOrderedKeys where !merged.contains(vk) {
@@ -1026,17 +1229,27 @@ final class CatPhysics {
             }
             return merged
         }()
-        let curMouseVel = scripted?.mouseVelocity ?? engine.mouseVelocity
+        let curMouseVel = (paused || s.reducedMotion) ? .zero : (scripted?.mouseVelocity ?? engine.mouseVelocity)
         let curMouseLoc = scripted?.mouseScreenPos ?? engine.lastMouseLocation
-        let curLeftMouse = scripted?.leftMouseDown ?? engine.leftMouseDown
-        let curRightMouse = scripted?.rightMouseDown ?? engine.rightMouseDown
-        let curOtherMouse = scripted?.otherMouseDown ?? engine.otherMouseDown
-        let curLastMouseMove = scripted?.lastMouseMoveTime ?? engine.lastMouseMoveTime
-        let curLastMouseClick = scripted?.lastMouseClickTime ?? engine.lastMouseClickTime
-        let curLastKeyTime = scripted?.lastKeyActivityTime ?? max(engine.lastKeyActivityTime, lastVirtualKeyTime)
+        let curLeftMouse = paused ? false : (scripted?.leftMouseDown ?? engine.leftMouseDown)
+        let curRightMouse = paused ? false : (scripted?.rightMouseDown ?? engine.rightMouseDown)
+        let curOtherMouse = paused ? false : (scripted?.otherMouseDown ?? engine.otherMouseDown)
+        let curLastMouseMove = paused ? 0 : (scripted?.lastMouseMoveTime ?? engine.lastMouseMoveTime)
+        let curLastMouseClick = paused ? 0 : (scripted?.lastMouseClickTime ?? engine.lastMouseClickTime)
+        let curLastKeyTime = paused ? 0 : (scripted?.lastKeyActivityTime ?? max(engine.lastKeyActivityTime, lastVirtualKeyTime))
 
-        if handover.isActive {
-            handover.step(dt: dt, physics: self)
+        if scripted == nil {
+            clackSim.step(
+                dt: dt,
+                cursorStagePt: clackHoverStagePoint,
+                screenMousePt: curMouseLoc,
+                paused: paused,
+                privacy: priv,
+                reducedMotion: s.reducedMotion
+            )
+            if clackSim.handover.isPlaying {
+                sleepiness = 0
+            }
         }
 
         // 1. Decay petting intensity gracefully when hand stops moving
