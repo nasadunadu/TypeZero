@@ -5,6 +5,7 @@ public enum SidebarTab: String, CaseIterable, Identifiable, Sendable {
     case history = "历史"
     case dictionary = "词库"
     case style = "风格"
+    case pet = "桌面搭子"
     case settings = "设置"
 
     public var id: String { rawValue }
@@ -15,6 +16,7 @@ public enum SidebarTab: String, CaseIterable, Identifiable, Sendable {
         case .history: return "clock"
         case .dictionary: return "book.closed"
         case .style: return "paintbrush"
+        case .pet: return "cat"
         case .settings: return "gearshape"
         }
     }
@@ -25,6 +27,7 @@ public enum SidebarTab: String, CaseIterable, Identifiable, Sendable {
         case .history: return "clock.fill"
         case .dictionary: return "book.closed.fill"
         case .style: return "paintbrush.fill"
+        case .pet: return "cat.fill"
         case .settings: return "gearshape.fill"
         }
     }

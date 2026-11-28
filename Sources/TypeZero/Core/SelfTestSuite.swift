@@ -795,7 +795,7 @@ public enum SelfTestSuite {
         let sigDefault = PolishEngine.cacheWarmSignature(baseURL: "https://api.deepseek.com/v1", model: "deepseek-flash", formattingStyle: .structured, userStyle: "")
         let sigCustom = PolishEngine.cacheWarmSignature(baseURL: "https://api.deepseek.com/v1", model: "deepseek-flash", formattingStyle: .structured, userStyle: styleCfg.normalizedCustomStylePrompt)
         expect(
-            SidebarTab.allCases == [.home, .history, .dictionary, .style, .settings]
+            SidebarTab.allCases == [.home, .history, .dictionary, .style, .pet, .settings]
                 && LLMConfig.maxCustomStylePromptLength == 5000
                 && LLMConfig.customStyleSoftWarningLength == 800
                 && LLMConfig.default.customStylePrompt.isEmpty
@@ -825,6 +825,52 @@ public enum SelfTestSuite {
                     hasCustomStyle: true
                 ) == false,
             "Personal style 5,000-char clamp, KV-cacheable System Prompt tail mounting, cache signature invalidation, and short-phrase bypass override all pass"
+        )
+
+        // Test: Desktop Pet Voice-to-Keystroke Pinyin Decomposition & 4-Stage Shift Handover State Machine
+        let petSteps = PetVoiceBridge.decomposeToKeystrokes("今天3点Hi!")
+        let petKeys = petSteps.map(\.key)
+        var testHandover = ShiftHandoverState()
+        let testPhysics = CatPhysics()
+        var committedCoat: CatCoatTheme? = nil
+        testHandover.onCommitSkin = { coat, _, _, _ in
+            committedCoat = coat
+        }
+        testHandover.start(
+            outgoingSkin: SkinSpec.builtIn(.classicBlack),
+            outgoingEye: .neonChartreuse,
+            incomingSkin: SkinSpec.builtIn(.siamese),
+            incomingEye: .siameseBlue,
+            targetCoat: .siamese,
+            targetCustomSkinID: ""
+        )
+        let phaseAtStart = testHandover.phase
+        let prevSoundSetting = CatSettings.shared.enableHandoverSound
+        CatSettings.shared.enableHandoverSound = false
+        testHandover.step(dt: 1.50, physics: testPhysics) // -> .arguing
+        let phaseMidArgue = testHandover.phase
+        testHandover.step(dt: 2.80, physics: testPhysics) // -> .exitingOld (elapsed = 4.30)
+        let phaseExiting = testHandover.phase
+        testHandover.step(dt: 1.00, physics: testPhysics) // -> .settlingNew (elapsed = 5.30)
+        let phaseSettling = testHandover.phase
+        testHandover.step(dt: 0.80, physics: testPhysics) // -> .idle (elapsed = 6.10)
+        let phaseDone = testHandover.phase
+        CatSettings.shared.enableHandoverSound = prevSoundSetting
+
+        expect(
+            petKeys.starts(with: [.j, .i, .n, .t, .i, .a, .n])
+                && petKeys.contains(.k3)
+                && petKeys.contains(.h)
+                && petSteps.contains(where: { $0.spokenCharLabel == "今" })
+                && phaseAtStart == .entering
+                && phaseMidArgue == .arguing
+                && phaseExiting == .exitingOld
+                && phaseSettling == .settlingNew
+                && phaseDone == .idle
+                && committedCoat == .siamese
+                && PetAudioBank.shared.availableClipCount >= 1
+                && SidebarTab.allCases.contains(.pet),
+            "Desktop Pet Pinyin keystroke decomposition, 4-stage shift handover state machine, real Douyin audio bank, and SidebarTab.pet all pass"
         )
 
         print("==> Summary: \(passed) passed, \(failed) failed.")

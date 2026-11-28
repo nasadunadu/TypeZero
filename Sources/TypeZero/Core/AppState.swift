@@ -197,6 +197,7 @@ public final class AppState: ObservableObject {
     }
 
     public let lexiconStore = PersonalLexiconStore()
+    public let petController = PetCompanionController.shared
     private let asrEngine = StreamingASREngine()
     private let polishEngine = PolishEngine()
     private let hotkeyMonitor = HotkeyMonitor()
@@ -211,6 +212,7 @@ public final class AppState: ObservableObject {
     private var userSubmittedViaEnter: Bool = false
     private var liveInputSession: LiveInputSession? = nil
     private var sandboxBaseBeforeSession: String = ""
+    private var lastOwnAppPetTypedText: String = ""
     private var isTypingInsideOwnApp: Bool = false
     private var permissionPollTimer: Timer? = nil
     private var workspaceActivateObserver: NSObjectProtocol? = nil
@@ -272,6 +274,11 @@ public final class AppState: ObservableObject {
             AppLaunchGuard.ejectStaleInstallerDMGsInBackground()
             self.applyDockVisibilityPolicy()
             self.pillController.attach(appState: self)
+            self.petController.onOpenPetSettingsTab = { [weak self] in
+                self?.selectedTab = .pet
+                TypeZeroAppDelegate.openMainWindowAction?()
+            }
+            self.petController.bootstrapOnLaunchIfNeeded()
             self.asrEngine.warmUp(localeIdentifier: self.llmConfig.speechLocale)
             self.polishEngine.prewarmConnection(baseURL: self.llmConfig.baseURL, apiKey: self.apiKeyInput)
             self.hotkeyMonitor.start()
@@ -300,6 +307,9 @@ public final class AppState: ObservableObject {
             ) { [weak self] _ in
                 self?.asrEngine.shutdownHardwareImmediately()
                 self?.audioDucker.restoreIfNeeded(scheduleBluetoothRecheck: false)
+                Task { @MainActor in
+                    self?.petController.shutdown()
+                }
             }
 
             if !self.micAuthorized || !self.speechAuthorized {
@@ -460,6 +470,7 @@ public final class AppState: ObservableObject {
             self.isSessionActive = false
             self.audioDucker.restoreIfNeeded()
             self.hotkeyMonitor.syncRecordingState(false)
+            self.petController.notifyDictationFinished()
             self.phase = .error(message: errMsg)
             self.scheduleIdleReset(after: 2.5)
         }
@@ -481,6 +492,13 @@ public final class AppState: ObservableObject {
             if self.llmConfig.enableLiveInlineTyping && self.activeMode == .dictate {
                 if self.isTypingInsideOwnApp {
                     self.sandboxText = self.sandboxBaseBeforeSession + instantFixed
+                    if instantFixed.hasPrefix(self.lastOwnAppPetTypedText) {
+                        let newTail = String(instantFixed.dropFirst(self.lastOwnAppPetTypedText.count))
+                        if !newTail.isEmpty {
+                            PetVoiceBridge.shared.enqueueTypedText(newTail)
+                        }
+                    }
+                    self.lastOwnAppPetTypedText = instantFixed
                 } else {
                     _ = self.liveInputSession?.updateLiveText(
                         instantFixed,
@@ -534,6 +552,7 @@ public final class AppState: ObservableObject {
         AudioLevelBus.shared.reset()
         liveInputSession?.abortBecauseUserSubmitted()
         liveInputSession = nil
+        petController.notifyDictationFinished()
         phase = .idle
         ContextInjector.appendInjectionTrace("submitEnter app=\(activeContext.bundleID) stoppedLiveSession emitted=\(emitted.count)")
     }
@@ -559,6 +578,7 @@ public final class AppState: ObservableObject {
             ContextInjector.sendCleanBackspaces(count: emitted.count)
         }
         liveInputSession = nil
+        petController.notifyDictationFinished()
         phase = .idle
         playSubtleCue("Funk", volume: 0.22)
     }
@@ -1650,6 +1670,8 @@ public final class AppState: ObservableObject {
         userSubmittedViaEnter = false
         isSessionActive = true
         hotkeyMonitor.syncRecordingState(true)
+        lastOwnAppPetTypedText = ""
+        petController.notifyDictationStarted()
         if isTypingInsideOwnApp {
             sandboxBaseBeforeSession = sandboxText
         }
@@ -1760,6 +1782,7 @@ public final class AppState: ObservableObject {
         defer {
             isFinalizingSession = false
             audioDucker.restoreIfNeeded()
+            petController.notifyDictationFinished()
         }
         hotkeyMonitor.syncRecordingState(false)
         llmKeepAliveTask?.cancel()
@@ -2034,6 +2057,15 @@ public final class AppState: ObservableObject {
             landedInInput = true
         } else if isTypingInsideOwnApp {
             sandboxText = sandboxBaseBeforeSession + finalText
+            if finalText.hasPrefix(lastOwnAppPetTypedText) {
+                let tail = String(finalText.dropFirst(lastOwnAppPetTypedText.count))
+                if !tail.isEmpty {
+                    PetVoiceBridge.shared.enqueueTypedText(tail)
+                }
+            } else if lastOwnAppPetTypedText.isEmpty {
+                PetVoiceBridge.shared.enqueueTypedText(finalText)
+            }
+            lastOwnAppPetTypedText = finalText
         } else if didStreamViaSSE {
             liveInputSession?.finishSSEPolishStream(with: finalText)
             landedInInput = true

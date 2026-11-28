@@ -6,11 +6,13 @@ import AppKit
 public struct MainDashboardView: View {
     @ObservedObject var appState: AppState
     @ObservedObject var lexiconStore: PersonalLexiconStore
+    @ObservedObject var petController: PetCompanionController
     @Environment(\.colorScheme) private var systemScheme
 
     public init(appState: AppState) {
         self.appState = appState
         self.lexiconStore = appState.lexiconStore
+        self.petController = appState.petController
     }
 
     public var body: some View {
@@ -135,6 +137,14 @@ public struct MainDashboardView: View {
                         .padding(.horizontal, 5.5)
                         .padding(.vertical, 2)
                         .background(isSelected ? TZTheme.accentSoft : TZTheme.recessedWell.opacity(0.8))
+                        .clipShape(Capsule())
+                } else if tab == .pet && petController.isEnabled {
+                    Text("陪打中")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .foregroundStyle(isSelected ? TZTheme.emerald : TZTheme.emerald)
+                        .padding(.horizontal, 5.5)
+                        .padding(.vertical, 2)
+                        .background(TZTheme.emeraldSoft)
                         .clipShape(Capsule())
                 }
             }
@@ -317,6 +327,8 @@ public struct MainDashboardView: View {
                     DictionaryView(appState: appState, lexiconStore: lexiconStore)
                 case .style:
                     StyleView(appState: appState)
+                case .pet:
+                    PetCompanionView(appState: appState, pet: petController)
                 case .settings:
                     SettingsView(appState: appState)
                 }
